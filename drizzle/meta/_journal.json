@@ -50,6 +50,20 @@
       "when": 1790972075397,
       "tag": "0006_human_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790979692838,
+      "tag": "0007_indexer",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790979699852,
+      "tag": "0008_chunk_embedding_index",
+      "breakpoints": true
     }
   ]
 }
