@@ -1,6 +1,6 @@
 /**
  * Open-redirect protection (R6.1): post-sign-in destinations must be same-origin relative paths. Rejects
- * protocol-relative (`//evil.com`), backslash tricks (`/\evil.com`), absolute URLs, and control characters.
+ * protocol-relative (`//evil.com`, also after dot-segment normalization: `/.//evil.com`), backslash tricks (`/\evil.com`), absolute URLs, and control characters.
  */
 
 export const DEFAULT_AFTER_SIGN_IN = "/dashboard";
@@ -27,6 +27,9 @@ export function safeNextPath(next: unknown, fallback: string = DEFAULT_AFTER_SIG
     return fallback;
   }
   if (url.origin !== base) return fallback;
+  // Dot segments collapse during parsing ("/.//evil.com" and "/a/..//evil.com" become "//evil.com"), so the
+  // normalized path must be checked again: a result starting with "//" would be a protocol-relative redirect.
+  if (url.pathname.startsWith("//")) return fallback;
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
