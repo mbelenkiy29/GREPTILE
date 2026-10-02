@@ -64,7 +64,15 @@ export const installations = pgTable(
     provider: text("provider").notNull().default("github"),
     externalId: bigint("external_id", { mode: "number" }).notNull(),
     accountLogin: text("account_login").notNull(),
+    /** `User` or `Organization` (GitHub may also report `Enterprise`). */
+    accountType: text("account_type"),
     suspended: boolean("suspended").notNull().default(false),
+    /** `all` or `selected`, as chosen on GitHub. */
+    repositorySelection: text("repository_selection"),
+    /** Permissions GitHub reports the app holds on this installation, e.g. `{ "pull_requests": "write" }`. */
+    permissions: jsonb("permissions").$type<Record<string, string>>().notNull().default({}),
+    /** Required permissions the installation lacks (`pull_requests:write`, ...); empty when healthy. */
+    missingPermissions: text("missing_permissions").array().notNull().default([]),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -89,6 +97,8 @@ export const repos = pgTable(
     private: boolean("private").notNull().default(true),
     /** Whether the org has reviews enabled for this repo. */
     enabled: boolean("enabled").notNull().default(true),
+    /** Archived on GitHub: read-only and never reviewed. Unarchiving does not re-enable reviews. */
+    archived: boolean("archived").notNull().default(false),
     indexStatus: indexStatus("index_status").notNull().default("pending"),
     indexError: text("index_error"),
     indexedSha: text("indexed_sha"),
@@ -103,13 +113,40 @@ export const repos = pgTable(
   (t) => [uniqueIndex("repos_installation_external_uq").on(t.installationId, t.externalId), index().on(t.orgId)],
 );
 
-/** Webhook delivery ids already accepted; makes redelivery idempotent (R1.2). */
-export const webhookDeliveries = pgTable("webhook_deliveries", {
-  deliveryId: text("delivery_id").primaryKey(),
-  event: text("event").notNull(),
-  action: text("action"),
-  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const deliveryStatus = pgEnum("delivery_status", ["processing", "accepted", "ignored", "failed"]);
+
+/**
+ * Every verified webhook delivery and its outcome (R1.2, R6.21). The delivery id makes redelivery idempotent.
+ * `payload` is kept (redacted, at most 1 MB) only while a delivery is failed, so it can be replayed.
+ */
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    deliveryId: text("delivery_id").primaryKey(),
+    event: text("event").notNull(),
+    action: text("action"),
+    /** The git host's installation id (not `installations.id`). */
+    installationId: bigint("installation_id", { mode: "number" }),
+    /** Owning org, once the installation is linked to one. */
+    orgId: text("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    /** The repository the event was about. Not a foreign key: the record outlives a deleted repository. */
+    repoId: integer("repo_id"),
+    repoFullName: text("repo_full_name"),
+    status: deliveryStatus("status").notNull().default("processing"),
+    reason: text("reason"),
+    jobs: text("jobs").array().notNull().default([]),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(1),
+    payloadSha256: text("payload_sha256"),
+    payload: jsonb("payload"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Start of the latest processing attempt; a `processing` row older than the in-flight window is stale. */
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
+  },
+  (t) => [index().on(t.orgId, t.receivedAt), index().on(t.status, t.receivedAt)],
+);
 
 /** Indexed source files at the repo's indexed sha (R1.3). */
 export const files = pgTable(
@@ -351,4 +388,30 @@ export const humanReviewComments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("human_review_comments_uq").on(t.repoId, t.externalId), index().on(t.orgId, t.repoId, t.minedAt)],
+);
+
+// ---- github ----
+
+/**
+ * GitHub App installations not linked to an org yet (R1.1), recorded from the `installation.created` webhook so
+ * onboarding can offer them. Claiming one links it to an org (the caller verifies the user's access) and deletes the
+ * row. Not tenant-owned: there is no org until it is claimed.
+ */
+export const pendingInstallations = pgTable(
+  "pending_installations",
+  {
+    id: serial("id").primaryKey(),
+    provider: text("provider").notNull().default("github"),
+    externalId: bigint("external_id", { mode: "number" }).notNull(),
+    accountLogin: text("account_login").notNull(),
+    /** `User` or `Organization`. */
+    accountType: text("account_type").notNull(),
+    /** The GitHub user who installed the app. */
+    senderLogin: text("sender_login").notNull(),
+    senderId: bigint("sender_id", { mode: "number" }),
+    permissions: jsonb("permissions").$type<Record<string, string>>().notNull().default({}),
+    repositorySelection: text("repository_selection"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("pending_installations_provider_external_uq").on(t.provider, t.externalId)],
 );
