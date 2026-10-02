@@ -17,7 +17,7 @@ const NEGATIVE = [
 ];
 const POSITIVE = [/good catch/, /nice catch/, /\bthanks?\b/, /thank you/, /\bfixed\b/, /\bdone\b/, /\bagreed?\b/, /\bvalid\b/, /will fix/, /good point/, /\baddressed\b/, /\bgreat\b/];
 
-/** Classifies a reply to a Tracewise comment: -1 rejects it, 1 accepts it, 0 is neutral. */
+/** Classifies a reply to a OpenReview comment: -1 rejects it, 1 accepts it, 0 is neutral. */
 export function replySentiment(body: string): -1 | 0 | 1 {
   const text = body.toLowerCase();
   if (NEGATIVE.some((r) => r.test(text))) return -1;
@@ -77,7 +77,7 @@ async function applyFeedback(db: Db, comment: CommentRow, sentiment: number): Pr
 }
 
 /**
- * Pulls reactions (👍/👎) and human replies on Tracewise's inline comments for
+ * Pulls reactions (👍/👎) and human replies on OpenReview's inline comments for
  * one PR, records each once, and folds new feedback into learned patterns (R2.4).
  * GitHub sends no webhooks for reactions, so this runs on reply webhooks, when a
  * PR closes, and before each re-review.

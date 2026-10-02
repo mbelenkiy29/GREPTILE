@@ -15,7 +15,7 @@ type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 
 const regionFinding: RawFinding = {
   path: "services/billing/pricing.ts",
@@ -107,7 +107,7 @@ describe("PR output", () => {
     const head2 = fx.fixture.commit({ "services/billing/tax.ts": "export function taxFor(amount: number) {\n  return Math.round(amount * 0.25);\n}\n" }, "rate");
     addPrFromFixture(fx.host, fx.fixture, "acme/shop", { number: 8, base: fx.head, head: head2 });
     await runJob(
-      { db: fx.db, host: fx.host, queue: new MemoryQueue(), llm: llmWith({}), embedder: fx.embedder, cacheDir: tempDir(), botMention: "tracewise" },
+      { db: fx.db, host: fx.host, queue: new MemoryQueue(), llm: llmWith({}), embedder: fx.embedder, cacheDir: tempDir(), botMention: "openreview" },
       "review-pr",
       { orgId: "org_a", repoId: fx.repo.id, prNumber: 8, headSha: head2 },
     );
@@ -122,6 +122,6 @@ describe("PR output", () => {
       "0123456789abcdef",
     );
     expect(withFence).toContain("````suggestion\nconst s = ```x```;\n````");
-    expect(withFence).toContain("<!-- tracewise:fp=0123456789abcdef -->");
+    expect(withFence).toContain("<!-- openreview:fp=0123456789abcdef -->");
   });
 });

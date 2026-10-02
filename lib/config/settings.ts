@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const COMMENT_TYPES = ["logic", "security", "style"] as const;
 
-/** Dashboard-editable review settings for a repo (overridden by tracewise.json). */
+/** Dashboard-editable review settings for a repo (overridden by openreview.json). */
 export const repoSettingsSchema = z
   .object({
     strictness: z.enum(["low", "medium", "high"]).optional(),

@@ -95,7 +95,7 @@ export const repos = pgTable(
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
     fileCount: integer("file_count").notNull().default(0),
     symbolCount: integer("symbol_count").notNull().default(0),
-    /** Dashboard review settings; a repo's tracewise.json overrides them key by key (R2.2). */
+    /** Dashboard review settings; a repo's openreview.json overrides them key by key (R2.2). */
     settings: jsonb("settings").$type<RepoSettings>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -238,7 +238,7 @@ export const reviewComments = pgTable(
   (t) => [uniqueIndex("review_comments_review_fp_uq").on(t.reviewId, t.fingerprint), index().on(t.orgId)],
 );
 
-/** Answers to `@tracewise` mentions (R1.7). */
+/** Answers to `@openreview` mentions (R1.7). */
 export const mentionReplies = pgTable(
   "mention_replies",
   {
@@ -288,7 +288,7 @@ export const feedbackKind = pgEnum("feedback_kind", ["thumbs_up", "thumbs_down",
 export const patternSignal = pgEnum("pattern_signal", ["suppress", "boost", "neutral"]);
 
 /**
- * Conventions inferred from feedback on Tracewise comments (R2.4). `suppress`
+ * Conventions inferred from feedback on OpenReview comments (R2.4). `suppress`
  * patterns stop recurring; `boost` patterns are prioritized. Users can edit the
  * description and signal (`userEdited` pins the signal) or delete a pattern.
  */
@@ -313,7 +313,7 @@ export const learnedPatterns = pgTable(
   (t) => [index().on(t.orgId, t.repoId)],
 );
 
-/** One reaction or reply on a Tracewise inline comment (R2.4). */
+/** One reaction or reply on a OpenReview inline comment (R2.4). */
 export const commentFeedback = pgTable(
   "comment_feedback",
   {

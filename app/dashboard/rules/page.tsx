@@ -23,7 +23,7 @@ export default async function RulesPage() {
       </div>
       <p className="dim">
         Write rules in plain English. Reviews enforce them on matching files and cite the rule in the comment. Rules can
-        also live in a repository&apos;s <code>tracewise.json</code>.
+        also live in a repository&apos;s <code>openreview.json</code>.
       </p>
 
       <form action={addRule} className="comment">

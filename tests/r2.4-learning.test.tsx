@@ -24,7 +24,7 @@ type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 
 const f = (path: string, line: number, title: string, severity: RawFinding["severity"] = "medium"): RawFinding => ({
   path, line, endLine: null, severity, title, body: `${title}.`, suggestion: null, confidence: 4,
@@ -57,7 +57,7 @@ async function withFeedback() {
     { id: 5, content: "+1", user: "eli" },
   ]);
   addReviewReply(f0.host, "acme/shop", 7, { id: 6, inReplyTo: styleC!.id, body: "False positive — this is intentional.", author: "dana" });
-  addReviewReply(f0.host, "acme/shop", 7, { id: 7, inReplyTo: logicC!.id, body: "ack", author: "tracewise[bot]" });
+  addReviewReply(f0.host, "acme/shop", 7, { id: 7, inReplyTo: logicC!.id, body: "ack", author: "openreview[bot]" });
   return { f0, out, llm, deps, styleC: styleC!, logicC: logicC! };
 }
 
@@ -70,7 +70,7 @@ describe("learning from feedback", () => {
     expect(replySentiment("Can you explain more?")).toBe(0);
   });
 
-  test("R2.4 thumbs-up/down reactions and replies on Tracewise comments are recorded once", async () => {
+  test("R2.4 thumbs-up/down reactions and replies on OpenReview comments are recorded once", async () => {
     const { f0 } = await withFeedback();
     fx = f0;
     expect(await syncFeedback(f0, { orgId: "org_a", repoId: f0.repo.id, prNumber: 7 })).toEqual({ recorded: 4 });
@@ -119,7 +119,7 @@ describe("learning from feedback", () => {
     expect((await f0.db.select().from(commentFeedback)).length).toBe(3);
 
     const queue = new MemoryQueue();
-    const handler = createGitHubWebhookHandler(() => ({ db: f0.db, queue, host: f0.host, secret: "s", botMention: "tracewise" }));
+    const handler = createGitHubWebhookHandler(() => ({ db: f0.db, queue, host: f0.host, secret: "s", botMention: "openreview" }));
     const send = (event: string, payload: object, id: string) => {
       const body = JSON.stringify(payload);
       return handler(new Request("http://x", { method: "POST", body, headers: { "x-github-event": event, "x-github-delivery": id, "x-hub-signature-256": signGitHubPayload("s", body) } }));

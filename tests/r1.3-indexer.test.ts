@@ -229,7 +229,7 @@ describe("index job", () => {
     const { MemoryQueue } = await import("@/lib/jobs/types");
     const { FakeLlm } = await import("@/lib/llm/fake");
     await runJob(
-      { db, host, queue: new MemoryQueue(), llm: new FakeLlm(), embedder: new FakeEmbeddings(), cacheDir: tempDir(), botMention: "tracewise" },
+      { db, host, queue: new MemoryQueue(), llm: new FakeLlm(), embedder: new FakeEmbeddings(), cacheDir: tempDir(), botMention: "openreview" },
       "index-repo",
       { orgId: "org_a", repoId: repos[0]!.id, mode: "incremental", afterSha: sha },
     );

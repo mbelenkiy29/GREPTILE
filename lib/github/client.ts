@@ -52,7 +52,7 @@ export class GitHubHost implements GitHost {
         accept: init.accept ?? "application/vnd.github+json",
         authorization: `Bearer ${init.token}`,
         "x-github-api-version": "2022-11-28",
-        "user-agent": "tracewise",
+        "user-agent": "openreview",
         ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
@@ -74,7 +74,7 @@ export class GitHubHost implements GitHost {
           accept: "application/vnd.github+json",
           authorization: `Bearer ${token}`,
           "x-github-api-version": "2022-11-28",
-          "user-agent": "tracewise",
+          "user-agent": "openreview",
         },
       });
       if (!res.ok) throw new GitHubError(res.status, `GitHub GET ${url} failed: ${res.status} ${await res.text()}`);

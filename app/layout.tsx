@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tracewise",
+  title: "OpenReview",
   description: "AI pull request reviews with full-codebase context.",
 };
 

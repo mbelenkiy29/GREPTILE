@@ -61,7 +61,7 @@ export interface ReviewOptions {
   learned?: LearnedPattern[];
 }
 
-const SUMMARY_SYSTEM = `You summarize pull requests for Tracewise. Given the diff, the impacted code beyond it, and the
+const SUMMARY_SYSTEM = `You summarize pull requests for OpenReview. Given the diff, the impacted code beyond it, and the
 issues reviewers found, describe what changed and judge merge risk. Weigh findings by severity; a PR with a
 critical or high finding cannot have confidence above 3.`;
 

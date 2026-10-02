@@ -19,7 +19,7 @@ import {
 } from "./parity/core";
 
 const root = path.resolve(import.meta.dirname, "..");
-const specPath = path.join(root, "docs/TRACEWISE_PARITY.md");
+const specPath = path.join(root, "docs/OPENREVIEW_SPEC.md");
 const outDir = path.join(root, ".parity");
 
 function parseArgs(argv: string[]) {

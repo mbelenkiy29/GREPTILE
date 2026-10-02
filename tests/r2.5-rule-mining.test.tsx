@@ -15,10 +15,10 @@ type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 
 function webhook(f: Fixture, queue: MemoryQueue) {
-  const handler = createGitHubWebhookHandler(() => ({ db: f.db, queue, host: f.host, secret: "s", botMention: "tracewise" }));
+  const handler = createGitHubWebhookHandler(() => ({ db: f.db, queue, host: f.host, secret: "s", botMention: "openreview" }));
   return (event: string, payload: object) => {
     const body = JSON.stringify(payload);
     return handler(new Request("http://x", { method: "POST", body, headers: { "x-github-event": event, "x-github-delivery": crypto.randomUUID(), "x-hub-signature-256": signGitHubPayload("s", body) } }));

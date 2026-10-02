@@ -44,7 +44,7 @@ beforeEach(async () => {
   host.addInstallation(11, "acme", [{ id: 1, fullName: "acme/api", defaultBranch: "main", private: true }]);
   const { repos } = await completeInstallation(db, host, { orgId: "org_a", orgName: "Acme", installationId: 11 });
   repoId = repos[0]!.id;
-  handler = createGitHubWebhookHandler(() => ({ db, queue, host, secret: SECRET, botMention: "tracewise" }));
+  handler = createGitHubWebhookHandler(() => ({ db, queue, host, secret: SECRET, botMention: "openreview" }));
 });
 
 describe("webhook receiver", () => {
@@ -99,26 +99,26 @@ describe("webhook receiver", () => {
       issue: { number: 7, pull_request: {} },
       comment: { id, body, user: { login: "dev", type } },
     });
-    await deliver("issue_comment", comment(1, "@tracewise why is this cache needed?"), "d-1");
+    await deliver("issue_comment", comment(1, "@openreview why is this cache needed?"), "d-1");
     await deliver("issue_comment", comment(2, "no mention here"), "d-2");
-    await deliver("issue_comment", comment(3, "@tracewise hi", "Bot"), "d-3");
-    await deliver("issue_comment", { ...comment(4, "@tracewise hi"), issue: { number: 8 } }, "d-4");
-    await deliver("issue_comment", { ...comment(5, "@tracewise hi"), action: "edited" }, "d-5");
+    await deliver("issue_comment", comment(3, "@openreview hi", "Bot"), "d-3");
+    await deliver("issue_comment", { ...comment(4, "@openreview hi"), issue: { number: 8 } }, "d-4");
+    await deliver("issue_comment", { ...comment(5, "@openreview hi"), action: "edited" }, "d-5");
     expect(queue.jobs.map((j) => [j.name, j.jobId, j.data])).toEqual([
       [
         "answer-mention",
         `mention-${repoId}-1`,
-        { orgId: "org_a", repoId, prNumber: 7, commentId: 1, body: "@tracewise why is this cache needed?", author: "dev" },
+        { orgId: "org_a", repoId, prNumber: 7, commentId: 1, body: "@openreview why is this cache needed?", author: "dev" },
       ],
     ]);
   });
 
   test("R1.2 mention detection matches the bot handle only as a whole word", () => {
-    expect(mentionsBot("@tracewise explain", "tracewise")).toBe(true);
-    expect(mentionsBot("hey @TraceWise, why?", "tracewise")).toBe(true);
-    expect(mentionsBot("@tracewise-bot hi", "tracewise")).toBe(false);
-    expect(mentionsBot("email me@tracewise.dev", "tracewise")).toBe(false);
-    expect(mentionsBot("see org/@tracewise", "tracewise")).toBe(false);
+    expect(mentionsBot("@openreview explain", "openreview")).toBe(true);
+    expect(mentionsBot("hey @OpenReview, why?", "openreview")).toBe(true);
+    expect(mentionsBot("@openreview-bot hi", "openreview")).toBe(false);
+    expect(mentionsBot("email me@openreview.dev", "openreview")).toBe(false);
+    expect(mentionsBot("see org/@openreview", "openreview")).toBe(false);
   });
 
   test("R1.2 queues re-indexing on pushes to the default branch only", async () => {

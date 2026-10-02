@@ -11,7 +11,7 @@ type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 const PRICING = "services/billing/pricing.ts";
 
 const f = (line: number, severity: RawFinding["severity"], title: string, over: Partial<RawFinding> = {}): RawFinding => ({
@@ -27,19 +27,19 @@ function recordingLlm(findings: RawFinding[]) {
 }
 
 const CONFIG = JSON.stringify({
-  $schema: "https://tracewise.dev/schema/tracewise.json",
+  $schema: "https://openreview.dev/schema/openreview.json",
   rules: ["Totals must be computed in integer cents.", { rule: "Generated code must not be edited by hand.", paths: ["**/generated/**"] }],
   ignore: ["**/generated/**"],
   strictness: "low",
   commentTypes: ["logic"],
 });
 
-describe("tracewise.json", () => {
+describe("openreview.json", () => {
   test("R2.2 the config file is validated with readable errors", () => {
     expect(parseRepoConfig(CONFIG).config).toMatchObject({ strictness: "low", commentTypes: ["logic"] });
-    expect(parseRepoConfig("{ nope").error).toMatch(/^tracewise.json is not valid JSON/);
-    expect(parseRepoConfig(JSON.stringify({ strictnes: "low" })).error).toMatch(/^tracewise.json: \(root\): Unrecognized key/);
-    expect(parseRepoConfig(JSON.stringify({ commentTypes: ["perf"] })).error).toMatch(/^tracewise.json: commentTypes.0:/);
+    expect(parseRepoConfig("{ nope").error).toMatch(/^openreview.json is not valid JSON/);
+    expect(parseRepoConfig(JSON.stringify({ strictnes: "low" })).error).toMatch(/^openreview.json: \(root\): Unrecognized key/);
+    expect(parseRepoConfig(JSON.stringify({ commentTypes: ["perf"] })).error).toMatch(/^openreview.json: commentTypes.0:/);
     expect(parseRepoConfig(JSON.stringify({ rules: [{ rule: "Short", paths: [""] }] })).error).toMatch(/rules.0/);
   });
 
@@ -65,7 +65,7 @@ describe("tracewise.json", () => {
 
   test("R2.2 a review applies the file's rules, ignore paths, strictness, and comment types over the dashboard", async () => {
     fx = await reviewFixture({
-      baseExtra: { "tracewise.json": CONFIG },
+      baseExtra: { "openreview.json": CONFIG },
       headExtra: { "services/billing/generated/rates.ts": "export const RATE = 0.2;\n" },
     });
     await updateRepoSettings(fx.db, "org_a", fx.repo.id, { strictness: "high", commentTypes: ["logic", "security", "style"] });
@@ -94,7 +94,7 @@ describe("tracewise.json", () => {
   });
 
   test("R2.2 dashboard settings apply when there is no file, and an invalid file is reported and ignored", async () => {
-    fx = await reviewFixture({ baseExtra: { "tracewise.json": '{"strictness": "extreme"}' } });
+    fx = await reviewFixture({ baseExtra: { "openreview.json": '{"strictness": "extreme"}' } });
     await updateRepoSettings(fx.db, "org_a", fx.repo.id, { commentTypes: ["style"] });
     expect((await getRepo(fx.db, "org_a", fx.repo.id))?.settings).toEqual({ commentTypes: ["style"] });
     expect(await updateRepoSettings(fx.db, "org_b", fx.repo.id, { commentTypes: ["logic"] })).toBeUndefined();
@@ -104,7 +104,7 @@ describe("tracewise.json", () => {
     await runReviewJob({ db: fx.db, host: fx.host, llm, embedder: fx.embedder }, { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, headSha: fx.head });
     expect(llm.calls.filter((c) => agentOf(c) !== "summary").map(agentOf)).toEqual(["style"]);
     const summary = fx.host.issueComments.get("acme/shop#7")![0]!.body;
-    expect(summary).toContain('> **Note:** tracewise.json: strictness: Invalid option: expected one of "low"|"medium"|"high". Using dashboard settings instead.');
+    expect(summary).toContain('> **Note:** openreview.json: strictness: Invalid option: expected one of "low"|"medium"|"high". Using dashboard settings instead.');
     expect(fx.host.reviews[0]!.comments).toHaveLength(1);
   });
 });

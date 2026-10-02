@@ -10,7 +10,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <div className="shell">
         <header className="topbar">
           <Link href="/dashboard" className="brand">
-            Tracewise
+            OpenReview
           </Link>
           <nav className="nav" aria-label="Dashboard">
             <Link href="/dashboard/repos">Repositories</Link>

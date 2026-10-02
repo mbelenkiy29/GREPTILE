@@ -1,6 +1,6 @@
 import picomatch from "picomatch";
 
-/** A rule as the review engine sees it, whatever its source (dashboard, tracewise.json, mined). */
+/** A rule as the review engine sees it, whatever its source (dashboard, openreview.json, mined). */
 export interface ReviewRule {
   id: string;
   text: string;

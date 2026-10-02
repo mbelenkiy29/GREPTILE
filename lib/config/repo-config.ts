@@ -3,7 +3,7 @@ import type { RepoSettings } from "@/lib/db/schema";
 import type { GitClient } from "@/lib/git/types";
 import type { ReviewRule } from "@/lib/rules";
 
-export const CONFIG_FILE = "tracewise.json";
+export const CONFIG_FILE = "openreview.json";
 export const COMMENT_TYPES = ["logic", "security", "style"] as const;
 export const STRICTNESS = ["low", "medium", "high"] as const;
 export type Strictness = (typeof STRICTNESS)[number];
@@ -11,7 +11,7 @@ export type CommentType = (typeof COMMENT_TYPES)[number];
 
 const glob = z.string().trim().min(1);
 
-/** Schema of `tracewise.json` in a repository root (R2.2). Unknown keys are rejected to catch typos. */
+/** Schema of `openreview.json` in a repository root (R2.2). Unknown keys are rejected to catch typos. */
 export const repoConfigSchema = z
   .object({
     $schema: z.string().optional(),
@@ -34,7 +34,7 @@ export interface EffectiveConfig {
   commentTypes: CommentType[];
   ignore: string[];
   context: string[];
-  /** Rules declared in tracewise.json, in addition to dashboard rules. */
+  /** Rules declared in openreview.json, in addition to dashboard rules. */
   rules: ReviewRule[];
   /** Where each setting came from, for display. */
   sources: Record<"strictness" | "commentTypes" | "ignore" | "context", "default" | "dashboard" | "file">;
@@ -71,7 +71,7 @@ export function parseRepoConfig(text: string): { config?: RepoConfigFile; error?
   return { config: res.data };
 }
 
-/** Defaults ← dashboard settings ← tracewise.json, key by key: the repo file wins. */
+/** Defaults ← dashboard settings ← openreview.json, key by key: the repo file wins. */
 export function resolveConfig(dashboard: RepoSettings | null | undefined, file: RepoConfigFile | undefined, notices: string[] = []): EffectiveConfig {
   const pick = <K extends "strictness" | "commentTypes" | "ignore" | "context">(key: K) => {
     if (file?.[key] !== undefined) return { value: file[key]!, source: "file" as const };
@@ -99,7 +99,7 @@ export function resolveConfig(dashboard: RepoSettings | null | undefined, file: 
 }
 
 /**
- * Loads the effective config for a review. `tracewise.json` is read from the PR's
+ * Loads the effective config for a review. `openreview.json` is read from the PR's
  * base commit, so a PR cannot weaken its own review by editing the file.
  * An invalid file is reported and ignored (dashboard settings apply).
  */

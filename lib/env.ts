@@ -19,7 +19,7 @@ const schema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1),
   GITHUB_API_URL: z.string().url().default("https://api.github.com"),
   /** Login that `@mentions` the bot in PR comments (R1.7). */
-  BOT_MENTION: z.string().default("tracewise"),
+  BOT_MENTION: z.string().default("openreview"),
 
   LLM_PROVIDER: z.enum(["anthropic", "openai", "fake"]).default("anthropic"),
   LLM_MODEL: optional,
@@ -30,7 +30,7 @@ const schema = z.object({
   EMBEDDING_BASE_URL: optional,
   EMBEDDING_API_KEY: optional,
 
-  REPO_CACHE_DIR: z.string().default("/tmp/tracewise-repos"),
+  REPO_CACHE_DIR: z.string().default("/tmp/openreview-repos"),
 });
 
 export type Env = z.infer<typeof schema>;

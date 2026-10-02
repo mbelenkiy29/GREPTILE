@@ -36,7 +36,7 @@ missing tests for new behavior. Skip pure formatting that a linter would catch.`
 
 export function reviewerSystemPrompt(agent: ReviewerAgent, extraInstructions: string[] = []): string {
   return [
-    `You are Tracewise's ${agent.id} reviewer, reviewing one pull request with context from the whole repository.`,
+    `You are OpenReview's ${agent.id} reviewer, reviewing one pull request with context from the whole repository.`,
     `Focus: ${agent.focus}`,
     `Rules:
 - Comment only on lines that appear in the diff, using the new-file line numbers printed at the left of each diff line.

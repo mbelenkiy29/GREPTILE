@@ -15,10 +15,10 @@ export interface LearnedItem {
 const SIGNAL_LABEL = { suppress: "Suppressed", boost: "Prioritized", neutral: "Observing" } as const;
 const SIGNAL_TONE = { suppress: "bad", boost: "ok", neutral: "muted" } as const;
 
-/** Conventions inferred from feedback on Tracewise comments (R2.4). */
+/** Conventions inferred from feedback on OpenReview comments (R2.4). */
 export function LearnedList({ items, actions }: { items: LearnedItem[]; actions?: (i: LearnedItem) => ReactNode }) {
   if (!items.length) {
-    return <p className="empty">Nothing learned yet. React with 👍 or 👎, or reply, on Tracewise comments to teach it your team&apos;s preferences.</p>;
+    return <p className="empty">Nothing learned yet. React with 👍 or 👎, or reply, on OpenReview comments to teach it your team&apos;s preferences.</p>;
   }
   return (
     <ul className="comments">

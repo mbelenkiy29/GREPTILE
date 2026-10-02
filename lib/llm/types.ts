@@ -26,7 +26,7 @@ export interface TextRequest {
   model?: string;
 }
 
-/** Every LLM call in Tracewise goes through this interface (H4). */
+/** Every LLM call in OpenReview goes through this interface (H4). */
 export interface LlmProvider {
   readonly name: string;
   readonly model: string;

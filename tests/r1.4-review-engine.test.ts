@@ -27,7 +27,7 @@ function finding(over: Partial<RawFinding>): RawFinding {
   };
 }
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 
 const summaryOut = { whatChanged: ["Adds tax to totals"], riskLevel: "high", riskRationale: "Breaks callers.", confidence: 2 };
 

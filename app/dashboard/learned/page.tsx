@@ -14,7 +14,7 @@ export default async function LearnedPage() {
         <h1>Learned</h1>
       </div>
       <p className="dim">
-        Conventions inferred from reactions and replies on Tracewise comments. Suppressed patterns are no longer
+        Conventions inferred from reactions and replies on OpenReview comments. Suppressed patterns are no longer
         reported; prioritized ones rank higher. Edit a description to generalize it, or change the signal to override
         what was inferred.
       </p>

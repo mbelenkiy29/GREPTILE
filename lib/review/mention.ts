@@ -9,9 +9,9 @@ import { isReviewablePath, parsePatch, renderDiff } from "./diff";
 import { loadEffectiveConfig } from "@/lib/config/repo-config";
 import { loadContextDocs, renderContextSection } from "./context-files";
 
-export const MENTION_MARKER = "<!-- tracewise:mention -->";
+export const MENTION_MARKER = "<!-- openreview:mention -->";
 
-const SYSTEM = `You are Tracewise, answering a developer's question on a pull request. You are given the PR diff and
+const SYSTEM = `You are OpenReview, answering a developer's question on a pull request. You are given the PR diff and
 code retrieved from the whole repository (definitions, callers, callees, importers, similar code). Answer the
 question directly and concisely in GitHub Markdown. Ground every claim in the provided code and cite locations as
 \`path:line\`. If the provided code is not enough to answer with confidence, say what is missing instead of guessing.`;
@@ -27,7 +27,7 @@ function identifiers(question: string): string[] {
 }
 
 /**
- * Answers an `@tracewise` mention on a PR (R1.7) using the PR diff, the code
+ * Answers an `@openreview` mention on a PR (R1.7) using the PR diff, the code
  * graph around it, symbols named in the question, and vector search, then
  * replies on the PR. Each source comment is answered at most once.
  */

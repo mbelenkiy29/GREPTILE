@@ -76,7 +76,7 @@ export class FakeGitHost implements GitHost {
       compareCommits: async (repo, base, head) => this.compares.get(`${repo}@${base}...${head}`) ?? [],
       listIssueComments: async (repo, n) => this.issueComments.get(key(repo, n)) ?? [],
       createIssueComment: async (repo, n, body) => {
-        const c = { id: id(), body, author: "tracewise[bot]" };
+        const c = { id: id(), body, author: "openreview[bot]" };
         this.issueComments.set(key(repo, n), [...(this.issueComments.get(key(repo, n)) ?? []), c]);
         return c;
       },
@@ -94,7 +94,7 @@ export class FakeGitHost implements GitHost {
       listReviewCommentReactions: async (_repo, commentId) => this.reactions.get(commentId) ?? [],
       createReview: async (repo, n, review) => {
         this.reviews.push({ repo, number: n, ...review });
-        const posted = review.comments.map((c) => ({ id: id(), path: c.path, line: c.line, body: c.body, author: "tracewise[bot]" }));
+        const posted = review.comments.map((c) => ({ id: id(), path: c.path, line: c.line, body: c.body, author: "openreview[bot]" }));
         this.reviewComments.set(key(repo, n), [...(this.reviewComments.get(key(repo, n)) ?? []), ...posted]);
         return { id: id(), comments: posted };
       },

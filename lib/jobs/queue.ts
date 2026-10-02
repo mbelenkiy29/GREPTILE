@@ -2,7 +2,7 @@ import { Queue } from "bullmq";
 import { redis } from "@/lib/redis";
 import type { JobName, JobPayloads, JobQueue } from "./types";
 
-export const QUEUE_NAME = "tracewise";
+export const QUEUE_NAME = "openreview";
 
 let queue: Queue | undefined;
 

@@ -4,8 +4,8 @@ import type { FileDiff } from "./diff";
 import type { ReviewSummary } from "./engine";
 import type { Finding } from "./findings";
 
-export const SUMMARY_MARKER = "<!-- tracewise:summary -->";
-const FP_MARKER = /<!-- tracewise:fp=([a-f0-9]{16}) -->/;
+export const SUMMARY_MARKER = "<!-- openreview:summary -->";
+const FP_MARKER = /<!-- openreview:fp=([a-f0-9]{16}) -->/;
 
 const SEVERITY_LABEL = { critical: "Critical", high: "High", medium: "Medium", low: "Low" } as const;
 const RISK_LABEL = { low: "Low", medium: "Medium", high: "High" } as const;
@@ -43,7 +43,7 @@ export function renderInlineComment(f: Finding, fingerprint: string): string {
     const ticks = fence(f.suggestion);
     parts.push(`${ticks}suggestion\n${f.suggestion.replace(/\n$/, "")}\n${ticks}`);
   }
-  parts.push(`<!-- tracewise:fp=${fingerprint} -->`);
+  parts.push(`<!-- openreview:fp=${fingerprint} -->`);
   return parts.join("\n\n");
 }
 
@@ -86,7 +86,7 @@ export function renderSummaryComment(input: {
   const count = (r: string) => context.impacted.filter((i) => i.relation === r).length;
   const out = [
     SUMMARY_MARKER,
-    "## Tracewise review",
+    "## OpenReview review",
     ...(input.notices ?? []).map((n) => `> **Note:** ${n.replace(/\n/g, " ")}`),
     `**Risk:** ${RISK_LABEL[summary.riskLevel]} · **Confidence:** ${summary.confidence}/5`,
     `> ${summary.riskRationale.replace(/\n/g, " ")}`,

@@ -5,7 +5,7 @@ import path from "node:path";
 
 /** A throwaway local git repository usable as a clone URL. */
 export class FixtureRepo {
-  readonly dir = mkdtempSync(path.join(tmpdir(), "tw-fixture-"));
+  readonly dir = mkdtempSync(path.join(tmpdir(), "or-fixture-"));
 
   constructor(readonly branch = "main") {
     this.git("init", "--quiet", "-b", branch);
@@ -42,6 +42,6 @@ export class FixtureRepo {
   }
 }
 
-export function tempDir(prefix = "tw-cache-") {
+export function tempDir(prefix = "or-cache-") {
   return mkdtempSync(path.join(tmpdir(), prefix));
 }

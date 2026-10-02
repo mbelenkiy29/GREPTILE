@@ -1,13 +1,13 @@
-name: tracewise
+name: openreview
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-tracewise}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracewise}
-      POSTGRES_DB: ${POSTGRES_DB:-tracewise}
+      POSTGRES_USER: ${POSTGRES_USER:-openreview}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openreview}
+      POSTGRES_DB: ${POSTGRES_DB:-openreview}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/001-extensions.sql:ro
@@ -40,7 +40,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-tracewise}:${POSTGRES_PASSWORD:-tracewise}@postgres:5432/${POSTGRES_DB:-tracewise}
+      DATABASE_URL: postgres://${POSTGRES_USER:-openreview}:${POSTGRES_PASSWORD:-openreview}@postgres:5432/${POSTGRES_DB:-openreview}
       REDIS_URL: redis://redis:6379
     ports:
       - "${APP_PORT:-3000}:3000"
@@ -68,7 +68,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-tracewise}:${POSTGRES_PASSWORD:-tracewise}@postgres:5432/${POSTGRES_DB:-tracewise}
+      DATABASE_URL: postgres://${POSTGRES_USER:-openreview}:${POSTGRES_PASSWORD:-openreview}@postgres:5432/${POSTGRES_DB:-openreview}
       REDIS_URL: redis://redis:6379
       REPO_CACHE_DIR: /data/repos
     volumes:

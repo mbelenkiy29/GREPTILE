@@ -10,7 +10,7 @@ type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /Tracewise's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 const llm = () =>
   new FakeLlm((call) =>
     call.kind === "text"
@@ -28,9 +28,9 @@ const DOCS = {
 };
 
 describe("context files", () => {
-  test("R2.3 docs listed in tracewise.json (paths and globs) are always included in review prompts", async () => {
+  test("R2.3 docs listed in openreview.json (paths and globs) are always included in review prompts", async () => {
     fx = await reviewFixture({
-      baseExtra: { ...DOCS, "tracewise.json": JSON.stringify({ context: ["CONTRIBUTING.md", "docs/adr/*.md", "docs/missing.md", "rfcs/*.md"] }) },
+      baseExtra: { ...DOCS, "openreview.json": JSON.stringify({ context: ["CONTRIBUTING.md", "docs/adr/*.md", "docs/missing.md", "rfcs/*.md"] }) },
     });
     const model = llm();
     await runReviewJob({ db: fx.db, host: fx.host, llm: model, embedder: fx.embedder }, { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, headSha: fx.head });
@@ -60,8 +60,8 @@ describe("context files", () => {
 
     const mentionLlm = llm();
     await answerMention(
-      { db: fx.db, host: fx.host, llm: mentionLlm, embedder: fx.embedder, botMention: "tracewise" },
-      { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, commentId: 1, body: "@tracewise should callers pass region?", author: "a" },
+      { db: fx.db, host: fx.host, llm: mentionLlm, embedder: fx.embedder, botMention: "openreview" },
+      { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, commentId: 1, body: "@openreview should callers pass region?", author: "a" },
     );
     expect(mentionLlm.calls[0]!.req.prompt).toContain("Region must be resolved from the account, not passed by callers.");
   });
