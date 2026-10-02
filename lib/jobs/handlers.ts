@@ -38,3 +38,14 @@ export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPaylo
   if (!handler) throw new Error(`unknown job ${name}`);
   return handler(deps, data, meta);
 }
+
+/**
+ * Delay after which a job that failed with `err` should run again without using up one of its queue attempts, or
+ * null for an ordinary failure. Errors opt in with a numeric `retryAfterMs` (e.g. `IndexLockedError` while another
+ * index run of the repository holds its lock), so a push that arrives during a long index is never dropped.
+ */
+export function retryAfterMs(err: unknown): number | null {
+  if (typeof err !== "object" || err === null || !("retryAfterMs" in err)) return null;
+  const ms = (err as { retryAfterMs: unknown }).retryAfterMs;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : null;
+}

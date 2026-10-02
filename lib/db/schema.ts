@@ -418,6 +418,8 @@ export interface IndexProgress {
   filesSkipped: Record<string, number>;
   symbols: number;
   edges: number;
+  /** Symbols and doc chunks embedded so far in the embed phase (absent before it starts). */
+  embedded?: number;
   /** Lines replaced with `[REDACTED SECRET]` in this run. */
   secretLinesRedacted: number;
 }

@@ -2,8 +2,9 @@ import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import { completeInstallation, getRepo } from "@/lib/data/installations";
-import { edges, fileChunks, files, indexJobs, repoCommits, repoDependencies, symbols } from "@/lib/db/schema";
-import { cancelIndexJob, createIndexJob, getIndexStatus, indexRepo, IndexLockedError, listIndexJobs, type IndexDeps } from "@/lib/indexer";
+import { edges, fileChunks, files, indexJobs, repoCommits, repoDependencies, repos, symbols } from "@/lib/db/schema";
+import { cancelIndexJob, createIndexJob, getIndexStatus, indexRepo, IndexLockedError, listIndexJobs, WAITING_FOR_LOCK, type IndexDeps } from "@/lib/indexer";
+import { retryAfterMs } from "@/lib/jobs/handlers";
 import { openLockSession, withRepoIndexLock, INDEX_LOCK_NAMESPACE, type LockSession } from "@/lib/indexer/lock";
 import { searchFullText } from "@/lib/indexer/query";
 import { FakeEmbeddings } from "@/lib/llm/fake";
@@ -352,16 +353,21 @@ describe("index jobs", () => {
     const newest = commits.find((c) => c.sha === head)!;
     expect(newest).toMatchObject({ orgId, author: "Fixture", parentSha: fixture.git("rev-parse", "HEAD~1"), changedPaths: ["src/f0.ts"] });
     expect(newest.message).toBe("change 54\n\nbody of change 54");
+    expect(commits.some((c) => c.message.includes(REDACTED_SECRET))).toBe(false);
     expect(commits.some((c) => c.message.startsWith("initial import"))).toBe(false);
     // The oldest recorded commit still has its parent, so its changed paths are a real diff.
     expect(commits.every((c) => c.parentSha && c.changedPaths.length === 1)).toBe(true);
 
-    // Re-indexing after more commits adds the new ones without duplicating.
+    // Re-indexing after more commits adds the new ones without duplicating; secrets in messages are redacted.
     fixture.commit({ "src/new.ts": "export const n = 1;\n" }, "add new");
+    fixture.commit({ "src/other.ts": "export const o = 1;\n" }, `add other\n\ntemporary token ${fakeToken}\nsee docs`);
     await indexRepo(deps, { orgId, repoId });
     const all = await db.select().from(repoCommits).where(eq(repoCommits.repoId, repoId));
-    expect(all).toHaveLength(51);
+    expect(all).toHaveLength(52);
     expect(all.find((c) => c.message === "add new")!.changedPaths).toEqual(["src/new.ts"]);
+    const leaked = all.find((c) => c.message.startsWith("add other"))!;
+    expect(leaked.message).toBe(`add other\n\n${REDACTED_SECRET}\nsee docs`);
+    expect(all.some((c) => c.message.includes(fakeToken))).toBe(false);
   });
 });
 
@@ -386,7 +392,7 @@ describe("per-repository lock", () => {
     await session.release();
   });
 
-  test("R6.3 a second run of the same repository fails with a retryable lock error while the first holds the lock", async () => {
+  test("R6.3 a second run of the same repository waits for the lock: it is re-queued without spending an attempt, then indexed", async () => {
     const { db, repoId, deps } = await setup({ "a.ts": "export const a = 1;\n" });
     // Simulates another worker holding the repository's advisory lock.
     const held = new Set<number>([repoId]);
@@ -398,8 +404,11 @@ describe("per-repository lock", () => {
     const err = await indexRepo({ ...deps, lock: { session: contended, attempts: 3, delayMs: 1 } }, { orgId, repoId, queueJobId: "q1" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(IndexLockedError);
     expect((err as IndexLockedError).retryable).toBe(true);
+    // The queue delays the job instead of counting a failed attempt.
+    expect(retryAfterMs(err)).toBeGreaterThan(0);
+    expect(retryAfterMs(new Error("boom"))).toBeNull();
     const [job] = await db.select().from(indexJobs).where(eq(indexJobs.repoId, repoId));
-    expect(job).toMatchObject({ status: "failed", attempts: 1, queueJobId: "q1" });
+    expect(job).toMatchObject({ status: "queued", attempts: 0, queueJobId: "q1", error: WAITING_FOR_LOCK });
     // The repository itself is not marked failed: the other run owns its status.
     expect((await getRepo(db, orgId, repoId))!.indexStatus).toBe("pending");
 
@@ -407,6 +416,80 @@ describe("per-repository lock", () => {
     const res = await indexRepo({ ...deps, lock: { session: contended, attempts: 1 } }, { orgId, repoId, queueJobId: "q1" });
     expect(res.indexJobId).toBe(job!.id);
     const [retried] = await db.select().from(indexJobs).where(eq(indexJobs.id, job!.id));
-    expect(retried).toMatchObject({ status: "completed", attempts: 2 });
+    expect(retried).toMatchObject({ status: "completed", attempts: 1, error: null });
+  });
+
+  test("R6.3 lock contention never touches a row another delivery of the same queue job is running", async () => {
+    const { db, repoId, deps } = await setup({ "a.ts": "export const a = 1;\n" });
+    const job = await createIndexJob(db, { orgId, repoId, kind: "full", trigger: "install", queueJobId: "q1" });
+    await db.update(indexJobs).set({ status: "running", attempts: 1 }).where(eq(indexJobs.id, job.id));
+    const busy = async (): Promise<LockSession> => ({ tryLock: async () => false, unlock: async () => {}, release: async () => {} });
+    await expect(indexRepo({ ...deps, lock: { session: busy, attempts: 1 } }, { orgId, repoId, queueJobId: "q1" })).rejects.toBeInstanceOf(IndexLockedError);
+    const [row] = await db.select().from(indexJobs).where(eq(indexJobs.id, job.id));
+    expect(row).toMatchObject({ status: "running", attempts: 1, error: null });
+  });
+
+  test("R6.3 a cancel issued while a job waits for the lock is not overwritten when the lock is obtained", async () => {
+    const { db, repoId, deps } = await setup({ "a.ts": "export const a = 1;\n" });
+    const job = await createIndexJob(db, { orgId, repoId, kind: "full", trigger: "install" });
+    // The user cancels between the pre-lock status read and the lock being granted.
+    const cancelThenGrant = async (): Promise<LockSession> => ({
+      tryLock: async () => {
+        await cancelIndexJob(db, orgId, repoId, job.id);
+        return true;
+      },
+      unlock: async () => {},
+      release: async () => {},
+    });
+    const res = await indexRepo({ ...deps, lock: { session: cancelThenGrant, attempts: 1 } }, { orgId, repoId, indexJobId: job.id });
+    expect(res.status).toBe("cancelled");
+    const [row] = await db.select().from(indexJobs).where(eq(indexJobs.id, job.id));
+    expect(row!.status).toBe("cancelled");
+    expect((await db.select().from(files).where(eq(files.repoId, repoId))).length).toBe(0);
+    expect((await getRepo(db, orgId, repoId))!.indexedSha).toBeNull();
+  });
+
+  test("R6.3 marks jobs left running by a stopped worker as interrupted once the lock is held", async () => {
+    const { db, repoId, deps } = await setup({ "a.ts": "export const a = 1;\n" });
+    const stale = await createIndexJob(db, { orgId, repoId, kind: "full", trigger: "install" });
+    await db.update(indexJobs).set({ status: "running", startedAt: new Date(Date.now() - 3600_000) }).where(eq(indexJobs.id, stale.id));
+    const res = await indexRepo(deps, { orgId, repoId });
+    expect(res.status).toBe("completed");
+    const [row] = await db.select().from(indexJobs).where(eq(indexJobs.id, stale.id));
+    expect(row!.status).toBe("failed");
+    expect(row!.error).toMatch(/^interrupted/);
+    const status = await getIndexStatus(db, orgId, repoId);
+    expect(status!.current).toBeNull();
+  });
+});
+
+describe("push ordering", () => {
+  test("R6.3 an out-of-order push for an older commit is skipped and never rolls the index back", async () => {
+    const { db, fixture, repoId, deps } = await setup({ "a.ts": "export const a = 1;\n" });
+    fixture.commit({ "b.ts": "export const b = 2;\n" }, "add b");
+    const sha1 = fixture.git("rev-parse", "HEAD");
+    fixture.commit({ "c.ts": "export const c = 3;\n" }, "add c");
+    const sha2 = fixture.git("rev-parse", "HEAD");
+
+    await indexRepo(deps, { orgId, repoId, afterSha: sha2 });
+    expect((await getRepo(db, orgId, repoId))!.indexedSha).toBe(sha2);
+    const late = await indexRepo(deps, { orgId, repoId, afterSha: sha1 });
+    expect(late.status).toBe("skipped");
+    const repo = (await getRepo(db, orgId, repoId))!;
+    expect(repo).toMatchObject({ indexedSha: sha2, indexStatus: "ready" });
+    expect((await db.select({ path: files.path }).from(files).where(eq(files.repoId, repoId))).map((f) => f.path).sort()).toEqual(["a.ts", "b.ts", "c.ts"]);
+    const [job] = await db.select().from(indexJobs).where(eq(indexJobs.id, late.indexJobId));
+    expect(job).toMatchObject({ status: "completed", toSha: sha2, changedFiles: [] });
+    // The same commit again is skipped too; a newer one is indexed.
+    expect((await indexRepo(deps, { orgId, repoId, afterSha: sha2 })).status).toBe("skipped");
+    fixture.commit({ "d.ts": "export const d = 4;\n" }, "add d");
+    const sha3 = fixture.git("rev-parse", "HEAD");
+    expect((await indexRepo(deps, { orgId, repoId, afterSha: sha3 })).status).toBe("completed");
+    expect((await getRepo(db, orgId, repoId))!.indexedSha).toBe(sha3);
+
+    // Also when the cache directory lost the indexed commit (fresh worker volume).
+    const fresh = await indexRepo({ ...deps, cacheDir: tempDir() }, { orgId, repoId, afterSha: sha1 });
+    expect(fresh.status).toBe("skipped");
+    expect((await db.select().from(repos).where(eq(repos.id, repoId)))[0]!.indexedSha).toBe(sha3);
   });
 });

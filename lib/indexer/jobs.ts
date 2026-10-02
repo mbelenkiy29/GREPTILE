@@ -1,5 +1,5 @@
 /** Index job rows (R6.3): lifecycle transitions for the indexer and tenant-scoped reads for the dashboard and API. */
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { scoped } from "@/lib/data/tenant";
 import type { Db } from "@/lib/db";
 import { EMPTY_INDEX_PROGRESS, indexJobs, indexJobStatus, indexJobTrigger, repos, type IndexProgress } from "@/lib/db/schema";
@@ -126,7 +126,24 @@ export async function cancelIndexJob(db: Db, orgId: string, repoId: number, id: 
 
 // ---- transitions used by the indexer -----------------------------------------------------------------------------
 
-export async function markJobRunning(db: Db, id: number, input: { kind: IndexKind; fromSha: string | null }): Promise<IndexJob> {
+/** The repository a transition applies to; every transition is filtered by it as well as by the job id. */
+export interface JobScope {
+  orgId: string;
+  repoId: number;
+}
+
+function jobWhere(scope: JobScope, id: number, statuses: IndexJobStatus[]) {
+  return scoped(indexJobs, scope.orgId, eq(indexJobs.repoId, scope.repoId), eq(indexJobs.id, id), inArray(indexJobs.status, statuses));
+}
+
+/** Error shown on a job that is queued again because another run holds the repository's lock. */
+export const WAITING_FOR_LOCK = "waiting for repository lock";
+
+/**
+ * Starts a run of a job: counts the attempt and resets its progress. Returns null when the job was cancelled (or has
+ * already completed) meanwhile, so a cancel issued while the run waited for the lock is never overwritten.
+ */
+export async function markJobRunning(db: Db, scope: JobScope, id: number, input: { kind: IndexKind; fromSha: string | null }): Promise<IndexJob | null> {
   const [row] = await db
     .update(indexJobs)
     .set({
@@ -139,23 +156,48 @@ export async function markJobRunning(db: Db, id: number, input: { kind: IndexKin
       error: null,
       progress: { ...EMPTY_INDEX_PROGRESS, phase: "checkout" },
     })
-    .where(eq(indexJobs.id, id))
+    .where(jobWhere(scope, id, ["queued", "failed", "running"]))
     .returning();
-  return row!;
+  return row ?? null;
+}
+
+/**
+ * Marks jobs of the repository still recorded as running, other than `exceptId`, as failed. Called while holding the
+ * repository's index lock, when no other run can be active: such rows were left by a worker that stopped mid-run.
+ */
+export async function failInterruptedJobs(db: Db, scope: JobScope, exceptId: number): Promise<number> {
+  const rows = await db
+    .update(indexJobs)
+    .set({ status: "failed", error: "interrupted: the worker running this job stopped before it finished", finishedAt: new Date() })
+    .where(scoped(indexJobs, scope.orgId, eq(indexJobs.repoId, scope.repoId), eq(indexJobs.status, "running"), ne(indexJobs.id, exceptId)))
+    .returning({ id: indexJobs.id });
+  return rows.length;
+}
+
+/**
+ * Puts a job back in the queue while another run holds the repository's lock (it stays cancellable meanwhile). A row
+ * that is running is left alone: it belongs to another delivery of the same queue job that holds the lock.
+ */
+export async function markJobWaitingForLock(db: Db, scope: JobScope, id: number) {
+  await db
+    .update(indexJobs)
+    .set({ status: "queued", error: WAITING_FOR_LOCK, finishedAt: null })
+    .where(jobWhere(scope, id, ["queued", "failed"]));
 }
 
 /** Writes progress; returns false when the job was cancelled meanwhile. */
-export async function writeJobProgress(db: Db, id: number, progress: IndexProgress, extra: { toSha?: string } = {}): Promise<boolean> {
+export async function writeJobProgress(db: Db, scope: JobScope, id: number, progress: IndexProgress, extra: { toSha?: string } = {}): Promise<boolean> {
   const rows = await db
     .update(indexJobs)
     .set({ progress, ...extra })
-    .where(and(eq(indexJobs.id, id), eq(indexJobs.status, "running")))
+    .where(jobWhere(scope, id, ["running"]))
     .returning({ id: indexJobs.id });
   return rows.length > 0;
 }
 
 export async function finishJob(
   db: Db,
+  scope: JobScope,
   id: number,
   input: {
     status: "completed" | "failed";
@@ -163,20 +205,17 @@ export async function finishJob(
     changedFiles?: string[];
     error?: string | null;
     toSha?: string | null;
-    /** Count an attempt that failed before the run started (e.g. the repository lock was busy). */
-    countAttempt?: boolean;
   },
 ) {
   await db
     .update(indexJobs)
     .set({
       status: input.status,
-      ...(input.countAttempt ? { attempts: sql`${indexJobs.attempts} + 1` } : {}),
       finishedAt: new Date(),
       error: input.error ?? null,
       ...(input.progress ? { progress: input.progress } : {}),
       ...(input.changedFiles ? { changedFiles: input.changedFiles.slice(0, MAX_CHANGED_FILES) } : {}),
       ...(input.toSha ? { toSha: input.toSha } : {}),
     })
-    .where(and(eq(indexJobs.id, id), inArray(indexJobs.status, ["running", "queued"])));
+    .where(jobWhere(scope, id, ["running", "queued"]));
 }

@@ -33,7 +33,7 @@ describe("tree-sitter parsing", () => {
     [
       "pkg/service.py",
       `from .repo import load\nimport json\n\nclass Service:\n    def run(self):\n        return json.dumps(load())\n`,
-      ["class:Service", "function:run"],
+      ["class:Service", "method:run"],
       ["dumps", "load"],
       [".repo", "json"],
     ],

@@ -4,13 +4,15 @@
  *
  * - edges inserted by this run,
  * - unresolved file edges (import/export) when any file was added, changed, or removed,
- * - unresolved symbol edges whose target name belongs to a symbol added or removed by this run.
+ * - imports resolved into a Go package or C# namespace directory that gained a file,
+ * - symbol edges (resolved or not) whose target name belongs to a symbol added or removed by this run, so a better
+ *   candidate (e.g. one in a file the caller imports) replaces a fallback.
  *
  * Derived relations that span files (tested_by, schema_consumer) are rebuilt from the stored graph when anything
  * changed.
  */
 import path from "node:path/posix";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { edges, files, symbols, type EdgeKind } from "@/lib/db/schema";
 import { languageForPath, type LanguageId } from "./languages";
@@ -62,6 +64,8 @@ export interface ResolveOptions {
   affectedNames: readonly string[] | null;
   /** Whether any file was added, changed, or removed (re-resolve dangling file edges, rebuild derived edges). */
   changed: boolean;
+  /** Paths of files this run added (not just changed). */
+  addedPaths?: readonly string[];
 }
 
 async function loadFiles(db: Db, scope: GraphScope): Promise<FileMeta[]> {
@@ -81,31 +85,43 @@ async function writeUpdates(db: Db, updates: { id: number; toFileId: number | nu
   }
 }
 
+/** Languages whose imports name a package or namespace that can span several files of one directory. */
+const PACKAGE_IMPORT_FILE = /\.(?:go|cs)$/;
+
+async function maxEdgeId(db: Db, scope: GraphScope): Promise<number> {
+  const [row] = await db
+    .select({ id: sql<number>`coalesce(max(${edges.id}), 0)` })
+    .from(edges)
+    .where(and(eq(edges.orgId, scope.orgId), eq(edges.repoId, scope.repoId)));
+  return Number(row?.id ?? 0);
+}
+
 async function resolveFileEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[], opts: ResolveOptions) {
   const byId = new Map(fileMeta.map((f) => [f.id, f]));
   const idByPath = new Map(fileMeta.map((f) => [f.path, f.id]));
   const index = new PathIndex(idByPath.keys());
+  // Edges inserted below (one per extra file of a package) are complete; the scan never revisits them.
+  const lastId = await maxEdgeId(db, scope);
+  // A file added to a Go package or C# namespace directory joins every import already resolved into that directory.
+  const packageDirs = new Set((opts.addedPaths ?? []).filter((p) => PACKAGE_IMPORT_FILE.test(p)).map((p) => path.dirname(p)));
+  const grownPackages = packageDirs.size ? fileMeta.filter((f) => packageDirs.has(path.dirname(f.path))).map((f) => f.id) : [];
+  const retry = opts.changed
+    ? sql`(${edges.id} > ${opts.newEdgesAfterId} or ${edges.toFileId} is null${grownPackages.length ? sql` or ${edges.toFileId} = any(${intArray(grownPackages)})` : sql``})`
+    : gt(edges.id, opts.newEdgesAfterId);
   let cursor = 0;
   for (;;) {
     const batch = await db
       .select({ id: edges.id, kind: edges.kind, fromFileId: edges.fromFileId, targetName: edges.targetName, line: edges.line, toFileId: edges.toFileId })
       .from(edges)
-      .where(
-        and(
-          eq(edges.orgId, scope.orgId),
-          eq(edges.repoId, scope.repoId),
-          gt(edges.id, cursor),
-          inArray(edges.kind, FILE_EDGE_KINDS),
-          opts.changed ? sql`(${edges.id} > ${opts.newEdgesAfterId} or ${edges.toFileId} is null)` : gt(edges.id, opts.newEdgesAfterId),
-        ),
-      )
+      .where(and(eq(edges.orgId, scope.orgId), eq(edges.repoId, scope.repoId), gt(edges.id, cursor), lte(edges.id, lastId), inArray(edges.kind, FILE_EDGE_KINDS), retry))
       .orderBy(edges.id)
       .limit(BATCH);
     if (batch.length === 0) break;
     cursor = batch[batch.length - 1]!.id;
 
+    // (importer, imported) file pairs already linked, so no file is linked twice by one package import.
     const fromIds = [...new Set(batch.map((e) => e.fromFileId))];
-    const existing = new Set<string>();
+    const linked = new Set<string>();
     for (const r of await db
       .select({ from: edges.fromFileId, to: edges.toFileId })
       .from(edges)
@@ -118,11 +134,12 @@ async function resolveFileEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[],
           sql`${edges.toFileId} is not null`,
         ),
       )) {
-      existing.add(`${r.from}:${r.to}`);
+      linked.add(`${r.from}:${r.to}`);
     }
 
     const updates: { id: number; toFileId: number | null; toSymbolId: number | null; kind: EdgeKind }[] = [];
     const extra: (typeof edges.$inferInsert)[] = [];
+    const redundant: number[] = [];
     for (const e of batch) {
       const from = byId.get(e.fromFileId);
       const lang = from ? (languageForPath(from.path)?.id as LanguageId | undefined) : undefined;
@@ -130,20 +147,36 @@ async function resolveFileEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[],
       const targets = resolveImport(lang, from.path, e.targetName, index)
         .map((p) => idByPath.get(p))
         .filter((id): id is number => id !== undefined);
+      const key = (to: number) => `${e.fromFileId}:${to}`;
+      if (e.kind === "import" && targets.length > 1) {
+        // A Go package or C# namespace spanning several files: one edge per file. An edge that already points at one
+        // of them stays; any other takes a file not yet linked, or is dropped when every file already is (its file
+        // was removed and the remaining ones are linked by sibling edges).
+        if (e.toFileId === null || !targets.includes(e.toFileId)) {
+          const free = targets.find((t) => !linked.has(key(t)));
+          if (free === undefined) {
+            redundant.push(e.id);
+            continue;
+          }
+          updates.push({ id: e.id, toFileId: free, toSymbolId: null, kind: e.kind });
+          linked.add(key(free));
+        }
+        for (const t of targets) {
+          if (linked.has(key(t))) continue;
+          linked.add(key(t));
+          extra.push({ orgId: scope.orgId, repoId: scope.repoId, kind: "import", fromFileId: e.fromFileId, fromSymbolId: null, targetName: e.targetName, toFileId: t, line: e.line });
+        }
+        continue;
+      }
       const first = targets[0] ?? null;
       if (first !== e.toFileId) updates.push({ id: e.id, toFileId: first, toSymbolId: null, kind: e.kind });
-      if (first !== null) existing.add(`${e.fromFileId}:${first}`);
-      // A Go/C# import can resolve to several files of one package; record one edge per extra file.
-      if (e.kind !== "import") continue;
-      for (const t of targets.slice(1)) {
-        const key = `${e.fromFileId}:${t}`;
-        if (existing.has(key)) continue;
-        existing.add(key);
-        extra.push({ orgId: scope.orgId, repoId: scope.repoId, kind: "import", fromFileId: e.fromFileId, fromSymbolId: null, targetName: e.targetName, toFileId: t, line: e.line });
-      }
+      if (first !== null && e.kind === "import") linked.add(key(first));
     }
     await writeUpdates(db, updates);
     for (const b of chunked(extra, WRITE_BATCH)) await db.insert(edges).values(b);
+    for (const ids of chunked(redundant, WRITE_BATCH)) {
+      await db.delete(edges).where(and(eq(edges.orgId, scope.orgId), eq(edges.repoId, scope.repoId), inArray(edges.id, ids)));
+    }
   }
 }
 
@@ -177,7 +210,7 @@ async function resolveSymbolEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[
   const csharpFiles = new Set(fileMeta.filter((f) => f.language === "csharp").map((f) => f.id));
   const retry =
     opts.affectedNames && opts.affectedNames.length > 0
-      ? sql`(${edges.id} > ${opts.newEdgesAfterId} or (${edges.toSymbolId} is null and ${edges.targetName} = any(${textArray(opts.affectedNames)})))`
+      ? sql`(${edges.id} > ${opts.newEdgesAfterId} or ${edges.targetName} = any(${textArray(opts.affectedNames)}))`
       : gt(edges.id, opts.newEdgesAfterId);
   let cursor = 0;
   for (;;) {

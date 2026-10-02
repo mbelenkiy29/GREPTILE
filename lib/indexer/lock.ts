@@ -12,12 +12,20 @@ import type { Db } from "@/lib/db";
 /** First key of the two-int advisory lock; keeps index locks apart from any other advisory lock users. */
 export const INDEX_LOCK_NAMESPACE = 0x6f72_6978; // "orix"
 
-/** Thrown when another run holds the repository's lock; the queue retries the job later. */
+/** Delay before a job that found the lock taken runs again, when the caller does not choose one. */
+export const DEFAULT_LOCK_RETRY_MS = 5_000;
+
+/**
+ * Thrown when another run holds the repository's lock. The queue runs the job again after `retryAfterMs` without
+ * using up one of its attempts (see `retryAfterMs` in `lib/jobs/handlers`).
+ */
 export class IndexLockedError extends Error {
   readonly retryable = true;
-  constructor(repoId: number) {
+  readonly retryAfterMs: number;
+  constructor(repoId: number, retryAfterMs = DEFAULT_LOCK_RETRY_MS) {
     super(`another index run of repository ${repoId} is in progress`);
     this.name = "IndexLockedError";
+    this.retryAfterMs = retryAfterMs;
   }
 }
 

@@ -1045,6 +1045,10 @@ export async function parseSource(filePath: string, source: string, opts: { isTe
     // Go methods and Rust impl members belong to their receiver type when it is declared in this file.
     const typeByName = new Map(drafts.filter((d) => ["struct", "type", "class", "enum", "interface", "trait"].includes(d.kind)).map((d) => [d.name, d]));
     for (const d of drafts) if (d.receiver && !parentOf.get(d)) parentOf.set(d, typeByName.get(d.receiver) ?? null);
+    // Python `def` inside a class body is a method.
+    if (spec.id === "python") {
+      for (const d of drafts) if (d.kind === "function" && ["class", "model"].includes(parentOf.get(d)?.kind ?? "")) d.kind = "method";
+    }
 
     const qualified = new Map<Draft, string>();
     const qualify = (d: Draft, depth = 0): string => {

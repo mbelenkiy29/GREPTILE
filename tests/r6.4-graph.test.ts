@@ -315,3 +315,109 @@ describe("code graph", () => {
     expect(await filesByTag(db, { ...scope, orgId: "org_other" }, ["test"])).toEqual([]);
   });
 });
+
+describe("multi-file packages", () => {
+  const orgId = "org_a";
+  const fixtures: FixtureRepo[] = [];
+  afterAll(() => {
+    for (const f of fixtures) f.cleanup();
+  });
+
+  test("R6.4 links an import of a Go package or C# namespace to every file in it, once each, across re-indexes", async () => {
+    const db = await createTestDb();
+    const fixture = new FixtureRepo();
+    fixtures.push(fixture);
+    fixture.commit({
+      "go.mod": "module example.com/app\n",
+      "cmd/main.go": `package main\n\nimport "example.com/app/pkg/util"\n\nfunc main() {\n\tutil.A()\n}\n`,
+      "pkg/util/a.go": "package util\n\nfunc A() {}\n",
+      "pkg/util/b.go": "package util\n\nfunc B() {}\n",
+      "pkg/util/c.go": "package util\n\nfunc C() {}\n",
+      "App/Program.cs": "using Acme.Billing;\n\nnamespace App {\n  public class Program {}\n}\n",
+      "Acme/Billing/Invoice.cs": "namespace Acme.Billing {\n  public class Invoice {}\n}\n",
+      "Acme/Billing/Receipt.cs": "namespace Acme.Billing {\n  public class Receipt {}\n}\n",
+      "Acme/Billing/Ledger.cs": "namespace Acme.Billing {\n  public class Ledger {}\n}\n",
+    });
+    const host = new FakeGitHost();
+    host.addInstallation(11, "acme", [{ id: 1, fullName: "acme/app", defaultBranch: "main", private: true }]);
+    host.cloneUrls.set("acme/app", fixture.url);
+    const { repos } = await completeInstallation(db, host, { orgId, orgName: "Acme", installationId: 11 });
+    const scope: RepoScope = { orgId, repoId: repos[0]!.id };
+    const deps = { db, host, embedder: new FakeEmbeddings(), cacheDir: tempDir() };
+    const imports = async () => {
+      const fileRows = await db.select().from(files).where(eq(files.repoId, scope.repoId));
+      const pathOf = (id: number | null) => (id === null ? null : (fileRows.find((f) => f.id === id)?.path ?? "?"));
+      const rows = await db.select().from(edges).where(and(eq(edges.repoId, scope.repoId), eq(edges.kind, "import")));
+      return rows.map((e) => `${pathOf(e.fromFileId)} -> ${pathOf(e.toFileId)}`).sort();
+    };
+
+    await indexRepo(deps, scope);
+    expect(await imports()).toEqual([
+      "App/Program.cs -> Acme/Billing/Invoice.cs",
+      "App/Program.cs -> Acme/Billing/Ledger.cs",
+      "App/Program.cs -> Acme/Billing/Receipt.cs",
+      "cmd/main.go -> pkg/util/a.go",
+      "cmd/main.go -> pkg/util/b.go",
+      "cmd/main.go -> pkg/util/c.go",
+    ]);
+    const [b] = await db.select().from(files).where(and(eq(files.repoId, scope.repoId), eq(files.path, "pkg/util/b.go")));
+    expect((await importersOf(db, scope, [b!.id])).map((i) => i.importer.path)).toEqual(["cmd/main.go"]);
+
+    // A file added to the package gains the importer; a removed file's edge is not re-pointed at a sibling.
+    fixture.commit({ "pkg/util/d.go": "package util\n\nfunc D() {}\n", "pkg/util/b.go": null, "Acme/Billing/Tax.cs": "namespace Acme.Billing {\n  public class Tax {}\n}\n" });
+    await indexRepo(deps, scope);
+    expect(await imports()).toEqual([
+      "App/Program.cs -> Acme/Billing/Invoice.cs",
+      "App/Program.cs -> Acme/Billing/Ledger.cs",
+      "App/Program.cs -> Acme/Billing/Receipt.cs",
+      "App/Program.cs -> Acme/Billing/Tax.cs",
+      "cmd/main.go -> pkg/util/a.go",
+      "cmd/main.go -> pkg/util/c.go",
+      "cmd/main.go -> pkg/util/d.go",
+    ]);
+
+    // Re-parsing the importer re-creates one edge per file.
+    fixture.commit({ "cmd/main.go": `package main\n\nimport "example.com/app/pkg/util"\n\nfunc main() {\n\tutil.C()\n}\n` });
+    await indexRepo(deps, scope);
+    expect((await imports()).filter((i) => i.startsWith("cmd/"))).toEqual(["cmd/main.go -> pkg/util/a.go", "cmd/main.go -> pkg/util/c.go", "cmd/main.go -> pkg/util/d.go"]);
+  });
+});
+
+describe("incremental call resolution", () => {
+  const fixtures: FixtureRepo[] = [];
+  afterAll(() => {
+    for (const f of fixtures) f.cleanup();
+  });
+
+  test("R6.4 re-points a call resolved to a fallback symbol when a better candidate appears in an imported file", async () => {
+    const orgId = "org_a";
+    const db = await createTestDb();
+    const fixture = new FixtureRepo();
+    fixtures.push(fixture);
+    fixture.commit({
+      "src/main.ts": `import { other } from "./util";\n\nexport function main() {\n  other();\n  return helper();\n}\n`,
+      "src/util.ts": "export function other() {}\n",
+      "lib/unrelated.ts": "export function helper() { return 0; }\n",
+    });
+    const host = new FakeGitHost();
+    host.addInstallation(11, "acme", [{ id: 1, fullName: "acme/app", defaultBranch: "main", private: true }]);
+    host.cloneUrls.set("acme/app", fixture.url);
+    const { repos } = await completeInstallation(db, host, { orgId, orgName: "Acme", installationId: 11 });
+    const scope: RepoScope = { orgId, repoId: repos[0]!.id };
+    const deps = { db, host, embedder: new FakeEmbeddings(), cacheDir: tempDir() };
+    const helperTarget = async () => {
+      const [main] = await db.select().from(symbols).where(and(eq(symbols.repoId, scope.repoId), eq(symbols.name, "main")));
+      const callees = await calleesOf(db, scope, [main!.id]);
+      return callees.filter((c) => c.callee.name === "helper").map((c) => c.callee.path);
+    };
+
+    await indexRepo(deps, scope);
+    expect(await helperTarget()).toEqual(["lib/unrelated.ts"]);
+
+    // Only util.ts changes; main.ts is not re-parsed, yet its call now resolves into the file it imports.
+    fixture.commit({ "src/util.ts": "export function other() {}\nexport function helper() { return 1; }\n" });
+    const res = await indexRepo(deps, scope);
+    expect(res.filesParsed).toBe(1);
+    expect(await helperTarget()).toEqual(["src/util.ts"]);
+  });
+});
