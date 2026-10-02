@@ -67,7 +67,10 @@ describe("mining rules from human reviewers", () => {
     await send("pull_request_review_comment", comment(101, "redelivered under a new delivery id", "maria", 3));
     await send("pull_request", { ...base, action: "closed", pull_request: { number: 6 } });
     expect(await fx.db.select().from(humanReviewComments)).toHaveLength(4);
-    expect(queue.jobs.map((j) => [j.name, j.data])).toContainEqual(["mine-rules", { orgId: "org_a", repoId: fx.repo.id }]);
+    expect(queue.jobs.map((j) => [j.name, j.data])).toContainEqual([
+      "mine-rules",
+      { orgId: "org_a", repoId: fx.repo.id, meta: { deliveryId: expect.any(String) } },
+    ]);
   });
 
   test("R2.5 mining proposes candidate rules with evidence, skipping duplicates and unsupported ones", async () => {

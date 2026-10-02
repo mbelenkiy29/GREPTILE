@@ -18,6 +18,8 @@ const schema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().min(1),
   GITHUB_WEBHOOK_SECRET: z.string().min(1),
   GITHUB_API_URL: z.string().url().default("https://api.github.com"),
+  /** Web origin of the GitHub instance (GitHub Enterprise Server: `https://ghe.example.com`). */
+  GITHUB_WEB_URL: z.string().url().default("https://github.com"),
   /** Login that `@mentions` the bot in PR comments (R1.7). */
   BOT_MENTION: z.string().default("openreview"),
 
@@ -31,6 +33,10 @@ const schema = z.object({
   EMBEDDING_API_KEY: optional,
 
   REPO_CACHE_DIR: z.string().default("/tmp/openreview-repos"),
+  /** Concurrent jobs per worker process. */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(4),
+  /** Webhook delivery records older than this are pruned by the worker (R6.21). */
+  WEBHOOK_DELIVERY_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
 });
 
 export type Env = z.infer<typeof schema>;

@@ -134,8 +134,14 @@ export function createLogger(context: LogContext = {}): Logger {
 /** Root logger for server code. */
 export const log: Logger = createLogger({ service: process.env.OPENREVIEW_SERVICE ?? "openreview" });
 
-/** Error message (and nothing else) for persisting in a status column; credentials are redacted. */
+/**
+ * Error message (and nothing else) for persisting in a status column; credentials are redacted. A wrapped error's
+ * cause (e.g. the connection error behind a failed query) is appended and survives truncation.
+ */
 export function errorMessage(err: unknown, max = 2000): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  return redactText(msg).slice(0, max);
+  const msg = redactText(err instanceof Error ? err.message : String(err));
+  const cause = err instanceof Error && err.cause instanceof Error ? redactText(err.cause.message) : "";
+  if (!cause || msg.includes(cause)) return msg.slice(0, max);
+  const suffix = ` (cause: ${cause.slice(0, 500)})`;
+  return `${msg.slice(0, Math.max(0, max - suffix.length))}${suffix}`;
 }

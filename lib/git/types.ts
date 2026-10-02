@@ -6,6 +6,12 @@
 export interface RemoteInstallation {
   id: number;
   accountLogin: string;
+  /** `User` or `Organization`, when the host reports it. */
+  accountType?: string;
+  /** Permissions granted to the app, e.g. `{ pull_requests: "write" }`; absent when the host does not report them. */
+  permissions?: Record<string, string>;
+  /** `all` or `selected`. */
+  repositorySelection?: string;
 }
 
 export interface RemoteRepo {
@@ -13,6 +19,8 @@ export interface RemoteRepo {
   fullName: string;
   defaultBranch: string;
   private: boolean;
+  /** Archived (read-only) on the host, when reported. */
+  archived?: boolean;
 }
 
 export interface PullRequest {
@@ -87,6 +95,11 @@ export interface GitClient {
   createIssueComment(repo: string, number: number, body: string): Promise<IssueComment>;
   updateIssueComment(repo: string, commentId: number, body: string): Promise<IssueComment>;
   listReviewComments(repo: string, number: number): Promise<ReviewComment[]>;
+  /**
+   * Replies in an inline review thread. `commentId` must be the thread's top-level comment (GitHub does not
+   * support replies to replies).
+   */
+  replyToReviewComment(repo: string, number: number, commentId: number, body: string): Promise<ReviewComment>;
   listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]>;
   /** Posts a review with inline comments on the RIGHT side of the diff at `commitId`. */
   createReview(

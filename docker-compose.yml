@@ -73,6 +73,15 @@ services:
       REPO_CACHE_DIR: /data/repos
     volumes:
       - repocache:/data/repos
+    # Time for in-flight reviews and indexing to finish after SIGTERM before Docker kills the worker.
+    stop_grace_period: 5m
+    # Healthy while this container's worker refreshes its Redis heartbeat (every 15 s).
+    healthcheck:
+      test: ["CMD", "node_modules/.bin/tsx", "worker/healthcheck.ts"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     depends_on:
       app:
         condition: service_healthy

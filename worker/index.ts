@@ -2,15 +2,29 @@
  * Background worker: consumes the BullMQ queue (indexing, reviews, mention
  * answers). Run with `pnpm worker`; in Docker Compose it is the `worker` service.
  */
-import { Worker } from "bullmq";
+import { hostname } from "node:os";
+import { DelayedError, Worker } from "bullmq";
+import { pruneDeliveries } from "@/lib/data/deliveries";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
-import { runJob, type JobDeps } from "@/lib/jobs/handlers";
+import { runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
+import { startHeartbeat } from "@/lib/jobs/heartbeat";
+import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import { QUEUE_NAME, bullQueue } from "@/lib/jobs/queue";
-import type { JobName } from "@/lib/jobs/types";
 import { embeddings, llm } from "@/lib/llm";
+import { errorMessage, log, redactText } from "@/lib/log";
 import { redis } from "@/lib/redis";
+
+const wlog = log.child({ component: "worker", host: hostname(), pid: process.pid });
+
+process.on("unhandledRejection", (reason) => {
+  wlog.error("unhandled promise rejection", { error: errorMessage(reason) });
+});
+process.on("uncaughtException", (err) => {
+  wlog.error("uncaught exception; exiting", { error: errorMessage(err), stack: err.stack ? redactText(err.stack) : undefined });
+  process.exit(1);
+});
 
 const e = env();
 const deps: JobDeps = {
@@ -23,19 +37,60 @@ const deps: JobDeps = {
   botMention: e.BOT_MENTION,
 };
 
+let active = 0;
 const worker = new Worker(
   QUEUE_NAME,
-  async (job) => runJob(deps, job.name as JobName, job.data),
-  { connection: redis(), concurrency: Number(process.env.WORKER_CONCURRENCY ?? 4) },
+  async (job, token) => {
+    active++;
+    try {
+      return await runObservedJob(deps, { name: job.name, id: job.id, data: job.data, attemptsMade: job.attemptsMade }, wlog);
+    } catch (err) {
+      // A GitHub rate limit that resets minutes from now: wait for the reset rather than spend the retries.
+      if (await deferIfRateLimited(job, token, err, { log: wlog })) throw new DelayedError();
+      throw err;
+    } finally {
+      active--;
+    }
+  },
+  { connection: redis(), concurrency: e.WORKER_CONCURRENCY },
 );
 
-worker.on("completed", (job) => console.log(`[worker] ${job.name} ${job.id} completed`));
-worker.on("failed", (job, err) => console.error(`[worker] ${job?.name} ${job?.id} failed: ${err.message}`));
+worker.on("error", (err) => wlog.error("worker error", { error: errorMessage(err) }));
+worker.on("stalled", (jobId) => wlog.warn("job stalled; it will be retried", { jobId }));
 
-async function shutdown() {
+const heartbeat = startHeartbeat(redis(), {
+  host: hostname(),
+  pid: process.pid,
+  queue: QUEUE_NAME,
+  concurrency: e.WORKER_CONCURRENCY,
+  active: () => active,
+  log: wlog,
+});
+
+/** Retention for webhook delivery records (R6.21), hourly. */
+async function prune() {
+  try {
+    const removed = await pruneDeliveries(deps.db, new Date(Date.now() - e.WEBHOOK_DELIVERY_RETENTION_DAYS * 86_400_000));
+    if (removed) wlog.info("pruned webhook deliveries", { removed, retentionDays: e.WEBHOOK_DELIVERY_RETENTION_DAYS });
+  } catch (err) {
+    wlog.warn("pruning webhook deliveries failed", { error: errorMessage(err) });
+  }
+}
+void prune();
+const pruneTimer = setInterval(() => void prune(), 3_600_000);
+pruneTimer.unref();
+
+let stopping = false;
+async function shutdown(signal: string) {
+  if (stopping) return;
+  stopping = true;
+  wlog.info("worker shutting down", { signal, active });
+  clearInterval(pruneTimer);
+  // Drain active jobs first so the heartbeat (and the container healthcheck) stays truthful meanwhile.
   await worker.close();
+  await heartbeat.stop();
   process.exit(0);
 }
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-console.log(`[worker] listening on queue "${QUEUE_NAME}"`);
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+wlog.info("worker listening", { queue: QUEUE_NAME, concurrency: e.WORKER_CONCURRENCY });

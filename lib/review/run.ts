@@ -37,7 +37,7 @@ export async function runReviewJob(
     .innerJoin(installations, eq(repos.installationId, installations.id))
     .where(and(eq(repos.orgId, job.orgId), eq(repos.id, job.repoId)));
   if (!row) throw new Error(`repo ${job.repoId} not found for org ${job.orgId}`);
-  if (!row.repo.enabled || row.installation.suspended) return { status: "skipped" as const };
+  if (!row.repo.enabled || row.repo.archived || row.installation.suspended) return { status: "skipped" as const };
 
   const client = deps.host.client(row.installation.externalId);
   const pr = await client.getPullRequest(row.repo.fullName, job.prNumber);
