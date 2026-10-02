@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { installations, repos, webhookDeliveries } from "@/lib/db/schema";
+import { humanReviewComments, installations, repos, reviewComments, webhookDeliveries } from "@/lib/db/schema";
 import { findInstallationByExternalId, syncInstallationRepos } from "@/lib/data/installations";
 import type { GitHost } from "@/lib/git/types";
 import { enqueueIndexForNewRepos } from "@/lib/jobs/enqueue";
@@ -55,9 +55,13 @@ export async function routeGitHubEvent(deps: WebhookDeps, event: string, payload
     // Reactions have no webhook; collect feedback on our comments once the PR is done (R2.4).
     const repo = await repoFor(db, host, payload);
     if (!repo) return { status: "ignored", reason: "repository not connected" };
-    const jobId = `feedback-${repo.id}-${payload.pull_request.number}-closed`;
-    await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber: payload.pull_request.number }, { jobId });
-    return { status: "accepted", jobs: [jobId] };
+    const prNumber = payload.pull_request.number;
+    const jobId = `feedback-${repo.id}-${prNumber}-closed`;
+    await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber }, { jobId });
+    // Teammates' comments on the finished PR may hold conventions worth turning into rules (R2.5).
+    const mineId = `mine-${repo.id}-${prNumber}`;
+    await queue.add("mine-rules", { orgId: repo.orgId, repoId: repo.id }, { jobId: mineId });
+    return { status: "accepted", jobs: [jobId, mineId] };
   }
 
   if (event === "pull_request_review_comment") {
@@ -68,11 +72,30 @@ export async function routeGitHubEvent(deps: WebhookDeps, event: string, payload
     if (!repo) return { status: "ignored", reason: "repository not connected" };
     const prNumber = payload.pull_request?.number;
     if (comment?.in_reply_to_id) {
-      const jobId = `feedback-${repo.id}-${prNumber}-${comment.id}`;
-      await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber }, { jobId });
-      return { status: "accepted", jobs: [jobId] };
+      const [ours] = await db
+        .select({ id: reviewComments.id })
+        .from(reviewComments)
+        .where(and(eq(reviewComments.orgId, repo.orgId), eq(reviewComments.externalId, comment.in_reply_to_id)));
+      if (ours) {
+        const jobId = `feedback-${repo.id}-${prNumber}-${comment.id}`;
+        await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber }, { jobId });
+        return { status: "accepted", jobs: [jobId] };
+      }
     }
-    return { status: "ignored", reason: "not a reply" };
+    // A teammate's own review comment: keep it for rule mining (R2.5).
+    await db
+      .insert(humanReviewComments)
+      .values({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        prNumber,
+        externalId: comment.id,
+        author: comment.user?.login ?? "",
+        path: comment.path ?? "",
+        body: String(comment.body ?? "").slice(0, 8000),
+      })
+      .onConflictDoNothing();
+    return { status: "accepted", jobs: [] };
   }
 
   if (event === "pull_request") {

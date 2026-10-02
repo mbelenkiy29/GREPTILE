@@ -128,9 +128,9 @@ describe("learning from feedback", () => {
     await send("pull_request_review_comment", { ...base, action: "created", comment: { id: 77, in_reply_to_id: logicC.id, body: "nope", user: { login: "ops", type: "User" } } }, "a");
     await send("pull_request_review_comment", { ...base, action: "created", comment: { id: 78, in_reply_to_id: logicC.id, body: "x", user: { login: "ci", type: "Bot" } } }, "b");
     await send("pull_request", { ...base, action: "closed" }, "c");
-    expect(queue.jobs.map((j) => [j.name, j.jobId])).toEqual([
-      ["sync-feedback", `feedback-${f0.repo.id}-7-77`],
-      ["sync-feedback", `feedback-${f0.repo.id}-7-closed`],
+    expect(queue.jobs.filter((j) => j.name === "sync-feedback").map((j) => j.jobId)).toEqual([
+      `feedback-${f0.repo.id}-7-77`,
+      `feedback-${f0.repo.id}-7-closed`,
     ]);
   });
 

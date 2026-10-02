@@ -332,3 +332,23 @@ export const commentFeedback = pgTable(
   },
   (t) => [uniqueIndex("comment_feedback_uq").on(t.reviewCommentId, t.kind, t.externalId), index().on(t.orgId)],
 );
+
+/** Inline review comments written by teammates, mined into candidate rules (R2.5). */
+export const humanReviewComments = pgTable(
+  "human_review_comments",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    externalId: bigint("external_id", { mode: "number" }).notNull(),
+    author: text("author").notNull(),
+    path: text("path").notNull(),
+    body: text("body").notNull(),
+    minedAt: timestamp("mined_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("human_review_comments_uq").on(t.repoId, t.externalId), index().on(t.orgId, t.repoId, t.minedAt)],
+);

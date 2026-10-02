@@ -2,6 +2,7 @@ export interface JobPayloads {
   "index-repo": { orgId: string; repoId: number; mode: "full" | "incremental"; afterSha?: string };
   "review-pr": { orgId: string; repoId: number; prNumber: number; headSha: string };
   "sync-feedback": { orgId: string; repoId: number; prNumber: number };
+  "mine-rules": { orgId: string; repoId: number };
   "answer-mention": {
     orgId: string;
     repoId: number;

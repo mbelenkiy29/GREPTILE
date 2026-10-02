@@ -3,6 +3,7 @@ import type { GitHost } from "@/lib/git/types";
 import { indexRepo } from "@/lib/indexer";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { syncFeedback } from "@/lib/learning";
+import { mineRules } from "@/lib/learning/mining";
 import { answerMention } from "@/lib/review/mention";
 import { runReviewJob } from "@/lib/review/run";
 import type { JobName, JobPayloads, JobQueue } from "./types";
@@ -24,6 +25,7 @@ export const handlers: Handlers = {
   "review-pr": (deps, data) => runReviewJob(deps, data),
   "answer-mention": (deps, data) => answerMention(deps, data),
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
+  "mine-rules": (deps, data) => mineRules(deps, data),
 };
 
 export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N]) {
