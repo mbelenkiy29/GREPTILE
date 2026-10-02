@@ -54,11 +54,11 @@ critical or high finding cannot have confidence above 3.`;
  */
 export async function reviewPullRequest(
   deps: { db: Db; llm: LlmProvider; embedder?: EmbeddingProvider },
-  input: { orgId: string; repoId: number; repoFullName: string; prNumber: number; client: GitClient },
+  input: { orgId: string; repoId: number; repoFullName: string; prNumber: number; client: GitClient; pr?: PullRequest },
   opts: ReviewOptions = {},
 ): Promise<ReviewResult> {
   const { client, repoFullName } = input;
-  const pr = await client.getPullRequest(repoFullName, input.prNumber);
+  const pr = input.pr ?? (await client.getPullRequest(repoFullName, input.prNumber));
   const prFiles = await client.listPullRequestFiles(repoFullName, input.prNumber);
   const diffs = prFiles
     .filter((f) => f.status !== "removed" && f.patch && isReviewablePath(f.path, opts.ignore))

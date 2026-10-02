@@ -34,6 +34,11 @@ export async function runReviewJob(
   if (!row) throw new Error(`repo ${job.repoId} not found for org ${job.orgId}`);
   if (!row.repo.enabled || row.installation.suspended) return { status: "skipped" as const };
 
+  const client = deps.host.client(row.installation.externalId);
+  const pr = await client.getPullRequest(row.repo.fullName, job.prNumber);
+  // Only the newest commit is reviewed; an older job that runs late must not overwrite newer output.
+  if (pr.state !== "open" || pr.headSha !== job.headSha) return { status: "superseded" as const };
+
   const [review] = await db
     .insert(reviews)
     .values({ orgId: job.orgId, repoId: job.repoId, prNumber: job.prNumber, headSha: job.headSha, status: "running", runs: 1 })
@@ -43,11 +48,10 @@ export async function runReviewJob(
     })
     .returning();
 
-  const client = deps.host.client(row.installation.externalId);
   try {
     const result = await reviewPullRequest(
       deps,
-      { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client },
+      { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client, pr },
       opts,
     );
     const published = await publishReview(
