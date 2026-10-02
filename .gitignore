@@ -10,3 +10,6 @@ next-env.d.ts
 coverage/
 playwright-report/
 test-results/
+
+# Agent worktrees and local Claude Code state
+.claude/worktrees/
