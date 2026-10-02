@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { ROLE_LABEL } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listInvitationsForUser } from "@/lib/data/members";
-import { listUserOrgs, ORG_ERROR_MESSAGES, type OrgErrorCode } from "@/lib/data/orgs";
+import { listUserOrgs, ORG_ERROR_MESSAGES, orgErrorCode } from "@/lib/data/orgs";
 import { acceptListedInvitation, createOrgAction, switchOrg } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,8 @@ export default async function OrgsPage({ searchParams }: { searchParams: Promise
     listInvitationsForUser(db(), { id: session.userId, email: session.user.email, githubLogin: session.user.githubLogin }, new Date()),
   ]);
   const { error } = await searchParams;
-  const errorText = typeof error === "string" ? (ORG_ERROR_MESSAGES[error as OrgErrorCode] ?? null) : null;
+  const errorCode = orgErrorCode(error);
+  const errorText = errorCode ? ORG_ERROR_MESSAGES[errorCode] : null;
 
   return (
     <div className="shell">

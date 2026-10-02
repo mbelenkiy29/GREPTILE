@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { authGate } from "@/lib/auth/proxy";
@@ -9,13 +10,14 @@ import {
   createGitHubSignInStartHandler,
   createLogoutHandler,
 } from "@/lib/auth/handlers";
-import { signInErrorMessage } from "@/lib/auth/messages";
+import { installMessage, lookupMessage, signInErrorMessage } from "@/lib/auth/messages";
 import { openOAuthState, pkceChallenge, sealOAuthState } from "@/lib/auth/oauth";
-import { safeNextPath } from "@/lib/auth/redirect";
+import { safeNextPath, signInPath } from "@/lib/auth/redirect";
 import { authorizeRequest } from "@/lib/auth/request";
-import { createSession, validateSessionToken } from "@/lib/auth/sessions";
+import { createSession, pruneExpiredSessions, validateSessionToken } from "@/lib/auth/sessions";
 import { decryptSecret, hashToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
+import { orgErrorCode } from "@/lib/data/orgs";
 import { authAccounts, memberships, orgs, sessions, users } from "@/lib/db/schema";
 import { parseAuthEnv } from "@/lib/env";
 import { setLogSink } from "@/lib/log";
@@ -190,7 +192,7 @@ describe("GitHub sign-in", () => {
     expect(lines.join("\n")).not.toContain(session.value);
   });
 
-  test("R6.1 a second sign-in reuses the user and replaces the stored GitHub token", async () => {
+  test("R6.1 a second sign-in reuses the user, refreshes the profile, and replaces the stored GitHub token", async () => {
     const first = await signIn(fakeGitHub({ accessToken: "ghu_first000000000000000000000000000" }));
     const firstCookie = setCookies(first).get(SESSION_COOKIE)!.value;
     const [before] = await db.select().from(users);
@@ -221,6 +223,12 @@ describe("GitHub sign-in", () => {
     });
     expect(setCookies(other).get(SESSION_COOKIE)?.value).toMatch(/^[\w-]{43}$/);
     expect(await validateSessionToken(db, firstCookie, { now: NOW, ttlDays: 30 })).toBeNull();
+
+    // An address GitHub no longer reports (removed or unverified) is cleared, so it stops matching invitations.
+    expect((await db.select().from(users).where(eq(users.id, before!.id)))[0]?.email).toBe(before!.email);
+    expect(before!.email).not.toBeNull();
+    await signIn(fakeGitHub({ emails: { status: 403 } }), { now: later });
+    expect((await db.select().from(users).where(eq(users.id, before!.id)))[0]?.email).toBeNull();
   });
 
   test("R6.1 sign-in only redirects to safe same-origin paths", async () => {
@@ -230,6 +238,11 @@ describe("GitHub sign-in", () => {
     for (const bad of [
       "//evil.example",
       "///evil.example",
+      "/.//evil.example",
+      "/a/..//evil.example",
+      "/x/./..//evil.example",
+      "/%2e//evil.example",
+      "/a/%2e%2e//evil.example",
       "/\\evil.example",
       "\\\\evil.example",
       "https://evil.example/dashboard",
@@ -250,6 +263,14 @@ describe("GitHub sign-in", () => {
     expect(res.headers.get("location")).toBe("https://review.example.com/dashboard");
     const res2 = await signIn(fakeGitHub(), { next: "/\\evil.example" });
     expect(res2.headers.get("location")).toBe("https://review.example.com/dashboard");
+    for (const next of ["/.//evil.example", "/a/..//evil.example", "/x/./..//evil.example"]) {
+      const dotted = await signIn(fakeGitHub(), { next });
+      const location = new URL(dotted.headers.get("location")!);
+      expect(location.origin, next).toBe("https://review.example.com");
+      expect(location.pathname, next).toBe("/dashboard");
+    }
+    expect(signInPath("/.//evil.example")).toBe("/sign-in");
+    expect(safeNextPath("/a/../dashboard/team")).toBe("/dashboard/team");
   });
 
   test("R6.1 sign-in failures redirect to /sign-in with a readable error and create nothing", async () => {
@@ -282,6 +303,36 @@ describe("GitHub sign-in", () => {
     expect(noEmail.headers.get("location")).toBe("https://review.example.com/dashboard");
     expect((await db.select().from(users))[0]?.email).toBeNull();
   });
+
+  test("R6.1 error and notice codes from the URL resolve only to known messages", () => {
+    for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      expect(signInErrorMessage(code)).toBe("Sign-in failed. Please try again.");
+      expect(installMessage(code)).toBeUndefined();
+      expect(orgErrorCode(code)).toBeNull();
+    }
+    expect(signInErrorMessage("access_denied")).toMatch(/cancelled/);
+    expect(installMessage("not_accessible")).toMatch(/can't access that installation/);
+    expect(installMessage(["ok"])).toBeUndefined();
+    expect(orgErrorCode("last_owner")).toBe("last_owner");
+    expect(orgErrorCode(["last_owner"])).toBeNull();
+    expect(lookupMessage({ known: "Known." }, "known")).toBe("Known.");
+  });
+
+  test("R6.1 signing in again never re-adds a personal-workspace membership that was taken away", async () => {
+    await signIn(fakeGitHub());
+    const [user] = await db.select().from(users);
+    const before = await db.select().from(orgs);
+    await db.delete(memberships).where(eq(memberships.userId, user!.id));
+
+    const later = new Date(NOW.getTime() + DAY);
+    const again = await signIn(fakeGitHub(), { now: later });
+    expect(again.status).toBe(302);
+    expect(await db.select().from(memberships)).toEqual([]);
+    // No second personal workspace either; the session starts without an org, which sends the user to /orgs.
+    expect(await db.select().from(orgs)).toEqual(before);
+    const token = setCookies(again).get(SESSION_COOKIE)!.value;
+    expect((await validateSessionToken(db, token, { now: later, ttlDays: 30 }))?.activeOrgId).toBeNull();
+  });
 });
 
 describe("sessions", () => {
@@ -312,6 +363,29 @@ describe("sessions", () => {
     const res = await authorizeRequest({ db, clock: clock(0) }, new Request(`${config.appUrl}/api/x`, { headers: { cookie: stale.cookie } }));
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.response.status).toBe(401);
+  });
+
+  test("R6.1 signing in deletes expired sessions of every user, in bounded batches", async () => {
+    const gone = await makeUser(db, "gone");
+    const stays = await makeUser(db, "stays");
+    const longAgo = new Date(NOW.getTime() - 40 * DAY);
+    const live = await signedInCookie(db, stays.id, null, new Date(NOW.getTime() - DAY));
+    await signedInCookie(db, gone.id, null, longAgo);
+    await signedInCookie(db, gone.id, null, longAgo);
+    expect(await db.select().from(sessions)).toHaveLength(3);
+
+    // Another user signing in removes the abandoned sessions (with their IP and user agent) of users who never return.
+    const res = await signIn(fakeGitHub());
+    const octo = setCookies(res).get(SESSION_COOKIE)!.value;
+    expect((await db.select({ id: sessions.id }).from(sessions)).map((r) => r.id).sort()).toEqual([live.sessionId, hashToken(octo)].sort());
+
+    // Each pass deletes at most `limit` rows.
+    for (let i = 0; i < 3; i++) await signedInCookie(db, gone.id, null, longAgo);
+    await pruneExpiredSessions(db, NOW, 2);
+    expect(await db.select().from(sessions).where(eq(sessions.userId, gone.id))).toHaveLength(1);
+    await pruneExpiredSessions(db, NOW);
+    expect(await db.select().from(sessions).where(eq(sessions.userId, gone.id))).toEqual([]);
+    expect(await validateSessionToken(db, live.token, { now: NOW, ttlDays: 30 })).toMatchObject({ userId: stays.id });
   });
 
   test("R6.1 logout requires a same-origin request, deletes the session, and clears the cookie", async () => {

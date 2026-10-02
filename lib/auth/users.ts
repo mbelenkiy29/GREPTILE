@@ -42,8 +42,9 @@ export async function upsertGitHubUser(
         avatarUrl: profile.avatarUrl,
         githubLogin: profile.login,
         lastLoginAt: now,
-        // Keep the last known address if GitHub stops sharing one.
-        ...(profile.email ? { email: profile.email } : {}),
+        // Always mirror what GitHub returns now, even null: an address the user no longer holds (verified) must not
+        // keep matching invitations sent to it.
+        email: profile.email,
       },
     })
     .returning();

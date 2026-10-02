@@ -236,6 +236,42 @@ describe("members", () => {
     await leaveOrg(db, { orgId: org.id, userId: member.id });
     expect(await roles(org.id)).toEqual({ owen: "owner", adam: "owner" });
   });
+
+  test("R6.1 a personal workspace's creator stays its owner: nobody can remove or demote them, they cannot leave, and sign-in never re-grants access", async () => {
+    const alice = await makeUser(db, "alice");
+    const personal = await ensurePersonalOrg(db, { id: alice.id, name: "alice", githubLogin: "alice" });
+    const bob = await makeUser(db, "bob");
+    const carl = await makeUser(db, "carl");
+    await addMember(db, personal.id, bob.id, "owner");
+    await addMember(db, personal.id, carl.id, "admin");
+
+    // Even with a second owner, the creator cannot be removed, demoted, or leave.
+    expect(await refused(removeMember(db, { orgId: personal.id, actorId: bob.id, targetUserId: alice.id }))).toBe("personal_owner");
+    expect(await refused(changeMemberRole(db, { orgId: personal.id, actorId: bob.id, targetUserId: alice.id, role: "admin" }))).toBe("personal_owner");
+    expect(await refused(removeMember(db, { orgId: personal.id, actorId: carl.id, targetUserId: alice.id }))).toBe("forbidden");
+    expect(await refused(leaveOrg(db, { orgId: personal.id, userId: alice.id }))).toBe("personal_owner");
+    expect(await refused(removeMember(db, { orgId: personal.id, actorId: alice.id, targetUserId: alice.id }))).toBe("personal_owner");
+    expect(await roles(personal.id)).toEqual({ alice: "owner", bob: "owner", carl: "admin" });
+    expect((await listMembers(db, personal.id)).filter((m) => m.workspaceCreator).map((m) => m.name)).toEqual(["alice"]);
+
+    // Everyone else in it is an ordinary member: the creator manages them and they can leave.
+    await changeMemberRole(db, { orgId: personal.id, actorId: alice.id, targetUserId: bob.id, role: "admin" });
+    await removeMember(db, { orgId: personal.id, actorId: alice.id, targetUserId: bob.id });
+    await leaveOrg(db, { orgId: personal.id, userId: carl.id });
+    expect(await roles(personal.id)).toEqual({ alice: "owner" });
+
+    // The creator of a regular org has no special standing.
+    const team = await createOrg(db, { name: "Team", createdBy: alice.id });
+    await addMember(db, team.id, bob.id, "owner");
+    expect((await listMembers(db, team.id)).some((m) => m.workspaceCreator)).toBe(false);
+    await removeMember(db, { orgId: team.id, actorId: bob.id, targetUserId: alice.id });
+    expect(await roles(team.id)).toEqual({ bob: "owner" });
+
+    // ensurePersonalOrg runs on every sign-in and never grants a membership back, however it disappeared.
+    await db.delete(memberships).where(eq(memberships.userId, alice.id));
+    expect(await ensurePersonalOrg(db, { id: alice.id, name: "alice", githubLogin: "alice" })).toEqual(personal);
+    expect(await listUserOrgs(db, alice.id)).toEqual([]);
+  });
 });
 
 describe("invitations", () => {
@@ -289,7 +325,8 @@ describe("invitations", () => {
     // Pending invitations addressed to the user are listed on /orgs and can be accepted there.
     const listed = await listInvitationsForUser(db, { id: mallory.id, email: "mallory@example.com", githubLogin: "mallory" }, NOW);
     expect(listed.map((i) => [i.orgName, i.email])).toEqual([["Orbit", "mallory@example.com"]]);
-    expect(await refused(acceptInvitationById(db, { invitationId: pendingInvite.invitation.id, user: ivyIdentity, now: NOW }))).toBe("wrong_user");
+    const zedIdentity = { id: other.user.id, email: other.user.email, githubLogin: other.user.githubLogin };
+    expect(await refused(acceptInvitationById(db, { invitationId: pendingInvite.invitation.id, user: zedIdentity, now: NOW }))).toBe("wrong_user");
     await acceptInvitationById(db, { invitationId: pendingInvite.invitation.id, user: { id: mallory.id, email: "mallory@example.com", githubLogin: "mallory" }, now: NOW });
     expect((await roles(org.id)).mallory).toBe("member");
     expect(await listInvitationsForUser(db, { id: mallory.id, email: "mallory@example.com", githubLogin: "mallory" }, NOW)).toEqual([]);
@@ -303,5 +340,47 @@ describe("invitations", () => {
     expect(() => parseInviteTarget("not an email@")).toThrow(OrgError);
     expect(() => parseInviteTarget("-bad-login-")).toThrow(OrgError);
     expect(parseInviteTarget("  Dev@Example.COM ")).toEqual({ email: "dev@example.com" });
+  });
+
+  test("R6.1 inviting an existing member is refused whatever the casing of their GitHub login or email", async () => {
+    const owner = await userWithOrg(db, { login: "olive" });
+    // Logins and emails are stored as GitHub returned them, e.g. "OctoCat".
+    const octo = await makeUser(db, "OctoCat", "Octo.Cat@Example.com");
+    await addMember(db, owner.org.id, octo.id, "member");
+    for (const target of ["@octocat", "OCTOCAT", "OctoCat", "octo.cat@example.com", "OCTO.CAT@EXAMPLE.COM"]) {
+      expect(await refused(createInvitation(db, { orgId: owner.org.id, actorId: owner.user.id, target: parseInviteTarget(target), role: "member", now: NOW }))).toBe(
+        "already_member",
+      );
+    }
+    expect(await db.select().from(invitations)).toEqual([]);
+    // Someone else with a similar login can still be invited.
+    await createInvitation(db, { orgId: owner.org.id, actorId: owner.user.id, target: parseInviteTarget("octocat2"), role: "member", now: NOW });
+    expect(await db.select().from(invitations)).toHaveLength(1);
+  });
+
+  test("R6.1 an existing member opening an invitation link is taken to the org without using the link up", async () => {
+    const owner = await userWithOrg(db, { login: "opal" });
+    const mem = await makeUser(db, "mem");
+    await addMember(db, owner.org.id, mem.id, "member");
+    const memIdentity = { id: mem.id, email: mem.email, githubLogin: mem.githubLogin };
+    const open = await createInvitation(db, { orgId: owner.org.id, actorId: owner.user.id, target: {}, role: "admin", now: NOW });
+
+    // The member keeps their role and the link stays pending on the admins' list.
+    expect(await acceptInvitation(db, { token: open.token, user: memIdentity, now: NOW })).toEqual({ orgId: owner.org.id });
+    expect(await roles(owner.org.id)).toEqual({ opal: "owner", mem: "member" });
+    const [untouched] = await db.select().from(invitations).where(eq(invitations.id, open.invitation.id));
+    expect(untouched).toMatchObject({ acceptedAt: null, acceptedBy: null });
+    expect((await listOrgInvitations(db, owner.org.id, NOW)).map((i) => i.id)).toEqual([open.invitation.id]);
+
+    // The teammate it was meant for can still use it, and then it is spent for everyone else.
+    const newbie = await makeUser(db, "newbie");
+    await acceptInvitation(db, { token: open.token, user: { id: newbie.id, email: newbie.email, githubLogin: newbie.githubLogin }, now: NOW });
+    expect(await roles(owner.org.id)).toEqual({ opal: "owner", mem: "member", newbie: "admin" });
+    expect(await listOrgInvitations(db, owner.org.id, NOW)).toEqual([]);
+    const late = await makeUser(db, "late");
+    expect(await refused(acceptInvitation(db, { token: open.token, user: { id: late.id, email: late.email, githubLogin: late.githubLogin }, now: NOW }))).toBe(
+      "already_accepted",
+    );
+    expect(await acceptInvitation(db, { token: open.token, user: memIdentity, now: NOW })).toEqual({ orgId: owner.org.id });
   });
 });

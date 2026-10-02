@@ -50,12 +50,13 @@ function oauthCookie(config: AuthConfig, value: string, maxAge: number): string 
  * Signs `userId` in on this browser. A valid session for the same user is kept (re-authorizing GitHub must not
  * log you out); a session for someone else is ended and replaced.
  */
-async function startSession(deps: AuthHandlerDeps, req: Request, userId: string, fallbackOrgId: string, now: Date): Promise<string[]> {
+async function startSession(deps: AuthHandlerDeps, req: Request, userId: string, now: Date): Promise<string[]> {
   const sessionClock = { now, ttlDays: deps.config.sessionTtlDays };
   const existing = await sessionFromRequest(deps.db, req, sessionClock);
   if (existing?.userId === userId) return [];
   if (existing) await deleteSessionByToken(deps.db, readCookie(req, SESSION_COOKIE));
-  const activeOrgId = (await defaultOrgForUser(deps.db, userId)) ?? fallbackOrgId;
+  // Only an org the user is a member of; none (null) sends them to /orgs.
+  const activeOrgId = await defaultOrgForUser(deps.db, userId);
   const { token } = await createSession(deps.db, { userId, activeOrgId, ...sessionClock, ...requestMetadata(req) });
   return issueSessionCookies(deps.config, token);
 }
@@ -112,8 +113,8 @@ export function createGitHubSignInCallbackHandler(factory: Factory<AuthHandlerDe
       );
       const profile = await fetchGitHubProfile(token.accessToken, { fetch: deps.fetch, apiUrl: config.githubApiUrl });
       const { user, created } = await upsertGitHubUser(db, { profile, token, now });
-      const personal = await ensurePersonalOrg(db, user);
-      const cookies = await startSession(deps, req, user.id, personal.id, now);
+      await ensurePersonalOrg(db, user);
+      const cookies = await startSession(deps, req, user.id, now);
       log.info("signed in with GitHub", { userId: user.id, githubLogin: profile.login, newUser: created });
       return redirectTo(appUrl(config, safeNextPath(saved.next)), [clearState, ...cookies]);
     } catch (err) {
@@ -158,8 +159,8 @@ export function createDevLoginHandler(factory: Factory<AuthHandlerDeps>) {
     const next = safeNextPath(form?.get("next"));
     const now = clock(deps);
     const user = await upsertDevUser(db, now);
-    const personal = await ensurePersonalOrg(db, user);
-    const cookies = await startSession(deps, req, user.id, personal.id, now);
+    await ensurePersonalOrg(db, user);
+    const cookies = await startSession(deps, req, user.id, now);
     log.info("signed in with dev login", { userId: user.id });
     return redirectTo(appUrl(config, next), cookies, 303);
   };

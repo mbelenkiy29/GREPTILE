@@ -77,7 +77,7 @@ export async function removeFromOrg(formData: FormData) {
   done(await attempt(() => removeMember(db(), { orgId: ctx.orgId, actorId: ctx.userId, targetUserId: String(formData.get("userId") ?? "") })));
 }
 
-/** Any member can leave, except the last owner. */
+/** Any member can leave, except the last owner and the creator of a personal workspace. */
 export async function leaveCurrentOrg() {
   const ctx = await requireOrg();
   const error = await attempt(() => leaveOrg(db(), { orgId: ctx.orgId, userId: ctx.userId }));

@@ -4,7 +4,7 @@ import { requireOrg } from "@/lib/auth";
 import { can, canManageMember, ROLE_LABEL, ROLES, type Role } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listMembers, listOrgInvitations } from "@/lib/data/members";
-import { ORG_ERROR_MESSAGES, type OrgErrorCode } from "@/lib/data/orgs";
+import { ORG_ERROR_MESSAGES, orgErrorCode } from "@/lib/data/orgs";
 import { changeRole, inviteMember, leaveCurrentOrg, removeFromOrg, revokeInvite } from "./actions";
 import { InviteForm } from "./InviteForm";
 
@@ -23,9 +23,11 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
     canInvite ? listOrgInvitations(db(), ctx.orgId, new Date()) : Promise.resolve([]),
   ]);
   const { error } = await searchParams;
-  const errorText = typeof error === "string" ? (ORG_ERROR_MESSAGES[error as OrgErrorCode] ?? null) : null;
+  const errorCode = orgErrorCode(error);
+  const errorText = errorCode ? ORG_ERROR_MESSAGES[errorCode] : null;
   const owners = members.filter((m) => m.role === "owner").length;
   const lastOwner = ctx.role === "owner" && owners <= 1;
+  const ownWorkspace = members.some((m) => m.userId === ctx.userId && m.workspaceCreator);
 
   return (
     <div className="stack">
@@ -55,8 +57,10 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
           </thead>
           <tbody>
             {members.map((m) => {
-              const options = m.userId === ctx.userId ? [] : roleOptions(ctx.role, m.role);
-              const removable = m.userId !== ctx.userId && canManageMember(ctx.role, m.role, null);
+              // A personal workspace's creator always stays its owner.
+              const managed = m.userId !== ctx.userId && !m.workspaceCreator;
+              const options = managed ? roleOptions(ctx.role, m.role) : [];
+              const removable = managed && canManageMember(ctx.role, m.role, null);
               return (
                 <tr key={m.userId} data-member={m.githubLogin ?? m.email ?? m.userId}>
                   <td>
@@ -67,7 +71,10 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
                           {m.name}
                           {m.userId === ctx.userId ? " (you)" : ""}
                         </div>
-                        <div className="dim">{m.githubLogin ? `@${m.githubLogin}` : m.email}</div>
+                        <div className="dim">
+                          {m.githubLogin ? `@${m.githubLogin}` : m.email}
+                          {m.workspaceCreator ? " · personal workspace creator" : ""}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -152,7 +159,9 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
 
       <section className="stack-sm" aria-labelledby="leave-heading">
         <h2 id="leave-heading">Leave {ctx.orgName}</h2>
-        {lastOwner ? (
+        {ownWorkspace ? (
+          <p className="dim">This is your personal workspace. It stays yours, so you can&apos;t leave it.</p>
+        ) : lastOwner ? (
           <p className="dim">You&apos;re the only owner. Make someone else an owner before leaving.</p>
         ) : (
           <form action={leaveCurrentOrg} className="row">

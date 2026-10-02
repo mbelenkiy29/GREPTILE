@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { can, canManageMember, INVITE_ROLES, isRole, type InviteRole, type Role } from "@/lib/auth/permissions";
@@ -11,7 +11,8 @@ import { scoped } from "./tenant";
 /**
  * Team management (R6.1): members, roles, and invitations. Every function derives the acting user's role from the
  * database (never from the client), and role changes run in a transaction that locks the affected memberships and
- * all owners, so concurrent demotions cannot leave an org without an owner.
+ * all owners, so concurrent demotions cannot leave an org without an owner. The creator of a personal workspace is its
+ * permanent owner: nobody can remove or demote them, and they cannot leave it.
  */
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -26,6 +27,8 @@ export interface MemberView {
   githubLogin: string | null;
   role: Role;
   joinedAt: Date;
+  /** This is the org's personal-workspace creator, who always stays an owner. */
+  workspaceCreator: boolean;
 }
 
 export interface InvitationView {
@@ -57,16 +60,21 @@ export async function listMembers(db: Db, orgId: string): Promise<MemberView[]> 
       githubLogin: users.githubLogin,
       role: memberships.role,
       joinedAt: memberships.createdAt,
+      workspaceCreator: sql<boolean>`coalesce(${orgs.personal} and ${orgs.createdBy} = ${users.id}, false)`,
     })
     .from(memberships)
     .innerJoin(users, eq(memberships.userId, users.id))
+    .innerJoin(orgs, eq(memberships.orgId, orgs.id))
     .where(scoped(memberships, orgId))
     .orderBy(asc(memberships.role), asc(users.name));
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-/** Locks the given users' memberships and every owner membership of the org, in id order (deadlock-free). */
+/**
+ * Locks the given users' memberships and every owner membership of the org, in id order (deadlock-free), and reads
+ * who created the org if it is a personal workspace (`personal` and `created_by` never change after creation).
+ */
 async function lockMemberships(tx: Tx, orgId: string, userIds: string[]) {
   const rows = await tx
     .select({ id: memberships.id, userId: memberships.userId, role: memberships.role })
@@ -74,9 +82,13 @@ async function lockMemberships(tx: Tx, orgId: string, userIds: string[]) {
     .where(scoped(memberships, orgId, or(inArray(memberships.userId, userIds), eq(memberships.role, "owner"))))
     .orderBy(asc(memberships.id))
     .for("update");
+  const [org] = await tx.select({ personal: orgs.personal, createdBy: orgs.createdBy }).from(orgs).where(eq(orgs.id, orgId));
+  const creator = org?.personal ? org.createdBy : null;
   return {
     find: (userId: string) => rows.find((r) => r.userId === userId),
     owners: rows.filter((r) => r.role === "owner").length,
+    /** Whether `userId` created this personal workspace (and so must stay its owner). */
+    isWorkspaceCreator: (userId: string) => creator !== null && creator === userId,
   };
 }
 
@@ -87,7 +99,10 @@ async function detachSessions(tx: Tx, orgId: string, userId: string) {
     .where(and(eq(sessions.userId, userId), eq(sessions.activeOrgId, orgId)));
 }
 
-/** Changes a member's role. Only owners grant or revoke ownership; the last owner cannot be demoted. */
+/**
+ * Changes a member's role. Only owners grant or revoke ownership; the last owner and a personal workspace's creator
+ * cannot be demoted.
+ */
 export async function changeMemberRole(
   db: Db,
   input: { orgId: string; actorId: string; targetUserId: string; role: string },
@@ -102,13 +117,17 @@ export async function changeMemberRole(
     if (!target) throw new OrgError("not_found");
     if (!canManageMember(actor.role, target.role, role)) throw new OrgError("forbidden");
     if (target.role === role) return role;
+    if (role !== "owner" && locked.isWorkspaceCreator(target.userId)) throw new OrgError("personal_owner");
     if (target.role === "owner" && locked.owners <= 1) throw new OrgError("last_owner");
     await tx.update(memberships).set({ role }).where(scoped(memberships, input.orgId, eq(memberships.id, target.id)));
     return role;
   });
 }
 
-/** Removes someone else from the org. Admins remove admins and members; only owners remove owners. */
+/**
+ * Removes someone else from the org. Admins remove admins and members; only owners remove owners; nobody removes a
+ * personal workspace's creator.
+ */
 export async function removeMember(db: Db, input: { orgId: string; actorId: string; targetUserId: string }): Promise<void> {
   if (input.actorId === input.targetUserId) return leaveOrg(db, { orgId: input.orgId, userId: input.actorId });
   await db.transaction(async (tx) => {
@@ -118,18 +137,20 @@ export async function removeMember(db: Db, input: { orgId: string; actorId: stri
     const target = locked.find(input.targetUserId);
     if (!target) throw new OrgError("not_found");
     if (!canManageMember(actor.role, target.role, null)) throw new OrgError("forbidden");
+    if (locked.isWorkspaceCreator(target.userId)) throw new OrgError("personal_owner");
     if (target.role === "owner" && locked.owners <= 1) throw new OrgError("last_owner");
     await tx.delete(memberships).where(scoped(memberships, input.orgId, eq(memberships.id, target.id)));
     await detachSessions(tx, input.orgId, input.targetUserId);
   });
 }
 
-/** Leaves an org. Anyone can leave except the last owner. */
+/** Leaves an org. Anyone can leave except the last owner and the creator of a personal workspace (their own). */
 export async function leaveOrg(db: Db, input: { orgId: string; userId: string }): Promise<void> {
   await db.transaction(async (tx) => {
     const locked = await lockMemberships(tx, input.orgId, [input.userId]);
     const me = locked.find(input.userId);
     if (!me) throw new OrgError("not_member");
+    if (locked.isWorkspaceCreator(input.userId)) throw new OrgError("personal_owner");
     if (me.role === "owner" && locked.owners <= 1) throw new OrgError("last_owner");
     await tx.delete(memberships).where(scoped(memberships, input.orgId, eq(memberships.id, me.id)));
     await detachSessions(tx, input.orgId, input.userId);
@@ -173,9 +194,10 @@ export async function createInvitation(
   const email = input.target.email?.toLowerCase() || null;
   const githubLogin = input.target.githubLogin?.toLowerCase() || null;
   if (email || githubLogin) {
+    // Stored emails and logins keep their original casing (e.g. GitHub's "OctoCat"); compare case-insensitively.
     const matches: SQL[] = [];
-    if (email) matches.push(eq(users.email, email));
-    if (githubLogin) matches.push(eq(users.githubLogin, githubLogin));
+    if (email) matches.push(sql`lower(${users.email}) = ${email}`);
+    if (githubLogin) matches.push(sql`lower(${users.githubLogin}) = ${githubLogin}`);
     const [existing] = await db
       .select({ id: users.id })
       .from(memberships)
@@ -272,12 +294,11 @@ export async function findInvitationByToken(db: Db, token: string) {
 }
 
 async function acceptRow(db: Db, inv: InvitationRow, user: InviteeIdentity, now: Date): Promise<{ orgId: string }> {
+  // Someone who is already a member just goes to the org. The invitation is left untouched, so an open link meant
+  // for a new teammate is not used up (and stays on the admins' pending list).
+  if (await roleOf(db, inv.orgId, user.id)) return { orgId: inv.orgId };
   const state = invitationState(inv, now);
-  if (state === "accepted") {
-    if (inv.acceptedBy === user.id && (await roleOf(db, inv.orgId, user.id))) return { orgId: inv.orgId };
-    throw new OrgError("already_accepted");
-  }
-  if (state !== "pending") throw new OrgError(state);
+  if (state !== "pending") throw new OrgError(state === "accepted" ? "already_accepted" : state);
   if (!invitationTargetsUser(inv, user)) throw new OrgError("wrong_user");
   return db.transaction(async (tx) => {
     const claimed = await tx
@@ -287,7 +308,7 @@ async function acceptRow(db: Db, inv: InvitationRow, user: InviteeIdentity, now:
       .returning({ id: invitations.id });
     // Lost a race with another accept or a revoke.
     if (!claimed.length) throw new OrgError("already_accepted");
-    // Someone who is already a member keeps their current role.
+    // Joined concurrently through another invitation: they keep the role they already have.
     await tx.insert(memberships).values({ orgId: inv.orgId, userId: user.id, role: inv.role }).onConflictDoNothing();
     return { orgId: inv.orgId };
   });
@@ -295,7 +316,8 @@ async function acceptRow(db: Db, inv: InvitationRow, user: InviteeIdentity, now:
 
 /**
  * Accepts an invitation link: the token must match a pending invitation, and if the invitation names an email or
- * GitHub login it must be the signed-in user's. Creates the membership and marks the invitation accepted.
+ * GitHub login it must be the signed-in user's. Creates the membership and marks the invitation accepted. A user who is
+ * already a member gets the org back without consuming the invitation.
  */
 export async function acceptInvitation(db: Db, input: { token: string; user: InviteeIdentity; now: Date }): Promise<{ orgId: string }> {
   const found = await findInvitationByToken(db, input.token);

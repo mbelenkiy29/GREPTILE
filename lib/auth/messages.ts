@@ -11,9 +11,17 @@ export const SIGN_IN_ERRORS: Record<string, string> = {
   server_error: "Something went wrong while signing you in. Please try again.",
 };
 
+/**
+ * `messages[code]` for an untrusted code (from the URL). Only the map's own keys match, so values such as
+ * `constructor` or `toString` never resolve to Object.prototype members.
+ */
+export function lookupMessage(messages: Readonly<Record<string, string>>, code: unknown): string | undefined {
+  return typeof code === "string" && Object.hasOwn(messages, code) ? messages[code] : undefined;
+}
+
 export function signInErrorMessage(code: string | undefined | null): string | null {
   if (!code) return null;
-  return SIGN_IN_ERRORS[code] ?? "Sign-in failed. Please try again.";
+  return lookupMessage(SIGN_IN_ERRORS, code) ?? "Sign-in failed. Please try again.";
 }
 
 /** Outcomes of the GitHub App install callback, shown on the Repositories page (R1.1). */
@@ -27,3 +35,8 @@ export const INSTALL_MESSAGES: Record<string, string> = {
   forbidden: "Only owners and admins can connect GitHub repositories.",
   github_unavailable: "We couldn't reach GitHub to verify the installation. Please try again.",
 };
+
+/** The message for `/dashboard/repos?install=<code>`, or undefined for unknown codes. */
+export function installMessage(code: unknown): string | undefined {
+  return lookupMessage(INSTALL_MESSAGES, code);
+}

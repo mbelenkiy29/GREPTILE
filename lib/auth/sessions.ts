@@ -1,4 +1,4 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import { hashToken, randomToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
 import { getMembership } from "@/lib/data/orgs";
@@ -14,6 +14,8 @@ import { readCookie, SESSION_COOKIE } from "./cookies";
 export const SESSION_RENEW_INTERVAL_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_TOKEN_LENGTH = 200;
+/** Most expired rows one sign-in deletes, so a large backlog never slows a single request down. */
+export const SESSION_PRUNE_BATCH = 500;
 
 export interface SessionUser {
   id: string;
@@ -39,7 +41,16 @@ export interface SessionClock {
   ttlDays: number;
 }
 
-/** Issues a new session and returns the raw token for the cookie. Prunes the user's expired sessions. */
+/**
+ * Deletes up to `limit` expired sessions of any user (using the index on `expires_at`), so rows of users who never
+ * come back, with their IP and user agent, do not stay forever. Runs on every sign-in.
+ */
+export async function pruneExpiredSessions(db: Db, now: Date, limit: number = SESSION_PRUNE_BATCH): Promise<void> {
+  const expired = db.select({ id: sessions.id }).from(sessions).where(lt(sessions.expiresAt, now)).limit(limit);
+  await db.delete(sessions).where(inArray(sessions.id, expired));
+}
+
+/** Issues a new session and returns the raw token for the cookie. Prunes expired sessions first. */
 export async function createSession(
   db: Db,
   input: { userId: string; activeOrgId: string | null; ip?: string | null; userAgent?: string | null } & SessionClock,
@@ -47,7 +58,7 @@ export async function createSession(
   const token = randomToken(32);
   const id = hashToken(token);
   const expiresAt = new Date(input.now.getTime() + input.ttlDays * DAY_MS);
-  await db.delete(sessions).where(and(eq(sessions.userId, input.userId), lt(sessions.expiresAt, input.now)));
+  await pruneExpiredSessions(db, input.now);
   await db.insert(sessions).values({
     id,
     userId: input.userId,

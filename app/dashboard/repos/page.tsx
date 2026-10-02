@@ -1,6 +1,6 @@
 import { ReposTable } from "@/components/dashboard/ReposTable";
 import { requireOrg } from "@/lib/auth";
-import { INSTALL_MESSAGES } from "@/lib/auth/messages";
+import { installMessage } from "@/lib/auth/messages";
 import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listRepos } from "@/lib/data/installations";
@@ -11,7 +11,7 @@ export default async function ReposPage({ searchParams }: { searchParams: Promis
   const manage = can(role, "repos.manage");
   const repos = await listRepos(db(), orgId);
   const { install } = await searchParams;
-  const message = install ? INSTALL_MESSAGES[install] : undefined;
+  const message = installMessage(install);
   return (
     <div className="stack">
       <div className="page-head">

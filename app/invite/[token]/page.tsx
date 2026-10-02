@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { ROLE_LABEL } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { findInvitationByToken, invitationState, invitationTargetsUser } from "@/lib/data/members";
-import { getMembership, ORG_ERROR_MESSAGES, type OrgErrorCode } from "@/lib/data/orgs";
+import { getMembership, ORG_ERROR_MESSAGES, orgErrorCode, type OrgErrorCode } from "@/lib/data/orgs";
 import { acceptInviteAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -48,13 +48,22 @@ export default async function InvitePage({
 
   const inv = found.invitation;
   const state = invitationState(inv, new Date());
-  if (state === "accepted" && inv.acceptedBy === session.userId && (await getMembership(db(), inv.orgId, session.userId))) {
+  // Existing members are not asked to accept: doing so would not change anything, and an open link must stay
+  // usable for the teammate it was meant for. "Open" switches to the org without consuming the invitation.
+  if (await getMembership(db(), inv.orgId, session.userId)) {
     return (
       <Card title={`You're a member of ${found.orgName}`}>
-        <p className="dim">You already accepted this invitation.</p>
-        <Link className="button button-primary" href="/orgs">
-          Open your organizations
-        </Link>
+        <p className="dim">
+          {state === "accepted" && inv.acceptedBy === session.userId
+            ? "You already accepted this invitation."
+            : "You're already in this organization, so this invitation isn't needed. It stays available for the person it was meant for."}
+        </p>
+        <form action={acceptInviteAction}>
+          <input type="hidden" name="token" value={token} />
+          <button className="button button-primary button-block" type="submit">
+            Open {found.orgName}
+          </button>
+        </form>
       </Card>
     );
   }
@@ -65,7 +74,7 @@ export default async function InvitePage({
   else if (state !== "pending") problem = state;
   else if (!invitationTargetsUser(inv, identity)) problem = "wrong_user";
   // An error reported back by a failed accept attempt (e.g. a concurrent revoke).
-  const reported = typeof error === "string" && error in ORG_ERROR_MESSAGES ? (error as OrgErrorCode) : null;
+  const reported = orgErrorCode(error);
 
   if (problem) {
     return (

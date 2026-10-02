@@ -33,7 +33,8 @@ export type OrgErrorCode =
   | "expired"
   | "revoked"
   | "already_accepted"
-  | "wrong_user";
+  | "wrong_user"
+  | "personal_owner";
 
 export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   forbidden: "You don't have permission to do that.",
@@ -49,7 +50,13 @@ export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   revoked: "This invitation was revoked.",
   already_accepted: "This invitation was already used.",
   wrong_user: "This invitation was sent to a different account. Sign in with the invited GitHub account or email.",
+  personal_owner: "A personal workspace always belongs to the person who created it. They stay its owner and can't be removed, demoted, or leave.",
 };
+
+/** The error code named by an untrusted value (e.g. `?error=` in a URL), or null. Only own keys match, never `constructor`. */
+export function orgErrorCode(value: unknown): OrgErrorCode | null {
+  return typeof value === "string" && Object.hasOwn(ORG_ERROR_MESSAGES, value) ? (value as OrgErrorCode) : null;
+}
 
 /** A refused org/membership operation. `code` is stable and safe to show (see ORG_ERROR_MESSAGES). */
 export class OrgError extends Error {
@@ -128,7 +135,12 @@ export async function createOrg(
   }
 }
 
-/** The user's personal workspace, created (with an owner membership) on first sign-in. */
+/**
+ * The user's personal workspace, created with its owner membership on first sign-in. An existing workspace is returned
+ * as is: memberships are never granted here, so sign-in cannot restore access that was taken away. The creator cannot
+ * lose that membership in the first place (see `lib/data/members.ts`), which keeps "every user has a personal
+ * workspace" true.
+ */
 export async function ensurePersonalOrg(
   db: Db,
   user: { id: string; name: string; githubLogin?: string | null },
@@ -141,10 +153,7 @@ export async function ensurePersonalOrg(
     return row;
   };
   const existing = await find();
-  if (existing) {
-    await db.insert(memberships).values({ orgId: existing.id, userId: user.id, role: "owner" }).onConflictDoNothing();
-    return existing;
-  }
+  if (existing) return existing;
   const handle = user.githubLogin || user.name || "personal";
   try {
     return await createOrg(db, { name: `${handle}'s workspace`.slice(0, 80), createdBy: user.id, personal: true, slugFrom: handle });
