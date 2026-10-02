@@ -1,44 +1,47 @@
 import { ReposTable } from "@/components/dashboard/ReposTable";
 import { requireOrg } from "@/lib/auth";
+import { INSTALL_MESSAGES } from "@/lib/auth/messages";
+import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listRepos } from "@/lib/data/installations";
 import { reindexRepo, toggleRepo } from "./actions";
 
-const INSTALL_MESSAGES: Record<string, string> = {
-  ok: "GitHub connected. Selected repositories are being indexed.",
-  invalid_state: "The install link expired or belongs to another organization. Please try again.",
-  missing_installation: "GitHub did not return an installation. Please try again.",
-  owned_elsewhere: "That GitHub installation is already connected to another organization.",
-};
-
 export default async function ReposPage({ searchParams }: { searchParams: Promise<{ install?: string }> }) {
-  const { orgId } = await requireOrg();
+  const { orgId, role } = await requireOrg();
+  const manage = can(role, "repos.manage");
   const repos = await listRepos(db(), orgId);
   const { install } = await searchParams;
+  const message = install ? INSTALL_MESSAGES[install] : undefined;
   return (
     <div className="stack">
       <div className="page-head">
         <h1>Repositories</h1>
-        <a className="button button-primary" href="/api/github/install">
-          {repos.length ? "Add repositories" : "Connect GitHub"}
-        </a>
+        {manage && (
+          <a className="button button-primary" href="/api/github/install">
+            {repos.length ? "Add repositories" : "Connect GitHub"}
+          </a>
+        )}
       </div>
-      {install && INSTALL_MESSAGES[install] && <p className="notice">{INSTALL_MESSAGES[install]}</p>}
+      {message && <p className={install === "ok" || install === "requested" ? "notice" : "notice notice-bad"}>{message}</p>}
       <div className="table-wrap">
         <ReposTable
           repos={repos}
           actions={(r) => (
             <>
               <a className="button" href={`/dashboard/repos/${r.id}`}>Settings</a>
-              <form action={toggleRepo}>
-                <input type="hidden" name="repoId" value={r.id} />
-                <input type="hidden" name="enabled" value={String(!r.enabled)} />
-                <button className="button" type="submit">{r.enabled ? "Pause reviews" : "Resume reviews"}</button>
-              </form>
-              <form action={reindexRepo}>
-                <input type="hidden" name="repoId" value={r.id} />
-                <button className="button" type="submit" disabled={r.indexStatus === "indexing"}>Re-index</button>
-              </form>
+              {manage && (
+                <>
+                  <form action={toggleRepo}>
+                    <input type="hidden" name="repoId" value={r.id} />
+                    <input type="hidden" name="enabled" value={String(!r.enabled)} />
+                    <button className="button" type="submit">{r.enabled ? "Pause reviews" : "Resume reviews"}</button>
+                  </form>
+                  <form action={reindexRepo}>
+                    <input type="hidden" name="repoId" value={r.id} />
+                    <button className="button" type="submit" disabled={r.indexStatus === "indexing"}>Re-index</button>
+                  </form>
+                </>
+              )}
             </>
           )}
         />

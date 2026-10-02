@@ -11,7 +11,7 @@ function repoIdFrom(formData: FormData) {
 }
 
 export async function addRule(formData: FormData) {
-  const { orgId, userId } = await requireOrg();
+  const { orgId, userId } = await requireOrg({ permission: "rules.manage" });
   await createRule(db(), orgId, {
     text: String(formData.get("text") ?? ""),
     repoId: repoIdFrom(formData),
@@ -22,7 +22,7 @@ export async function addRule(formData: FormData) {
 }
 
 export async function editRule(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "rules.manage" });
   await updateRule(db(), orgId, Number(formData.get("ruleId")), {
     text: String(formData.get("text") ?? ""),
     paths: parsePathsInput(String(formData.get("paths") ?? "")),
@@ -31,13 +31,13 @@ export async function editRule(formData: FormData) {
 }
 
 export async function removeRule(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "rules.manage" });
   await deleteRule(db(), orgId, Number(formData.get("ruleId")));
   revalidatePath("/dashboard/rules");
 }
 
 export async function setRuleStatus(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "rules.manage" });
   const status = String(formData.get("status"));
   if (status !== "active" && status !== "rejected") return;
   await updateRule(db(), orgId, Number(formData.get("ruleId")), { status });

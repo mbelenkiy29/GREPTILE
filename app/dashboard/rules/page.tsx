@@ -1,5 +1,6 @@
 import { RulesList, type RuleItem } from "@/components/dashboard/RulesList";
 import { requireOrg } from "@/lib/auth";
+import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listRepos } from "@/lib/data/installations";
 import { listRules } from "@/lib/data/rules";
@@ -10,7 +11,8 @@ function toItem(r: Awaited<ReturnType<typeof listRules>>[number]): RuleItem {
 }
 
 export default async function RulesPage() {
-  const { orgId } = await requireOrg();
+  const { orgId, role } = await requireOrg();
+  const manage = can(role, "rules.manage");
   const [active, candidates, repos] = await Promise.all([
     listRules(db(), orgId, { status: ["active"] }),
     listRules(db(), orgId, { status: ["candidate"] }),
@@ -24,8 +26,10 @@ export default async function RulesPage() {
       <p className="dim">
         Write rules in plain English. Reviews enforce them on matching files and cite the rule in the comment. Rules can
         also live in a repository&apos;s <code>openreview.json</code>.
+        {!manage && " Only owners and admins can change rules."}
       </p>
 
+      {manage && (
       <form action={addRule} className="comment">
         <label className="stack-sm">
           <span className="strong">New rule</span>
@@ -49,6 +53,7 @@ export default async function RulesPage() {
           <button className="button button-primary" type="submit">Add rule</button>
         </div>
       </form>
+      )}
 
       {candidates.length > 0 && (
         <section className="stack-sm">
@@ -56,7 +61,7 @@ export default async function RulesPage() {
           <RulesList
             rules={candidates.map(toItem)}
             empty=""
-            actions={(r) => (
+            actions={manage ? (r) => (
               <>
                 <form action={setRuleStatus}>
                   <input type="hidden" name="ruleId" value={r.id} />
@@ -69,7 +74,7 @@ export default async function RulesPage() {
                   <button className="button" type="submit">Dismiss</button>
                 </form>
               </>
-            )}
+            ) : undefined}
           />
         </section>
       )}
@@ -79,7 +84,7 @@ export default async function RulesPage() {
         <RulesList
           rules={active.map(toItem)}
           empty="No rules yet."
-          actions={(r) => (
+          actions={manage ? (r) => (
             <>
               <form action={editRule} className="row">
                 <input type="hidden" name="ruleId" value={r.id} />
@@ -92,7 +97,7 @@ export default async function RulesPage() {
                 <button className="button" type="submit">Delete</button>
               </form>
             </>
-          )}
+          ) : undefined}
         />
       </section>
     </div>

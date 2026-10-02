@@ -7,13 +7,13 @@ import { getRepo, setRepoEnabled, updateRepoSettings } from "@/lib/data/installa
 import { bullQueue } from "@/lib/jobs/queue";
 
 export async function toggleRepo(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "repos.manage" });
   await setRepoEnabled(db(), orgId, Number(formData.get("repoId")), formData.get("enabled") === "true");
   revalidatePath("/dashboard/repos");
 }
 
 export async function reindexRepo(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "repos.manage" });
   const repo = await getRepo(db(), orgId, Number(formData.get("repoId")));
   if (!repo) return;
   await bullQueue.add("index-repo", { orgId, repoId: repo.id, mode: "full" }, { jobId: `index-${repo.id}-manual-${Date.now()}` });
@@ -25,7 +25,7 @@ function lines(v: FormDataEntryValue | null) {
 }
 
 export async function saveRepoSettings(formData: FormData) {
-  const { orgId } = await requireOrg();
+  const { orgId } = await requireOrg({ permission: "settings.manage" });
   const repoId = Number(formData.get("repoId"));
   const commentTypes = formData.getAll("commentTypes").map(String) as ("logic" | "security" | "style")[];
   await updateRepoSettings(db(), orgId, repoId, {
