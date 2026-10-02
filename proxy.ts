@@ -7,6 +7,6 @@ export default clerkMiddleware(async (auth, req) => {
 });
 
 export const config = {
-  // Webhooks and the health check authenticate on their own and must not depend on Clerk.
-  matcher: ["/((?!_next|api/health|api/webhooks|.*\\.(?:css|js|png|jpg|svg|ico|woff2?)$).*)"],
+  // Only routes that use Clerk. Public pages, webhooks, and the health check never depend on it.
+  matcher: ["/dashboard/:path*", "/select-org/:path*", "/sign-in/:path*", "/api/github/:path*"],
 };

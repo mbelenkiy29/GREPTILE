@@ -19,12 +19,23 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
+# Background worker (indexing, reviews, mention answers). Needs git for repository checkouts.
+FROM base AS worker
+RUN apk add --no-cache git
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN addgroup -S app && adduser -S app -G app && mkdir -p /data/repos && chown app:app /data/repos
+USER app
+CMD ["node_modules/.bin/tsx", "worker/index.ts"]
+
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 RUN addgroup -S app && adduser -S app -G app
 COPY --from=build --chown=app:app /app/.next/standalone ./
 COPY --from=build --chown=app:app /app/.next/static ./.next/static
+COPY --from=build --chown=app:app /app/drizzle ./drizzle
 USER app
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=5 \

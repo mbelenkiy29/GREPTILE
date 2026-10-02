@@ -32,9 +32,13 @@ services:
   app:
     build:
       context: .
+      target: runner
       secrets:
         - extra_ca
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-tracewise}:${POSTGRES_PASSWORD:-tracewise}@postgres:5432/${POSTGRES_DB:-tracewise}
       REDIS_URL: redis://redis:6379
@@ -52,11 +56,33 @@ services:
       start_period: 20s
       retries: 5
 
+  worker:
+    build:
+      context: .
+      target: worker
+      secrets:
+        - extra_ca
+    # Needs the GitHub App and LLM variables from .env; see .env.example.
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-tracewise}:${POSTGRES_PASSWORD:-tracewise}@postgres:5432/${POSTGRES_DB:-tracewise}
+      REDIS_URL: redis://redis:6379
+      REPO_CACHE_DIR: /data/repos
+    volumes:
+      - repocache:/data/repos
+    depends_on:
+      app:
+        condition: service_healthy
+
 secrets:
   # Set EXTRA_CA_CERT to a PEM bundle only if builds run behind a TLS-intercepting proxy.
   extra_ca:
     file: ${EXTRA_CA_CERT:-./docker/no-extra-ca.pem}
 
 volumes:
+  repocache:
   pgdata:
   redisdata:

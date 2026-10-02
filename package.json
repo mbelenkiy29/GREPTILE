@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
     "verify:parity": "tsx scripts/verify-parity.ts",
     "worker": "tsx worker/index.ts"
   },
