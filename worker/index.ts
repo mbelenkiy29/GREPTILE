@@ -8,7 +8,7 @@ import { pruneDeliveries } from "@/lib/data/deliveries";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
-import { runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
+import { retryAfterMs, runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
 import { startHeartbeat } from "@/lib/jobs/heartbeat";
 import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import { QUEUE_NAME, bullQueue } from "@/lib/jobs/queue";
@@ -47,6 +47,12 @@ const worker = new Worker(
     } catch (err) {
       // A GitHub rate limit that resets minutes from now: wait for the reset rather than spend the retries.
       if (await deferIfRateLimited(job, token, err, { log: wlog })) throw new DelayedError();
+      // Contention (e.g. a repository's index lock) delays the job instead of spending one of its attempts.
+      const delay = retryAfterMs(err);
+      if (delay !== null && token) {
+        await job.moveToDelayed(Date.now() + delay, token);
+        throw new DelayedError();
+      }
       throw err;
     } finally {
       active--;

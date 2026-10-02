@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -11,6 +12,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /** Embedding width stored in pgvector. Shorter provider vectors are zero-padded (cosine-preserving). */
@@ -105,6 +107,10 @@ export const repos = pgTable(
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
     fileCount: integer("file_count").notNull().default(0),
     symbolCount: integer("symbol_count").notNull().default(0),
+    /** Indexed source files per programming language (R6.3). */
+    languages: jsonb("languages").$type<Record<string, number>>().notNull().default({}),
+    /** Most recent index run (R6.3). */
+    lastIndexJobId: integer("last_index_job_id").references((): AnyPgColumn => indexJobs.id, { onDelete: "set null" }),
     /** Dashboard review settings; a repo's openreview.json overrides them key by key (R2.2). */
     settings: jsonb("settings").$type<RepoSettings>().notNull().default({}),
     createdAt: createdAt(),
@@ -160,8 +166,12 @@ export const files = pgTable(
     path: text("path").notNull(),
     language: text("language").notNull(),
     contentHash: text("content_hash").notNull(),
+    /** Classification (R6.3): source, test, config, manifest, schema, migration, route, doc, ci, instructions, generated. */
+    tags: text("tags").array().notNull().default([]),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    lineCount: integer("line_count").notNull().default(0),
   },
-  (t) => [uniqueIndex("files_repo_path_uq").on(t.repoId, t.path), index().on(t.orgId)],
+  (t) => [uniqueIndex("files_repo_path_uq").on(t.repoId, t.path), index().on(t.orgId), index("files_tags_gin").using("gin", t.tags)],
 );
 
 export const symbols = pgTable(
@@ -176,17 +186,51 @@ export const symbols = pgTable(
       .notNull()
       .references(() => files.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /**
+     * function, method, class, interface, type, enum, struct, trait, variable (exported only), module, route, table,
+     * model, test, ci_job (R6.4).
+     */
     kind: text("kind").notNull(),
     startLine: integer("start_line").notNull(),
     endLine: integer("end_line").notNull(),
     /** Source of the symbol (truncated); the chunk that is embedded and shown to reviewers. */
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: EMBEDDING_DIM }),
+    /** Enclosing symbol (method -> class). */
+    parentId: integer("parent_id").references((): AnyPgColumn => symbols.id, { onDelete: "set null" }),
+    exported: boolean("exported").notNull().default(false),
+    /** First line of the definition. */
+    signature: text("signature"),
+    /** Name qualified by its parents, e.g. `Cart.total`. */
+    qualifiedName: text("qualified_name"),
   },
-  (t) => [index().on(t.repoId, t.name), index().on(t.fileId), index().on(t.orgId)],
+  (t) => [
+    index().on(t.repoId, t.name),
+    index().on(t.fileId),
+    index().on(t.orgId),
+    index().on(t.repoId, t.kind),
+    index().on(t.repoId, t.qualifiedName),
+  ],
 );
 
-export const edgeKind = pgEnum("edge_kind", ["call", "import"]);
+/**
+ * Graph relations (R6.4): call, import, export (re-exports), reference, extends, implements, depends_on (module ->
+ * module / external package), tested_by (source file -> test file), route_handler (route -> handler symbol),
+ * schema_consumer (table/model -> consuming file or symbol).
+ */
+export const edgeKind = pgEnum("edge_kind", [
+  "call",
+  "import",
+  "export",
+  "reference",
+  "extends",
+  "implements",
+  "depends_on",
+  "tested_by",
+  "route_handler",
+  "schema_consumer",
+]);
+export type EdgeKind = (typeof edgeKind.enumValues)[number];
 
 /**
  * Graph edges. `call` edges go symbol → symbol (target resolved by name);
@@ -214,6 +258,8 @@ export const edges = pgTable(
   (t) => [
     index().on(t.repoId, t.kind, t.toSymbolId),
     index().on(t.repoId, t.kind, t.toFileId),
+    index().on(t.repoId, t.kind, t.fromFileId),
+    index().on(t.repoId, t.targetName),
     index().on(t.fromSymbolId),
     index().on(t.orgId),
   ],
@@ -416,4 +462,165 @@ export const pendingInstallations = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("pending_installations_provider_external_uq").on(t.provider, t.externalId)],
+);
+
+// ---- indexer (R6.3 / R6.4) ----
+
+export const indexJobKind = pgEnum("index_job_kind", ["full", "incremental"]);
+export const indexJobTrigger = pgEnum("index_job_trigger", ["install", "push", "manual", "schedule", "api"]);
+export const indexJobStatus = pgEnum("index_job_status", ["queued", "running", "completed", "failed", "cancelled"]);
+
+export type IndexPhase = "queued" | "checkout" | "scan" | "parse" | "embed" | "graph" | "finalize" | "done";
+
+export interface IndexProgress {
+  phase: IndexPhase;
+  /** Files that pass the skip rules at the indexed commit. */
+  filesTotal: number;
+  /** Changed files processed so far in the parse phase. */
+  filesDone: number;
+  filesChanged: number;
+  filesRemoved: number;
+  filesSkipped: Record<string, number>;
+  symbols: number;
+  edges: number;
+  /** Symbols and doc chunks embedded so far in the embed phase (absent before it starts). */
+  embedded?: number;
+  /** Lines replaced with `[REDACTED SECRET]` in this run. */
+  secretLinesRedacted: number;
+}
+
+export const EMPTY_INDEX_PROGRESS: IndexProgress = {
+  phase: "queued",
+  filesTotal: 0,
+  filesDone: 0,
+  filesChanged: 0,
+  filesRemoved: 0,
+  filesSkipped: {},
+  symbols: 0,
+  edges: 0,
+  secretLinesRedacted: 0,
+};
+
+/** One index run of a repository: state, progress, retries, and changed files (R6.3). */
+export const indexJobs = pgTable(
+  "index_jobs",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    kind: indexJobKind("kind").notNull(),
+    trigger: indexJobTrigger("trigger").notNull(),
+    status: indexJobStatus("status").notNull().default("queued"),
+    /** Previously indexed commit (null for a first index). */
+    fromSha: text("from_sha"),
+    /** Commit being indexed (the requested sha until checkout resolves it). */
+    toSha: text("to_sha"),
+    /** Queue job id, so retries of one queued job update the same row. */
+    queueJobId: text("queue_job_id"),
+    attempts: integer("attempts").notNull().default(0),
+    progress: jsonb("progress").$type<IndexProgress>().notNull().default(EMPTY_INDEX_PROGRESS),
+    /** Added, modified, and removed paths (first 500). */
+    changedFiles: text("changed_files").array().notNull().default([]),
+    error: text("error"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index().on(t.orgId, t.repoId, t.id), index().on(t.repoId, t.queueJobId)],
+);
+
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
+
+export const chunkKind = pgEnum("chunk_kind", ["code", "doc", "config"]);
+
+/**
+ * Retrieval chunks (R6.3): code by symbol-aligned line windows, docs by heading, config by top-level keys. All are
+ * full-text searchable through `tsv`; doc chunks are also embedded.
+ */
+export const fileChunks = pgTable(
+  "file_chunks",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    fileId: integer("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    kind: chunkKind("kind").notNull(),
+    content: text("content").notNull(),
+    tsv: tsvector("tsv").generatedAlwaysAs(sql`to_tsvector('simple', "content")`),
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIM }),
+  },
+  (t) => [
+    index("file_chunks_tsv_gin").using("gin", t.tsv),
+    index().on(t.repoId, t.path),
+    index().on(t.fileId),
+    index().on(t.orgId),
+  ],
+);
+
+export const dependencyEcosystem = pgEnum("dependency_ecosystem", ["npm", "pypi", "go", "cargo", "maven", "nuget", "rubygems"]);
+export const dependencyKind = pgEnum("dependency_kind", ["prod", "dev", "peer", "build", "optional"]);
+
+/** Dependencies declared in package manifests (R6.3). Rows go with their manifest file. */
+export const repoDependencies = pgTable(
+  "repo_dependencies",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    fileId: integer("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    manifestPath: text("manifest_path").notNull(),
+    ecosystem: dependencyEcosystem("ecosystem").notNull(),
+    name: text("name").notNull(),
+    versionSpec: text("version_spec"),
+    kind: dependencyKind("kind").notNull(),
+  },
+  (t) => [
+    uniqueIndex("repo_dependencies_uq").on(t.repoId, t.manifestPath, t.ecosystem, t.name, t.kind),
+    index().on(t.repoId, t.name),
+    index().on(t.orgId),
+  ],
+);
+
+/** Recent commits of the indexed ref with the paths they touched (R6.3), for "recently changed" context. */
+export const repoCommits = pgTable(
+  "repo_commits",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    parentSha: text("parent_sha"),
+    /** First 500 characters of the message. */
+    message: text("message").notNull(),
+    author: text("author").notNull(),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull(),
+    /** First 200 paths. */
+    changedPaths: text("changed_paths").array().notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("repo_commits_repo_sha_uq").on(t.repoId, t.sha),
+    index().on(t.repoId, t.committedAt),
+    index("repo_commits_paths_gin").using("gin", t.changedPaths),
+    index().on(t.orgId),
+  ],
 );

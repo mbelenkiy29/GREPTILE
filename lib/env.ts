@@ -5,6 +5,8 @@ const optional = z
   .optional()
   .transform((v) => (v ? v : undefined));
 
+const indexMaxFileBytes = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().default(524_288));
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_URL: z.string().url().default("http://localhost:3000"),
@@ -37,6 +39,8 @@ const schema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(4),
   /** Webhook delivery records older than this are pruned by the worker (R6.21). */
   WEBHOOK_DELIVERY_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+  /** Files larger than this many bytes are skipped by the indexer (R6.3). */
+  INDEX_MAX_FILE_BYTES: indexMaxFileBytes,
 });
 
 export type Env = z.infer<typeof schema>;
@@ -52,4 +56,9 @@ export function env(): Env {
 /** Only the variables the health check and db/redis clients need. */
 export function infraEnv() {
   return z.object({ DATABASE_URL: z.string().url(), REDIS_URL: z.string().url() }).parse(process.env);
+}
+
+/** Indexer settings; parsed on their own so indexing does not require the full app env. */
+export function indexerEnv() {
+  return z.object({ INDEX_MAX_FILE_BYTES: indexMaxFileBytes }).parse(process.env);
 }

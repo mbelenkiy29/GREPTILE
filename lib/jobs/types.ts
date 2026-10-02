@@ -18,7 +18,10 @@ export interface JobPayloads {
     repoId: number;
     mode: "full" | "incremental";
     afterSha?: string;
-    trigger?: "push" | "install" | "default_branch" | "manual";
+    /** What caused the run (R6.3); inferred when absent. */
+    trigger?: "install" | "push" | "default_branch" | "manual" | "schedule" | "api";
+    /** Tracked `index_jobs` row created when the job was queued; one is created when absent. */
+    indexJobId?: number;
     meta?: JobMeta;
   };
   "review-pr": {

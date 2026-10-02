@@ -21,20 +21,38 @@ export interface JobDeps {
   log?: Logger;
 }
 
-type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N]) => Promise<unknown> };
+/** Queue-side facts about the job being run (BullMQ job id), when the runner has them. */
+export interface RunMeta {
+  queueJobId?: string;
+}
+
+type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N], meta?: RunMeta) => Promise<unknown> };
 
 export const handlers: Handlers = {
-  "index-repo": (deps, data) => indexRepo(deps, data),
+  "index-repo": (deps, data, meta) =>
+    // A default-branch switch re-indexes the newly indexed branch, which the index records as a push.
+    indexRepo(deps, { ...data, trigger: data.trigger === "default_branch" ? "push" : data.trigger, queueJobId: meta?.queueJobId }),
   "review-pr": (deps, data) => runReviewJob(deps, data),
   "answer-mention": (deps, data) => answerMention(deps, data),
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
   "mine-rules": (deps, data) => mineRules(deps, data),
 };
 
-export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N]) {
-  const handler = handlers[name] as (deps: JobDeps, data: JobPayloads[N]) => Promise<unknown>;
+export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta) {
+  const handler = handlers[name] as (deps: JobDeps, data: JobPayloads[N], meta?: RunMeta) => Promise<unknown>;
   if (!handler) throw new Error(`unknown job ${name}`);
-  return handler(deps, data);
+  return handler(deps, data, meta);
+}
+
+/**
+ * Delay after which a job that failed with `err` should run again without using up one of its queue attempts, or
+ * null for an ordinary failure. Errors opt in with a numeric `retryAfterMs` (e.g. `IndexLockedError` while another
+ * index run of the repository holds its lock), so a push that arrives during a long index is never dropped.
+ */
+export function retryAfterMs(err: unknown): number | null {
+  if (typeof err !== "object" || err === null || !("retryAfterMs" in err)) return null;
+  const ms = (err as { retryAfterMs: unknown }).retryAfterMs;
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : null;
 }
 
 /** Correlation ids for a job's log lines, taken from its payload (R6.21). */
@@ -70,7 +88,7 @@ export async function runObservedJob(
   jobLog.info("job started");
   const started = performance.now();
   try {
-    const result = await runJob({ ...deps, log: jobLog }, name, job.data as JobPayloads[typeof name]);
+    const result = await runJob({ ...deps, log: jobLog }, name, job.data as JobPayloads[typeof name], job.id ? { queueJobId: job.id } : undefined);
     const status = result && typeof result === "object" && "status" in result ? String((result as { status: unknown }).status) : undefined;
     jobLog.info("job completed", { durationMs: Math.round(performance.now() - started), ...(status ? { outcome: status } : {}) });
     return result;

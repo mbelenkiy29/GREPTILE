@@ -33,7 +33,7 @@ describe("tree-sitter parsing", () => {
     [
       "pkg/service.py",
       `from .repo import load\nimport json\n\nclass Service:\n    def run(self):\n        return json.dumps(load())\n`,
-      ["class:Service", "function:run"],
+      ["class:Service", "method:run"],
       ["dumps", "load"],
       [".repo", "json"],
     ],
@@ -126,7 +126,7 @@ describe("repository indexing", () => {
       "src/checkout.ts": `import { computeTotal } from "./pricing";\nexport function checkout(items: number[]) {\n  return { total: computeTotal(items) };\n}\n`,
       "worker/jobs.py": `from .queue import enqueue\n\ndef schedule(job):\n    return enqueue(job)\n`,
       "worker/queue.py": `def enqueue(job):\n    return job\n`,
-      "README.md": "# not indexed\n",
+      "README.md": "# Shop\n",
       "node_modules/dep/index.js": "function ignored() {}\n",
     });
     const host = new FakeGitHost();
@@ -156,10 +156,12 @@ describe("repository indexing", () => {
   test("R1.3 indexes a repository into files → symbols → call/import edges with embeddings", async () => {
     const head = fixture.git("rev-parse", "HEAD");
     const res = await indexRepo(deps, { orgId, repoId });
-    expect(res).toMatchObject({ sha: head, filesParsed: 4, filesRemoved: 0 });
+    // Docs are indexed too (R6.3): the README is a file with chunks but no symbols.
+    expect(res).toMatchObject({ sha: head, filesParsed: 5, filesRemoved: 0 });
 
     const g = await graph();
     expect(g.fileRows.map((f) => [f.path, f.language, f.orgId]).sort()).toEqual([
+      ["README.md", "markdown", orgId],
       ["src/checkout.ts", "typescript", orgId],
       ["src/pricing.ts", "typescript", orgId],
       ["worker/jobs.py", "python", orgId],
@@ -176,7 +178,7 @@ describe("repository indexing", () => {
     expect(g.imports).toEqual(["src/checkout.ts->src/pricing.ts", "worker/jobs.py->worker/queue.py"]);
 
     const repo = await getRepo(db, orgId, repoId);
-    expect(repo).toMatchObject({ indexStatus: "ready", indexedSha: head, fileCount: 4, symbolCount: 5 });
+    expect(repo).toMatchObject({ indexStatus: "ready", indexedSha: head, fileCount: 5, symbolCount: 5 });
 
     const [query] = await deps.embedder.embed(["computeTotal discount items"]);
     const hits = await searchSymbols(db, { orgId, repoId }, query!, 2);
@@ -193,7 +195,7 @@ describe("repository indexing", () => {
     });
 
     const res = await indexRepo(deps, { orgId, repoId, afterSha: sha });
-    expect(res).toMatchObject({ sha, filesParsed: 1, filesRemoved: 1, filesUnchanged: 2 });
+    expect(res).toMatchObject({ sha, filesParsed: 1, filesRemoved: 1, filesUnchanged: 3 });
     expect(deps.embedder.embedded.map((t) => t.split("\n")[1])).toEqual(["function computeTotal", "function applyCoupon"]);
 
     const g = await graph();
