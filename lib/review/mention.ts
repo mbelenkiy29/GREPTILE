@@ -37,10 +37,19 @@ export async function answerMention(
   job: JobPayloads["answer-mention"],
 ) {
   const { db } = deps;
+  // Issue-comment, review-comment, and review ids are separate sequences; dedupe within the source's own kind.
+  const sourceKind = job.kind ?? "issue_comment";
   const [done] = await db
     .select({ id: mentionReplies.id })
     .from(mentionReplies)
-    .where(and(eq(mentionReplies.orgId, job.orgId), eq(mentionReplies.repoId, job.repoId), eq(mentionReplies.sourceCommentId, job.commentId)));
+    .where(
+      and(
+        eq(mentionReplies.orgId, job.orgId),
+        eq(mentionReplies.repoId, job.repoId),
+        eq(mentionReplies.sourceKind, sourceKind),
+        eq(mentionReplies.sourceCommentId, job.commentId),
+      ),
+    );
   if (done) return { status: "duplicate" as const };
 
   const [row] = await db
@@ -132,6 +141,7 @@ export async function answerMention(
       repoId: job.repoId,
       prNumber: job.prNumber,
       sourceCommentId: job.commentId,
+      sourceKind,
       question,
       answer: text,
       replyCommentId: reply.id,

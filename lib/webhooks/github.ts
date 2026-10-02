@@ -216,8 +216,9 @@ async function onReviewComment(deps: RouteDeps, payload: unknown, ctx: DeliveryC
 
   const mentioned = mentionsBot(body, deps.botMention);
   if (mentioned) {
-    // Answer in the same thread: replies attach to the thread's top-level comment (R1.7).
-    const jobId = `mention-${repo.id}-${comment.id}`;
+    // Answer in the same thread: replies attach to the thread's top-level comment (R1.7). Review-comment ids are a
+    // separate sequence from issue-comment ids, so they get their own job id namespace.
+    const jobId = `mention-${repo.id}-rc-${comment.id}`;
     await queue.add(
       "answer-mention",
       {

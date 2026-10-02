@@ -27,6 +27,11 @@ export interface GitHubAppConfig {
   /** Clock in epoch milliseconds (token expiry, rate-limit resets, app JWTs). */
   now?: () => number;
   log?: Logger;
+  /**
+   * Longest single wait (rate-limit reset or retry backoff) before failing fast with `GitHubError.retryAfterMs`.
+   * Defaults to {@link MAX_RATE_LIMIT_WAIT_MS}; request-path callers (webhooks) use a short cap to answer in time.
+   */
+  maxWaitMs?: number;
 }
 
 export class GitHubError extends Error {
@@ -152,6 +157,7 @@ export class GitHubHost implements GitHost {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
   private readonly log: Logger;
+  private readonly maxWaitMs: number;
   /** Installation tokens live in memory only; they are never persisted or logged. */
   private readonly tokens = new Map<number, { token: string; expiresAt: number }>();
   private readonly minting = new Map<number, Promise<string>>();
@@ -163,6 +169,7 @@ export class GitHubHost implements GitHost {
     this.sleep = config.sleep ?? defaultSleep;
     this.now = config.now ?? Date.now;
     this.log = config.log ?? rootLog.child({ component: "github" });
+    this.maxWaitMs = config.maxWaitMs ?? MAX_RATE_LIMIT_WAIT_MS;
   }
 
   private appJwt() {
@@ -206,8 +213,8 @@ export class GitHubHost implements GitHost {
         });
       } catch (err) {
         const durationMs = Math.round(performance.now() - started);
-        if (idempotent && attempt < MAX_ATTEMPTS) {
-          const waitMs = 1000 * 2 ** (attempt - 1);
+        const waitMs = 1000 * 2 ** (attempt - 1);
+        if (idempotent && attempt < MAX_ATTEMPTS && waitMs <= this.maxWaitMs) {
           log.warn("github request failed; retrying", { method, path, attempt, durationMs, waitMs, error: err instanceof Error ? err.message : String(err) });
           await this.sleep(waitMs);
           continue;
@@ -240,7 +247,7 @@ export class GitHubHost implements GitHost {
       if (rateLimited) waitMs = limitWait ?? MAX_RATE_LIMIT_WAIT_MS;
       else if (RETRYABLE_STATUS.has(res.status) && idempotent) waitMs = 1000 * 2 ** (attempt - 1);
 
-      if (waitMs !== undefined && waitMs <= MAX_RATE_LIMIT_WAIT_MS && attempt < MAX_ATTEMPTS) {
+      if (waitMs !== undefined && waitMs <= this.maxWaitMs && attempt < MAX_ATTEMPTS) {
         log.warn(rateLimited ? "github rate limit hit; waiting before retry" : "github server error; retrying", { ...fields, waitMs });
         await this.sleep(waitMs);
         continue;

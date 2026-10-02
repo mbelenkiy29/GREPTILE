@@ -6,6 +6,7 @@ import type { Db } from "@/lib/db";
 import { webhookDeliveries } from "@/lib/db/schema";
 import { GitHubError, GitHubHost } from "@/lib/github/client";
 import { runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
+import { MAX_RATE_LIMIT_DEFERRALS, deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_KEY,
@@ -206,7 +207,7 @@ describe("GitHub REST client", () => {
   const pem = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   type Call = { method: string; url: string; auth: string | null };
 
-  function fakeGitHub(responses: ((call: Call) => Response | undefined)[]) {
+  function fakeGitHub(responses: ((call: Call) => Response | undefined)[], opts: { maxWaitMs?: number } = {}) {
     const calls: Call[] = [];
     let mints = 0;
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -220,7 +221,7 @@ describe("GitHub REST client", () => {
       return next?.(call) ?? Response.json({});
     };
     const sleeps: number[] = [];
-    const gh = new GitHubHost({ appId: "1", privateKey: pem, fetch: fetchImpl, sleep: async (ms) => void sleeps.push(ms), now: () => 1_700_000_000_000 });
+    const gh = new GitHubHost({ appId: "1", privateKey: pem, fetch: fetchImpl, sleep: async (ms) => void sleeps.push(ms), now: () => 1_700_000_000_000, ...opts });
     return { gh, calls, sleeps, mints: () => mints };
   }
 
@@ -271,6 +272,44 @@ describe("GitHub REST client", () => {
     const down = fakeGitHub([503, 503, 503, 503].map((s) => () => new Response("unavailable", { status: s })));
     await expect(down.gh.client(11).getPullRequest("acme/api", 4)).rejects.toMatchObject({ status: 503 });
     expect(down.calls.filter((c) => c.url.includes("/pulls/4"))).toHaveLength(3);
+  });
+
+  test("R6.21 on the webhook path the GitHub client fails fast on rate limits instead of outlasting the delivery timeout", async () => {
+    const resetIn = (s: number) => String(Math.floor(1_700_000_000_000 / 1000) + s);
+    const { gh, sleeps, calls } = fakeGitHub(
+      [() => new Response("API rate limit exceeded", { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": resetIn(10) } })],
+      { maxWaitMs: 2_000 },
+    );
+    await expect(gh.client(11).getPullRequest("acme/api", 4)).rejects.toMatchObject({ status: 403, retryAfterMs: 11_000 });
+    expect(sleeps).toEqual([]);
+    expect(calls.filter((c) => c.url.includes("/pulls/4"))).toHaveLength(1);
+
+    // Short server-error backoffs still fit within the cap.
+    const flaky = fakeGitHub([() => new Response("bad gateway", { status: 502 }), () => Response.json(prJson)], { maxWaitMs: 2_000 });
+    await flaky.gh.client(11).getPullRequest("acme/api", 4);
+    expect(flaky.sleeps).toEqual([1000]);
+  });
+
+  test("R6.21 a job rate-limited beyond the client's wait is delayed until the reset instead of failing", async () => {
+    const moves: { at: number; token?: string }[] = [];
+    const job = (attemptsStarted: number) => ({
+      id: "review-1",
+      name: "review-pr",
+      attemptsStarted,
+      moveToDelayed: async (at: number, token?: string) => void moves.push({ at, token }),
+    });
+    const limited = new GitHubError(403, "rate limited", 600_000);
+    const now = () => 1_000_000;
+
+    expect(await deferIfRateLimited(job(1), "tok", limited, { now })).toBe(true);
+    expect(moves).toEqual([{ at: 1_000_000 + 600_000 + 1_000, token: "tok" }]);
+    // Wrapped errors are recognized through their cause.
+    expect(await deferIfRateLimited(job(2), "tok", new Error("review failed", { cause: limited }), { now })).toBe(true);
+    // Other errors, and jobs that were already deferred too often, take the normal retry path.
+    expect(await deferIfRateLimited(job(1), "tok", new GitHubError(500, "boom"), { now })).toBe(false);
+    expect(await deferIfRateLimited(job(1), "tok", new Error("x"), { now })).toBe(false);
+    expect(await deferIfRateLimited(job(MAX_RATE_LIMIT_DEFERRALS + 1), "tok", limited, { now })).toBe(false);
+    expect(moves).toHaveLength(2);
   });
 
   test("R6.21 the GitHub client drops a rejected installation token and retries once with a new one", async () => {

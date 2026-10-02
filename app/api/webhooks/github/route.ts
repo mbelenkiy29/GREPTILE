@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { gitHost } from "@/lib/git/host";
+import { webhookGitHost } from "@/lib/git/host";
 import { bullQueue } from "@/lib/jobs/queue";
 import { log } from "@/lib/log";
 import { createGitHubWebhookHandler } from "@/lib/webhooks/github";
@@ -12,7 +12,7 @@ export const POST = createGitHubWebhookHandler(() => {
   return {
     db: db(),
     queue: bullQueue,
-    host: gitHost(),
+    host: webhookGitHost(),
     secret: e.GITHUB_WEBHOOK_SECRET,
     botMention: e.BOT_MENTION,
     appSlug: e.GITHUB_APP_SLUG,

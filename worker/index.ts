@@ -3,13 +3,14 @@
  * answers). Run with `pnpm worker`; in Docker Compose it is the `worker` service.
  */
 import { hostname } from "node:os";
-import { Worker } from "bullmq";
+import { DelayedError, Worker } from "bullmq";
 import { pruneDeliveries } from "@/lib/data/deliveries";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
 import { runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
 import { startHeartbeat } from "@/lib/jobs/heartbeat";
+import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import { QUEUE_NAME, bullQueue } from "@/lib/jobs/queue";
 import { embeddings, llm } from "@/lib/llm";
 import { errorMessage, log, redactText } from "@/lib/log";
@@ -39,10 +40,14 @@ const deps: JobDeps = {
 let active = 0;
 const worker = new Worker(
   QUEUE_NAME,
-  async (job) => {
+  async (job, token) => {
     active++;
     try {
       return await runObservedJob(deps, { name: job.name, id: job.id, data: job.data, attemptsMade: job.attemptsMade }, wlog);
+    } catch (err) {
+      // A GitHub rate limit that resets minutes from now: wait for the reset rather than spend the retries.
+      if (await deferIfRateLimited(job, token, err, { log: wlog })) throw new DelayedError();
+      throw err;
     } finally {
       active--;
     }
@@ -81,8 +86,9 @@ async function shutdown(signal: string) {
   stopping = true;
   wlog.info("worker shutting down", { signal, active });
   clearInterval(pruneTimer);
-  await heartbeat.stop();
+  // Drain active jobs first so the heartbeat (and the container healthcheck) stays truthful meanwhile.
   await worker.close();
+  await heartbeat.stop();
   process.exit(0);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

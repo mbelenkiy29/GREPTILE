@@ -45,10 +45,10 @@ describe("threaded mentions", () => {
     // A teammate's inline comment starts a thread; a reply in it asks OpenReview.
     fx.host.reviewComments.set("acme/shop#7", [{ id: 600, path: PATH, line: 3, body: "Is region validated?", author: "dana", inReplyTo: null }]);
     const reply = { id: 601, in_reply_to_id: 600, path: PATH, line: 3, body: "@openreview who calls computeTotal?", user: { login: "li", type: "User" } };
-    expect(await send("pull_request_review_comment", reviewComment(reply))).toEqual({ status: "accepted", jobs: [`mention-${fx.repo.id}-601`] });
+    expect(await send("pull_request_review_comment", reviewComment(reply))).toEqual({ status: "accepted", jobs: [`mention-${fx.repo.id}-rc-601`] });
 
     const job = queue.jobs[0]!;
-    expect(job).toMatchObject({ name: "answer-mention", jobId: `mention-${fx.repo.id}-601`, priority: 1 });
+    expect(job).toMatchObject({ name: "answer-mention", jobId: `mention-${fx.repo.id}-rc-601`, priority: 1 });
     expect(job.data).toEqual({
       orgId: "org_a",
       repoId: fx.repo.id,
@@ -105,7 +105,7 @@ describe("threaded mentions", () => {
       "pull_request_review_comment",
       reviewComment({ id: 701, in_reply_to_id: 700, path: PATH, line: 3, body: "@openreview are you sure?", user: { login: "li", type: "User" } }),
     );
-    expect(res).toEqual({ status: "accepted", jobs: [`feedback-${fx.repo.id}-7-701`, `mention-${fx.repo.id}-701`] });
+    expect(res).toEqual({ status: "accepted", jobs: [`feedback-${fx.repo.id}-7-701`, `mention-${fx.repo.id}-rc-701`] });
     expect(queue.jobs.find((j) => j.name === "answer-mention")?.data).toMatchObject({ inReplyTo: 700, kind: "review_comment" });
     // Our own replies in the thread are ignored.
     expect(
@@ -146,5 +146,36 @@ describe("threaded mentions", () => {
     expect(posted[0]!.body).toBe(
       `> Looks fine. does this change the tax rounding?\n\n@dana It is called from two places; both still pass one argument.\n\n${MENTION_MARKER}`,
     );
+  });
+
+  test("R1.7 an issue comment, a review comment, and a review that share an id are each answered once", async () => {
+    fx = await reviewFixture();
+    const { queue, send, deps } = setup(fx);
+    const id = 900;
+    fx.host.reviewComments.set("acme/shop#7", [{ id, path: PATH, line: 3, body: "@openreview inline?", author: "li", inReplyTo: null }]);
+    const issueComment = {
+      ...base,
+      action: "created",
+      issue: { number: 7, pull_request: {} },
+      comment: { id, body: "@openreview conversation?", user: { login: "li", type: "User" } },
+    };
+    const inline = reviewComment({ id, path: PATH, line: 3, body: "@openreview inline?", user: { login: "li", type: "User" } });
+    const review = { ...base, action: "submitted", pull_request: { number: 7 }, review: { id, body: "@openreview review?", state: "commented", user: { login: "li", type: "User" } } };
+
+    expect(await send("issue_comment", issueComment)).toMatchObject({ jobs: [`mention-${fx.repo.id}-${id}`] });
+    expect(await send("pull_request_review_comment", inline)).toMatchObject({ jobs: [`mention-${fx.repo.id}-rc-${id}`] });
+    expect(await send("pull_request_review", review)).toMatchObject({ jobs: [`mention-${fx.repo.id}-review-${id}`] });
+    expect(new Set(queue.jobs.map((j) => j.jobId)).size).toBe(3);
+
+    for (const job of queue.jobs) {
+      expect(await runJob(deps, "answer-mention", job.data as JobPayloads["answer-mention"])).toMatchObject({ status: "answered" });
+    }
+    // Running them again is a no-op: each source is deduplicated within its own kind.
+    for (const job of queue.jobs) {
+      expect(await runJob(deps, "answer-mention", job.data as JobPayloads["answer-mention"])).toEqual({ status: "duplicate" });
+    }
+    const rows = await fx.db.select().from(mentionReplies);
+    expect(rows.map((r) => r.sourceKind).sort()).toEqual(["issue_comment", "review", "review_comment"]);
+    expect(rows.every((r) => r.sourceCommentId === id)).toBe(true);
   });
 });

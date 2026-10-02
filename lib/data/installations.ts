@@ -78,17 +78,18 @@ export async function completeInstallation(
     .onConflictDoUpdate({
       target: [installations.provider, installations.externalId],
       set: { accountLogin: remote.accountLogin, suspended: false, ...columns },
+      // Another org may have linked it between the check and the upsert: leave that org's row untouched.
+      setWhere: eq(installations.orgId, input.orgId),
     })
     .returning();
-  // Another org may have linked it between the check and the upsert; the upsert never changes the owner.
-  if (row!.orgId !== input.orgId) {
+  if (!row) {
     throw new InstallationOwnershipError("This installation is already connected to another organization.");
   }
   await deletePendingInstallation(db, host.provider, remote.id);
-  warnIfMissing(row!);
+  warnIfMissing(row);
 
-  const synced = await syncInstallationRepos(db, host, row!);
-  return { installation: row!, repos: synced, missingPermissions: row!.missingPermissions };
+  const synced = await syncInstallationRepos(db, host, row);
+  return { installation: row, repos: synced, missingPermissions: row.missingPermissions };
 }
 
 /**

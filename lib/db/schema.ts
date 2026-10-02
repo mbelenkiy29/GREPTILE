@@ -286,12 +286,14 @@ export const mentionReplies = pgTable(
       .references(() => repos.id, { onDelete: "cascade" }),
     prNumber: integer("pr_number").notNull(),
     sourceCommentId: bigint("source_comment_id", { mode: "number" }).notNull(),
+    /** Which id sequence `source_comment_id` belongs to: `issue_comment`, `review_comment`, or `review`. */
+    sourceKind: text("source_kind").notNull().default("issue_comment"),
     question: text("question").notNull(),
     answer: text("answer").notNull(),
     replyCommentId: bigint("reply_comment_id", { mode: "number" }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("mention_replies_source_uq").on(t.repoId, t.sourceCommentId)],
+  (t) => [uniqueIndex("mention_replies_source_uq").on(t.repoId, t.sourceKind, t.sourceCommentId)],
 );
 
 export const ruleStatus = pgEnum("rule_status", ["active", "candidate", "rejected"]);
