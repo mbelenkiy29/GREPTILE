@@ -48,7 +48,7 @@ function anchor(f: RawFinding, d: FileDiff): RawFinding | null {
 export function rankFindings(
   raw: { agent: string; category: string; finding: RawFinding }[],
   diffs: FileDiff[],
-  opts: { maxComments?: number; minConfidence?: number; rules?: ReviewRule[] } = {},
+  opts: { maxComments?: number; minConfidence?: number; minSeverity?: Severity; rules?: ReviewRule[] } = {},
 ): Finding[] {
   const rulesById = new Map((opts.rules ?? []).map((r) => [r.id, r]));
   /** A citation is kept only if the rule exists and covers the finding's file. */
@@ -63,6 +63,7 @@ export function rankFindings(
   for (const { agent, category, finding } of raw) {
     const d = byPath.get(finding.path);
     if (!d || finding.confidence < (opts.minConfidence ?? 2)) continue;
+    if (opts.minSeverity && SEVERITY_WEIGHT[finding.severity] < SEVERITY_WEIGHT[opts.minSeverity]) continue;
     const f = anchor(finding, d);
     if (!f) continue;
     const dup = merged.find(

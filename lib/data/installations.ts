@@ -1,6 +1,7 @@
 import { and, eq, notInArray } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { installations, orgs, repos } from "@/lib/db/schema";
+import { installations, orgs, repos, type RepoSettings } from "@/lib/db/schema";
+import { repoSettingsSchema } from "@/lib/config/settings";
 import type { GitHost, RemoteRepo } from "@/lib/git/types";
 import { scoped } from "./tenant";
 
@@ -115,4 +116,15 @@ export async function setRepoEnabled(db: Db, orgId: string, repoId: number, enab
     .where(scoped(repos, orgId, eq(repos.id, repoId)))
     .returning({ id: repos.id });
   return rows.length > 0;
+}
+
+/** Validated partial update of a repo's dashboard review settings (R2.2). */
+export async function updateRepoSettings(db: Db, orgId: string, repoId: number, settings: RepoSettings) {
+  const parsed = repoSettingsSchema.parse(settings);
+  const rows = await db
+    .update(repos)
+    .set({ settings: parsed })
+    .where(scoped(repos, orgId, eq(repos.id, repoId)))
+    .returning({ settings: repos.settings });
+  return rows[0]?.settings;
 }

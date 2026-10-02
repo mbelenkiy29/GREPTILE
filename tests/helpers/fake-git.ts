@@ -28,6 +28,8 @@ export class FakeGitHost implements GitHost {
   issueComments = new Map<string, IssueComment[]>();
   reviewComments = new Map<string, ReviewComment[]>();
   reviews: { repo: string; number: number; commitId: string; body: string; comments: NewInlineComment[] }[] = [];
+  /** Optional source of file contents at any ref (e.g. backed by a fixture git repo). */
+  contentAt?: (repo: string, path: string, ref: string) => string | null;
   private nextId = 1000;
 
   addInstallation(id: number, accountLogin: string, repos: RemoteRepo[]) {
@@ -66,7 +68,7 @@ export class FakeGitHost implements GitHost {
       listPullRequestFiles: async (repo, n) => pr(repo, n).files,
       getFileContent: async (repo, path, ref) => {
         for (const p of this.prs.values()) if (p.pr.headSha === ref && path in p.head) return p.head[path]!;
-        return null;
+        return this.contentAt?.(repo, path, ref) ?? null;
       },
       compareCommits: async (repo, base, head) => this.compares.get(`${repo}@${base}...${head}`) ?? [],
       listIssueComments: async (repo, n) => this.issueComments.get(key(repo, n)) ?? [],

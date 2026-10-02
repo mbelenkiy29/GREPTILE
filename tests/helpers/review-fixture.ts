@@ -42,11 +42,18 @@ export function computeTotal(items: number[], region: string) {
 `;
 
 /** An indexed repo plus a PR that changes `computeTotal` (called from two other components). */
-export async function reviewFixture() {
+export async function reviewFixture(opts: { baseExtra?: Record<string, string>; headExtra?: Record<string, string> } = {}) {
   const db: Db = await createTestDb();
   const fixture = new FixtureRepo();
-  const base = fixture.commit(BASE_FILES, "base");
+  const base = fixture.commit({ ...BASE_FILES, ...opts.baseExtra }, "base");
   const host = new FakeGitHost();
+  host.contentAt = (_repo, path, ref) => {
+    try {
+      return fixture.git("show", `${ref}:${path}`) + "\n";
+    } catch {
+      return null;
+    }
+  };
   host.addInstallation(11, "acme", [{ id: 1, fullName: "acme/shop", defaultBranch: "main", private: true }]);
   host.cloneUrls.set("acme/shop", fixture.url);
   const { repos } = await completeInstallation(db, host, { orgId: "org_a", orgName: "Acme", installationId: 11 });
@@ -55,7 +62,7 @@ export async function reviewFixture() {
   await indexRepo({ db, host, embedder, cacheDir: tempDir() }, { orgId: "org_a", repoId: repo.id });
 
   fixture.git("checkout", "--quiet", "-b", "feature");
-  const head = fixture.commit({ "services/billing/pricing.ts": HEAD_PRICING }, "add tax");
+  const head = fixture.commit({ "services/billing/pricing.ts": HEAD_PRICING, ...opts.headExtra }, "add tax");
   const pr = addPrFromFixture(host, fixture, "acme/shop", {
     number: 7,
     base,

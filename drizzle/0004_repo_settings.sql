@@ -1,0 +1,1 @@
+ALTER TABLE "repos" ADD COLUMN "settings" jsonb DEFAULT '{}'::jsonb NOT NULL;

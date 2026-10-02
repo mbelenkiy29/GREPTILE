@@ -32,6 +32,13 @@ const vector = customType<{ data: number[]; driverData: string; config: { dimens
   },
 });
 
+export interface RepoSettings {
+  strictness?: "low" | "medium" | "high";
+  commentTypes?: ("logic" | "security" | "style")[];
+  ignore?: string[];
+  context?: string[];
+}
+
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
   timestamp("updated_at", { withTimezone: true })
@@ -88,6 +95,8 @@ export const repos = pgTable(
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
     fileCount: integer("file_count").notNull().default(0),
     symbolCount: integer("symbol_count").notNull().default(0),
+    /** Dashboard review settings; a repo's tracewise.json overrides them key by key (R2.2). */
+    settings: jsonb("settings").$type<RepoSettings>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

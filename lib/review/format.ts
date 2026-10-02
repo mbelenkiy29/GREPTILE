@@ -74,6 +74,7 @@ export function renderSequenceDiagram(ctx: ReviewContext): string | null {
 }
 
 export function renderSummaryComment(input: {
+  notices?: string[];
   summary: ReviewSummary;
   findings: Finding[];
   context: ReviewContext;
@@ -86,6 +87,7 @@ export function renderSummaryComment(input: {
   const out = [
     SUMMARY_MARKER,
     "## Tracewise review",
+    ...(input.notices ?? []).map((n) => `> **Note:** ${n.replace(/\n/g, " ")}`),
     `**Risk:** ${RISK_LABEL[summary.riskLevel]} · **Confidence:** ${summary.confidence}/5`,
     `> ${summary.riskRationale.replace(/\n/g, " ")}`,
     "### What changed",

@@ -3,7 +3,9 @@ import type { Db } from "@/lib/db";
 import { installations, repos, reviewComments, reviews } from "@/lib/db/schema";
 import type { GitHost } from "@/lib/git/types";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
+import { STRICTNESS_LEVELS, loadEffectiveConfig } from "@/lib/config/repo-config";
 import { activeRulesForRepo } from "@/lib/data/rules";
+import { REVIEWERS } from "./agents";
 import { reviewPullRequest, type ReviewOptions } from "./engine";
 import { publishReview } from "./publish";
 
@@ -50,11 +52,22 @@ export async function runReviewJob(
     .returning();
 
   try {
-    const rules = await activeRulesForRepo(db, job.orgId, job.repoId);
+    const config = await loadEffectiveConfig(client, row.repo.fullName, pr.baseSha, row.repo.settings);
+    const level = STRICTNESS_LEVELS[config.strictness];
+    const rules = [...(await activeRulesForRepo(db, job.orgId, job.repoId)), ...config.rules];
     const result = await reviewPullRequest(
       deps,
       { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client, pr },
-      { rules, ...opts },
+      {
+        rules,
+        agents: REVIEWERS.filter((a) => (config.commentTypes as string[]).includes(a.category)),
+        ignoreGlobs: config.ignore,
+        minConfidence: level.minConfidence,
+        maxComments: level.maxComments,
+        minSeverity: level.minSeverity,
+        notices: config.notices,
+        ...opts,
+      },
     );
     const published = await publishReview(
       { db, client },

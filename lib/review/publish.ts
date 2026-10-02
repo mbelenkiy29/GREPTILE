@@ -40,6 +40,7 @@ export async function publishReview(
   const prNumber = result.pr.number;
 
   const summaryBody = renderSummaryComment({
+    notices: result.notices,
     summary: result.summary,
     findings: result.findings,
     context: result.context,

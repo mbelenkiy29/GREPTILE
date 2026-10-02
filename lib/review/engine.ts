@@ -7,7 +7,8 @@ import { buildReviewContext, type ReviewContext } from "./context";
 import { isReviewablePath, parsePatch, renderDiff, type FileDiff } from "./diff";
 import type { Finding } from "./findings";
 import { rankFindings } from "./rank";
-import { applicableRules, renderRulesSection, type ReviewRule } from "@/lib/rules";
+import { applicableRules, globMatch, renderRulesSection, type ReviewRule } from "@/lib/rules";
+import type { Severity } from "./findings";
 
 export const summarySchema = z.object({
   whatChanged: z.array(z.string()).describe("3-6 short bullets describing what the PR changes, most important first"),
@@ -27,6 +28,7 @@ export interface ReviewResult {
   pr: PullRequest;
   /** Rules that were in scope for this PR. */
   rules: ReviewRule[];
+  notices: string[];
   diffs: FileDiff[];
   context: ReviewContext;
   findings: Finding[];
@@ -46,6 +48,11 @@ export interface ReviewOptions {
   model?: string;
   /** Active custom rules for the repo (R2.1); filtered to those whose paths the PR touches. */
   rules?: ReviewRule[];
+  /** Glob paths never reviewed (R2.2). */
+  ignoreGlobs?: string[];
+  minSeverity?: Severity;
+  /** Messages shown at the top of the summary comment (e.g. config problems). */
+  notices?: string[];
 }
 
 const SUMMARY_SYSTEM = `You summarize pull requests for Tracewise. Given the diff, the impacted code beyond it, and the
@@ -67,6 +74,7 @@ export async function reviewPullRequest(
   const prFiles = await client.listPullRequestFiles(repoFullName, input.prNumber);
   const diffs = prFiles
     .filter((f) => f.status !== "removed" && f.patch && isReviewablePath(f.path, opts.ignore))
+    .filter((f) => !(opts.ignoreGlobs?.length && globMatch(opts.ignoreGlobs, f.path)))
     .slice(0, opts.maxFiles ?? 60)
     .map((f) => parsePatch(f.path, f.status, f.patch));
 
@@ -95,7 +103,7 @@ export async function reviewPullRequest(
   const findings = rankFindings(
     agentRuns.flatMap((r) => r.findings.map((finding) => ({ agent: r.agent, category: r.category, finding }))),
     diffs,
-    { maxComments: opts.maxComments, minConfidence: opts.minConfidence, rules },
+    { maxComments: opts.maxComments, minConfidence: opts.minConfidence, minSeverity: opts.minSeverity, rules },
   );
 
   const findingsText = findings.length
@@ -111,5 +119,5 @@ export async function reviewPullRequest(
   });
 
   const usage = [...agentRuns.map((r) => r.usage), summaryUsage].reduce(addUsage, ZERO_USAGE);
-  return { pr, rules, diffs, context, findings, summary, agentRuns, usage };
+  return { pr, rules, notices: opts.notices ?? [], diffs, context, findings, summary, agentRuns, usage };
 }

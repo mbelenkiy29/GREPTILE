@@ -29,6 +29,13 @@
       "when": 1790970948956,
       "tag": "0003_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790971212918,
+      "tag": "0004_repo_settings",
+      "breakpoints": true
     }
   ]
 }

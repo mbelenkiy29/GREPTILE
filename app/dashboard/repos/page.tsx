@@ -29,6 +29,7 @@ export default async function ReposPage({ searchParams }: { searchParams: Promis
           repos={repos}
           actions={(r) => (
             <>
+              <a className="button" href={`/dashboard/repos/${r.id}`}>Settings</a>
               <form action={toggleRepo}>
                 <input type="hidden" name="repoId" value={r.id} />
                 <input type="hidden" name="enabled" value={String(!r.enabled)} />
