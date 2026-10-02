@@ -2,6 +2,7 @@ import type { Db } from "@/lib/db";
 import type { GitHost } from "@/lib/git/types";
 import { indexRepo } from "@/lib/indexer";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
+import { runReviewJob } from "@/lib/review/run";
 import type { JobName, JobPayloads, JobQueue } from "./types";
 
 export interface JobDeps {
@@ -18,9 +19,7 @@ type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N]) => Promi
 
 export const handlers: Handlers = {
   "index-repo": (deps, data) => indexRepo(deps, data),
-  "review-pr": async () => {
-    throw new Error("review-pr handler not registered");
-  },
+  "review-pr": (deps, data) => runReviewJob(deps, data),
   "answer-mention": async () => {
     throw new Error("answer-mention handler not registered");
   },

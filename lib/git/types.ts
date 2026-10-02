@@ -58,7 +58,10 @@ export interface ReviewComment {
 
 export interface NewInlineComment {
   path: string;
+  /** Last line of the commented range (new-file numbering). */
   line: number;
+  /** First line, for multi-line comments and suggestions. */
+  startLine?: number;
   body: string;
 }
 

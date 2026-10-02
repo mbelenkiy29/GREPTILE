@@ -4,6 +4,7 @@ import type {
   GitClient,
   GitHost,
   IssueComment,
+  NewInlineComment,
   PullRequest,
   PullRequestFile,
   RemoteInstallation,
@@ -199,7 +200,7 @@ class GitHubClient implements GitClient {
   async createReview(
     repo: string,
     number: number,
-    review: { commitId: string; body: string; comments: { path: string; line: number; body: string }[] },
+    review: { commitId: string; body: string; comments: NewInlineComment[] },
   ) {
     const res = await this.req<any>(`/repos/${repo}/pulls/${number}/reviews`, {
       method: "POST",
@@ -207,7 +208,13 @@ class GitHubClient implements GitClient {
         commit_id: review.commitId,
         event: "COMMENT",
         body: review.body,
-        comments: review.comments.map((c) => ({ path: c.path, line: c.line, side: "RIGHT", body: c.body })),
+        comments: review.comments.map((c) => ({
+          path: c.path,
+          line: c.line,
+          side: "RIGHT",
+          ...(c.startLine !== undefined && c.startLine < c.line ? { start_line: c.startLine, start_side: "RIGHT" } : {}),
+          body: c.body,
+        })),
       },
     });
     const posted = await this.host.paginate<any>(
