@@ -25,7 +25,7 @@ const deps: JobDeps = {
 
 const worker = new Worker(
   QUEUE_NAME,
-  async (job) => runJob(deps, job.name as JobName, job.data),
+  async (job) => runJob(deps, job.name as JobName, job.data, { queueJobId: job.id }),
   { connection: redis(), concurrency: Number(process.env.WORKER_CONCURRENCY ?? 4) },
 );
 

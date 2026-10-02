@@ -1,5 +1,14 @@
 export interface JobPayloads {
-  "index-repo": { orgId: string; repoId: number; mode: "full" | "incremental"; afterSha?: string };
+  "index-repo": {
+    orgId: string;
+    repoId: number;
+    mode: "full" | "incremental";
+    afterSha?: string;
+    /** What caused the run (R6.3); inferred when absent. */
+    trigger?: "install" | "push" | "manual" | "schedule" | "api";
+    /** Tracked `index_jobs` row created when the job was queued; one is created when absent. */
+    indexJobId?: number;
+  };
   "review-pr": { orgId: string; repoId: number; prNumber: number; headSha: string };
   "sync-feedback": { orgId: string; repoId: number; prNumber: number };
   "mine-rules": { orgId: string; repoId: number };

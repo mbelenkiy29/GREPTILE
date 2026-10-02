@@ -18,18 +18,23 @@ export interface JobDeps {
   botMention: string;
 }
 
-type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N]) => Promise<unknown> };
+/** Queue-side facts about the job being run (BullMQ job id), when the runner has them. */
+export interface JobMeta {
+  queueJobId?: string;
+}
+
+type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N], meta?: JobMeta) => Promise<unknown> };
 
 export const handlers: Handlers = {
-  "index-repo": (deps, data) => indexRepo(deps, data),
+  "index-repo": (deps, data, meta) => indexRepo(deps, { ...data, queueJobId: meta?.queueJobId }),
   "review-pr": (deps, data) => runReviewJob(deps, data),
   "answer-mention": (deps, data) => answerMention(deps, data),
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
   "mine-rules": (deps, data) => mineRules(deps, data),
 };
 
-export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N]) {
-  const handler = handlers[name] as (deps: JobDeps, data: JobPayloads[N]) => Promise<unknown>;
+export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: JobMeta) {
+  const handler = handlers[name] as (deps: JobDeps, data: JobPayloads[N], meta?: JobMeta) => Promise<unknown>;
   if (!handler) throw new Error(`unknown job ${name}`);
-  return handler(deps, data);
+  return handler(deps, data, meta);
 }
