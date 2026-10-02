@@ -36,6 +36,13 @@
       "when": 1790971212918,
       "tag": "0004_repo_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790971688258,
+      "tag": "0005_learning",
+      "breakpoints": true
     }
   ]
 }

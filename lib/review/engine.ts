@@ -10,6 +10,7 @@ import { rankFindings } from "./rank";
 import { applicableRules, globMatch, renderRulesSection, type ReviewRule } from "@/lib/rules";
 import type { Severity } from "./findings";
 import { renderContextSection, type ContextDoc } from "./context-files";
+import { renderLearnedSection, type LearnedPattern } from "@/lib/learning";
 
 export const summarySchema = z.object({
   whatChanged: z.array(z.string()).describe("3-6 short bullets describing what the PR changes, most important first"),
@@ -56,6 +57,8 @@ export interface ReviewOptions {
   notices?: string[];
   /** Context files always included in the review prompt (R2.3). */
   contextDocs?: ContextDoc[];
+  /** Patterns learned from feedback (R2.4). */
+  learned?: LearnedPattern[];
 }
 
 const SUMMARY_SYSTEM = `You summarize pull requests for Tracewise. Given the diff, the impacted code beyond it, and the
@@ -98,7 +101,9 @@ export async function reviewPullRequest(
   });
 
   const rules = applicableRules(opts.rules ?? [], diffs.map((d) => d.path));
-  const prompt = reviewPrompt(pr, diffs, context, { sections: [renderContextSection(opts.contextDocs ?? []), renderRulesSection(rules)] });
+  const prompt = reviewPrompt(pr, diffs, context, {
+    sections: [renderContextSection(opts.contextDocs ?? []), renderRulesSection(rules), renderLearnedSection(opts.learned ?? [])],
+  });
   const agentRuns = await runReviewers(deps.llm, prompt, opts.agents ?? REVIEWERS, {
     extraInstructions: opts.extraInstructions,
     model: opts.model,
@@ -106,7 +111,7 @@ export async function reviewPullRequest(
   const findings = rankFindings(
     agentRuns.flatMap((r) => r.findings.map((finding) => ({ agent: r.agent, category: r.category, finding }))),
     diffs,
-    { maxComments: opts.maxComments, minConfidence: opts.minConfidence, minSeverity: opts.minSeverity, rules },
+    { maxComments: opts.maxComments, minConfidence: opts.minConfidence, minSeverity: opts.minSeverity, rules, learned: opts.learned },
   );
 
   const findingsText = findings.length

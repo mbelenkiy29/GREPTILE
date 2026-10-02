@@ -1,21 +1,10 @@
 import { ruleApplies, type ReviewRule } from "@/lib/rules";
 import type { FileDiff } from "./diff";
+import { similarity } from "./text";
+import { matchPattern, type LearnedPattern } from "@/lib/learning";
 import type { Finding, RawFinding, Severity } from "./findings";
 
 const SEVERITY_WEIGHT: Record<Severity, number> = { critical: 8, high: 4, medium: 2, low: 1 };
-
-function tokens(s: string) {
-  return new Set(s.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []);
-}
-
-function similarity(a: string, b: string) {
-  const ta = tokens(a);
-  const tb = tokens(b);
-  if (!ta.size || !tb.size) return 0;
-  let inter = 0;
-  for (const t of ta) if (tb.has(t)) inter++;
-  return inter / (ta.size + tb.size - inter);
-}
 
 function score(f: { severity: Severity; confidence: number; agents: string[] }) {
   return SEVERITY_WEIGHT[f.severity] * f.confidence * (1 + 0.5 * (f.agents.length - 1));
@@ -48,7 +37,14 @@ function anchor(f: RawFinding, d: FileDiff): RawFinding | null {
 export function rankFindings(
   raw: { agent: string; category: string; finding: RawFinding }[],
   diffs: FileDiff[],
-  opts: { maxComments?: number; minConfidence?: number; minSeverity?: Severity; rules?: ReviewRule[] } = {},
+  opts: {
+    maxComments?: number;
+    minConfidence?: number;
+    minSeverity?: Severity;
+    rules?: ReviewRule[];
+    /** Learned from feedback (R2.4): suppressed patterns are dropped, boosted ones ranked higher. */
+    learned?: LearnedPattern[];
+  } = {},
 ): Finding[] {
   const rulesById = new Map((opts.rules ?? []).map((r) => [r.id, r]));
   /** A citation is kept only if the rule exists and covers the finding's file. */
@@ -64,6 +60,7 @@ export function rankFindings(
     const d = byPath.get(finding.path);
     if (!d || finding.confidence < (opts.minConfidence ?? 2)) continue;
     if (opts.minSeverity && SEVERITY_WEIGHT[finding.severity] < SEVERITY_WEIGHT[opts.minSeverity]) continue;
+    if (matchPattern(opts.learned ?? [], { category, title: finding.title })?.signal === "suppress") continue;
     const f = anchor(finding, d);
     if (!f) continue;
     const dup = merged.find(
@@ -88,7 +85,10 @@ export function rankFindings(
   }
 
   // Rule violations are what the team explicitly asked for, so they rank above equal-severity findings.
-  for (const m of merged) m.score = score(m) * (m.rule ? 1.25 : 1);
+  for (const m of merged) {
+    const boosted = matchPattern(opts.learned ?? [], m)?.signal === "boost";
+    m.score = score(m) * (m.rule ? 1.25 : 1) * (boosted ? 1.5 : 1);
+  }
   return merged
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.line - b.line)
     .slice(0, opts.maxComments ?? 20);

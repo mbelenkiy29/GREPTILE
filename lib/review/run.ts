@@ -7,6 +7,7 @@ import { STRICTNESS_LEVELS, loadEffectiveConfig } from "@/lib/config/repo-config
 import { activeRulesForRepo } from "@/lib/data/rules";
 import { REVIEWERS } from "./agents";
 import { loadContextDocs } from "./context-files";
+import { learnedForRepo, syncFeedback } from "@/lib/learning";
 import { reviewPullRequest, type ReviewOptions } from "./engine";
 import { publishReview } from "./publish";
 
@@ -57,6 +58,9 @@ export async function runReviewJob(
     const level = STRICTNESS_LEVELS[config.strictness];
     const rules = [...(await activeRulesForRepo(db, job.orgId, job.repoId)), ...config.rules];
     const context = await loadContextDocs(client, row.repo.fullName, pr.baseSha, config.context);
+    // Fold in reactions/replies on earlier comments before deciding what to post again.
+    await syncFeedback(deps, { orgId: job.orgId, repoId: job.repoId, prNumber: job.prNumber }).catch(() => undefined);
+    const learned = await learnedForRepo(db, job.orgId, job.repoId);
     const result = await reviewPullRequest(
       deps,
       { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client, pr },
@@ -69,6 +73,7 @@ export async function runReviewJob(
         minSeverity: level.minSeverity,
         notices: [...config.notices, ...context.notices],
         contextDocs: context.docs,
+        learned,
         ...opts,
       },
     );

@@ -27,6 +27,7 @@ export class FakeGitHost implements GitHost {
   compares = new Map<string, ChangedFile[]>();
   issueComments = new Map<string, IssueComment[]>();
   reviewComments = new Map<string, ReviewComment[]>();
+  reactions = new Map<number, { id: number; content: string; user: string }[]>();
   reviews: { repo: string; number: number; commitId: string; body: string; comments: NewInlineComment[] }[] = [];
   /** Optional source of file contents at any ref (e.g. backed by a fixture git repo). */
   contentAt?: (repo: string, path: string, ref: string) => string | null;
@@ -90,6 +91,7 @@ export class FakeGitHost implements GitHost {
         throw new Error(`no comment ${commentId}`);
       },
       listReviewComments: async (repo, n) => this.reviewComments.get(key(repo, n)) ?? [],
+      listReviewCommentReactions: async (_repo, commentId) => this.reactions.get(commentId) ?? [],
       createReview: async (repo, n, review) => {
         this.reviews.push({ repo, number: n, ...review });
         const posted = review.comments.map((c) => ({ id: id(), path: c.path, line: c.line, body: c.body, author: "tracewise[bot]" }));
@@ -98,4 +100,13 @@ export class FakeGitHost implements GitHost {
       },
     };
   }
+}
+
+/** Adds a human reply to an existing review comment thread on the fake host. */
+export function addReviewReply(host: FakeGitHost, repo: string, pr: number, reply: { id: number; inReplyTo: number; body: string; author: string; path?: string }) {
+  const key = `${repo}#${pr}`;
+  const list = host.reviewComments.get(key) ?? [];
+  const parent = list.find((c) => c.id === reply.inReplyTo);
+  list.push({ id: reply.id, path: reply.path ?? parent?.path ?? "", line: parent?.line ?? null, body: reply.body, author: reply.author, inReplyTo: reply.inReplyTo });
+  host.reviewComments.set(key, list);
 }

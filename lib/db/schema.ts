@@ -283,3 +283,52 @@ export const rules = pgTable(
   },
   (t) => [index().on(t.orgId, t.status), index().on(t.repoId)],
 );
+
+export const feedbackKind = pgEnum("feedback_kind", ["thumbs_up", "thumbs_down", "reply"]);
+export const patternSignal = pgEnum("pattern_signal", ["suppress", "boost", "neutral"]);
+
+/**
+ * Conventions inferred from feedback on Tracewise comments (R2.4). `suppress`
+ * patterns stop recurring; `boost` patterns are prioritized. Users can edit the
+ * description and signal (`userEdited` pins the signal) or delete a pattern.
+ */
+export const learnedPatterns = pgTable(
+  "learned_patterns",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id").references(() => repos.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    description: text("description").notNull(),
+    signal: patternSignal("signal").notNull().default("neutral"),
+    positive: integer("positive").notNull().default(0),
+    negative: integer("negative").notNull().default(0),
+    examples: jsonb("examples").$type<{ title: string; path: string }[]>().notNull().default([]),
+    userEdited: boolean("user_edited").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.orgId, t.repoId)],
+);
+
+/** One reaction or reply on a Tracewise inline comment (R2.4). */
+export const commentFeedback = pgTable(
+  "comment_feedback",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    reviewCommentId: integer("review_comment_id")
+      .notNull()
+      .references(() => reviewComments.id, { onDelete: "cascade" }),
+    kind: feedbackKind("kind").notNull(),
+    externalId: bigint("external_id", { mode: "number" }).notNull(),
+    author: text("author").notNull(),
+    body: text("body"),
+    sentiment: integer("sentiment").notNull(),
+    patternId: integer("pattern_id").references(() => learnedPatterns.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("comment_feedback_uq").on(t.reviewCommentId, t.kind, t.externalId), index().on(t.orgId)],
+);

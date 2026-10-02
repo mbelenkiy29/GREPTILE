@@ -54,6 +54,15 @@ export interface ReviewComment {
   line: number | null;
   body: string;
   author: string;
+  /** Id of the comment this one replies to, for threaded replies. */
+  inReplyTo?: number | null;
+}
+
+export interface Reaction {
+  id: number;
+  /** GitHub reaction content: "+1", "-1", "laugh", "heart", ... */
+  content: string;
+  user: string;
 }
 
 export interface NewInlineComment {
@@ -78,6 +87,7 @@ export interface GitClient {
   createIssueComment(repo: string, number: number, body: string): Promise<IssueComment>;
   updateIssueComment(repo: string, commentId: number, body: string): Promise<IssueComment>;
   listReviewComments(repo: string, number: number): Promise<ReviewComment[]>;
+  listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]>;
   /** Posts a review with inline comments on the RIGHT side of the diff at `commitId`. */
   createReview(
     repo: string,

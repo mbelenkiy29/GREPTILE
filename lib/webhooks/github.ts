@@ -51,6 +51,30 @@ async function repoFor(db: Db, host: GitHost, payload: any) {
 export async function routeGitHubEvent(deps: WebhookDeps, event: string, payload: any): Promise<WebhookOutcome> {
   const { db, queue, host } = deps;
 
+  if (event === "pull_request" && payload.action === "closed") {
+    // Reactions have no webhook; collect feedback on our comments once the PR is done (R2.4).
+    const repo = await repoFor(db, host, payload);
+    if (!repo) return { status: "ignored", reason: "repository not connected" };
+    const jobId = `feedback-${repo.id}-${payload.pull_request.number}-closed`;
+    await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber: payload.pull_request.number }, { jobId });
+    return { status: "accepted", jobs: [jobId] };
+  }
+
+  if (event === "pull_request_review_comment") {
+    if (payload.action !== "created") return { status: "ignored", reason: `pull_request_review_comment.${payload.action}` };
+    const comment = payload.comment;
+    if (comment?.user?.type === "Bot") return { status: "ignored", reason: "comment by a bot" };
+    const repo = await repoFor(db, host, payload);
+    if (!repo) return { status: "ignored", reason: "repository not connected" };
+    const prNumber = payload.pull_request?.number;
+    if (comment?.in_reply_to_id) {
+      const jobId = `feedback-${repo.id}-${prNumber}-${comment.id}`;
+      await queue.add("sync-feedback", { orgId: repo.orgId, repoId: repo.id, prNumber }, { jobId });
+      return { status: "accepted", jobs: [jobId] };
+    }
+    return { status: "ignored", reason: "not a reply" };
+  }
+
   if (event === "pull_request") {
     if (!PR_ACTIONS.has(payload.action)) return { status: "ignored", reason: `pull_request.${payload.action}` };
     const pr = payload.pull_request;

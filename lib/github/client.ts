@@ -117,7 +117,14 @@ export function toRemoteRepo(r: any): RemoteRepo {
 }
 
 function toReviewComment(c: any): ReviewComment {
-  return { id: c.id, path: c.path, line: c.line ?? null, body: c.body ?? "", author: c.user?.login ?? "" };
+  return {
+    id: c.id,
+    path: c.path,
+    line: c.line ?? null,
+    body: c.body ?? "",
+    author: c.user?.login ?? "",
+    inReplyTo: c.in_reply_to_id ?? null,
+  };
 }
 
 function toIssueComment(c: any): IssueComment {
@@ -200,6 +207,11 @@ class GitHubClient implements GitClient {
   async listReviewComments(repo: string, number: number) {
     const comments = await this.host.paginate<any>(`/repos/${repo}/pulls/${number}/comments`, await this.token());
     return comments.map(toReviewComment);
+  }
+
+  async listReviewCommentReactions(repo: string, commentId: number) {
+    const reactions = await this.host.paginate<any>(`/repos/${repo}/pulls/comments/${commentId}/reactions`, await this.token());
+    return reactions.map((r) => ({ id: r.id as number, content: r.content as string, user: r.user?.login ?? "" }));
   }
 
   async createReview(

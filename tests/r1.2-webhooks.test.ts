@@ -77,7 +77,8 @@ describe("webhook receiver", () => {
     await setRepoEnabled(db, "org_a", repoId, false);
     const res = await deliver("pull_request", prEvent("opened"), "d-4");
     expect(await res.json()).toEqual({ status: "ignored", reason: "reviews disabled for repository" });
-    expect(queue.jobs).toEqual([]);
+    // A closed PR is never reviewed (it only triggers feedback collection, see R2.4).
+    expect(queue.jobs.filter((j) => j.name === "review-pr")).toEqual([]);
   });
 
   test("R1.2 is idempotent on redelivery of the same delivery id", async () => {

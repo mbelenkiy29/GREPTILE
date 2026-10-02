@@ -2,6 +2,7 @@ import type { Db } from "@/lib/db";
 import type { GitHost } from "@/lib/git/types";
 import { indexRepo } from "@/lib/indexer";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
+import { syncFeedback } from "@/lib/learning";
 import { answerMention } from "@/lib/review/mention";
 import { runReviewJob } from "@/lib/review/run";
 import type { JobName, JobPayloads, JobQueue } from "./types";
@@ -22,6 +23,7 @@ export const handlers: Handlers = {
   "index-repo": (deps, data) => indexRepo(deps, data),
   "review-pr": (deps, data) => runReviewJob(deps, data),
   "answer-mention": (deps, data) => answerMention(deps, data),
+  "sync-feedback": (deps, data) => syncFeedback(deps, data),
 };
 
 export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N]) {
