@@ -3,6 +3,7 @@ import type { Db } from "@/lib/db";
 import { files, installations, mentionReplies, repos, symbols } from "@/lib/db/schema";
 import type { GitHost } from "@/lib/git/types";
 import { searchSymbols } from "@/lib/indexer/search";
+import type { JobPayloads } from "@/lib/jobs/types";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { buildReviewContext, type ImpactedCode } from "./context";
 import { isReviewablePath, parsePatch, renderDiff } from "./diff";
@@ -33,7 +34,7 @@ function identifiers(question: string): string[] {
  */
 export async function answerMention(
   deps: { db: Db; host: GitHost; llm: LlmProvider; embedder?: EmbeddingProvider; botMention: string },
-  job: { orgId: string; repoId: number; prNumber: number; commentId: number; body: string; author: string },
+  job: JobPayloads["answer-mention"],
 ) {
   const { db } = deps;
   const [done] = await db
@@ -104,8 +105,10 @@ export async function answerMention(
   const config = await loadEffectiveConfig(client, repoName, pr.baseSha, row.repo.settings);
   const { docs } = await loadContextDocs(client, repoName, pr.baseSha, config.context);
 
+  const threadRoot = job.kind === "review_comment" ? job.inReplyTo : undefined;
   const prompt = [
     `# Question from @${job.author}\n${question}`,
+    threadRoot !== undefined && job.path ? `Asked in an inline review thread on \`${job.path}${job.line ? `:${job.line}` : ""}\`.` : "",
     renderContextSection(docs),
     `# Pull request #${pr.number}: ${pr.title}\n${pr.body.slice(0, 2000)}`,
     `## Diff\n${diffs.map(renderDiff).join("\n\n").slice(0, 30_000)}`,
@@ -116,7 +119,11 @@ export async function answerMention(
 
   const { text } = await deps.llm.text({ system: SYSTEM, prompt, effort: "medium" });
   const quoted = question.split("\n").slice(0, 3).map((l) => `> ${l}`).join("\n");
-  const reply = await client.createIssueComment(repoName, job.prNumber, `${quoted}\n\n@${job.author} ${text.trim()}\n\n${MENTION_MARKER}`);
+  // Review-thread mentions are answered in the thread (the question sits right above); others on the PR (R1.7).
+  const reply =
+    threadRoot !== undefined
+      ? await client.replyToReviewComment(repoName, job.prNumber, threadRoot, `@${job.author} ${text.trim()}\n\n${MENTION_MARKER}`)
+      : await client.createIssueComment(repoName, job.prNumber, `${quoted}\n\n@${job.author} ${text.trim()}\n\n${MENTION_MARKER}`);
 
   await db
     .insert(mentionReplies)

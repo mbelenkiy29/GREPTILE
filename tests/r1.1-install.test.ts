@@ -61,7 +61,7 @@ describe("GitHub App install flow", () => {
     const queue = new MemoryQueue();
     await enqueueIndexForNewRepos(repos, queue);
     expect(queue.jobs.map((j) => [j.name, j.data])).toEqual(
-      repos.map((r) => ["index-repo", { orgId: "org_a", repoId: r.id, mode: "full" }]),
+      repos.map((r) => ["index-repo", { orgId: "org_a", repoId: r.id, mode: "full", trigger: "install" }]),
     );
   });
 
