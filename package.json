@@ -16,9 +16,11 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "verify:parity": "tsx scripts/verify-parity.ts"
+    "verify:parity": "tsx scripts/verify-parity.ts",
+    "worker": "tsx worker/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@clerk/nextjs": "^7.9.10",
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "bullmq": "^6.3.11",
