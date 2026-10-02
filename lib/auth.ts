@@ -1,20 +1,59 @@
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
+import { cookies, headers } from "next/headers";
+import { forbidden, redirect } from "next/navigation";
+import { cache } from "react";
+import { db } from "@/lib/db";
+import { authEnv } from "@/lib/env";
+import { PATH_HEADER, SESSION_COOKIE } from "@/lib/auth/cookies";
+import { can, type Action } from "@/lib/auth/permissions";
+import { signInPath } from "@/lib/auth/redirect";
+import { authorizeRequest, resolveOrgContext, type OrgContext } from "@/lib/auth/request";
+import { validateSessionToken, type ActiveSession } from "@/lib/auth/sessions";
 
-export interface OrgSession {
-  userId: string;
-  orgId: string;
-  orgName: string;
+/**
+ * Server-side auth API for pages, layouts, server actions, and route handlers (R6.1). Every dashboard query is
+ * scoped by the `orgId` returned here (R1.1), and every mutation names the permission it needs.
+ */
+
+export type { OrgContext } from "@/lib/auth/request";
+export type { ActiveSession, SessionUser } from "@/lib/auth/sessions";
+
+function sessionClock() {
+  return { now: new Date(), ttlDays: authEnv().SESSION_TTL_DAYS };
+}
+
+/** The current request's session (validated and, when due, renewed), or null. Memoized per request. */
+export const getSession = cache(async (): Promise<ActiveSession | null> => {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  return validateSessionToken(db(), token, sessionClock());
+});
+
+const getOrgResolution = cache(async () => resolveOrgContext(db(), await getSession()));
+
+async function signInRedirect(): Promise<never> {
+  redirect(signInPath((await headers()).get(PATH_HEADER)));
+}
+
+/** The signed-in user's session; redirects to `/sign-in?next=` when signed out. */
+export async function requireUser(): Promise<ActiveSession> {
+  const session = await getSession();
+  if (!session) return signInRedirect();
+  return session;
 }
 
 /**
- * The signed-in user's active Clerk organization. Every dashboard query is
- * scoped by the returned `orgId` (R1.1). Users without an active org are sent
- * to pick or create one.
+ * The signed-in user acting in their active org. Redirects to `/sign-in?next=` when signed out and to `/orgs` when
+ * there is no active org (or the user was removed from it); renders the 403 page when `permission` is missing.
  */
-export async function requireOrg(): Promise<OrgSession> {
-  const session = await auth();
-  if (!session.userId) redirect("/sign-in");
-  if (!session.orgId) redirect("/select-org");
-  return { userId: session.userId, orgId: session.orgId, orgName: session.orgSlug ?? session.orgId };
+export async function requireOrg(opts: { permission?: Action } = {}): Promise<OrgContext> {
+  const res = await getOrgResolution();
+  if (res.status === "signed_out") return signInRedirect();
+  if (res.status === "no_org") redirect("/orgs");
+  if (opts.permission && !can(res.ctx.role, opts.permission)) forbidden();
+  return res.ctx;
+}
+
+/** Route-handler variant of `requireOrg`: the org context, or a 401/403 JSON `Response` to return as is. */
+export function requireOrgForRoute(req: Request, opts: { permission?: Action } = {}) {
+  return authorizeRequest({ db: db(), clock: sessionClock() }, req, opts);
 }
