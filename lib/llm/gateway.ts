@@ -3,6 +3,7 @@ import { llmEnvSchema, type LlmEnv } from "@/lib/env";
 import { errorMessage, log, type Logger } from "@/lib/log";
 import { AnthropicProvider, type AnthropicMessagesApi } from "./anthropic";
 import { responseCacheKey, type CachedKind, type ResponseCache } from "./cache";
+import { assertPublicOrgEndpoint, type HostResolver } from "./endpoint-guard";
 import { withRetries, type RetryOutcome } from "./execute";
 import { FakeLlm } from "./fake";
 import { OpenAiCompatibleProvider } from "./openai";
@@ -44,7 +45,7 @@ export type GatewayTextResult = TextResult & GatewayMeta;
 
 export interface GatewayOptions {
   /** LLM settings; raw strings are parsed like the process env. Defaults to `process.env`. */
-  env?: Partial<Record<keyof LlmEnv, string | number | undefined>>;
+  env?: Partial<Record<keyof LlmEnv, string | number | boolean | undefined>>;
   /** Bring-your-own LLM settings for the calling org. */
   orgOverride?: OrgLlmOverride;
   recorder?: ModelCallRecorder;
@@ -60,6 +61,8 @@ export interface GatewayOptions {
   fetch?: typeof fetch;
   /** Transport for the Anthropic provider (`client.beta.messages`). */
   anthropic?: AnthropicMessagesApi;
+  /** DNS for the SSRF check on an org's own endpoint (defaults to the system resolver). */
+  resolveHost?: HostResolver;
   logger?: Logger;
 }
 
@@ -93,6 +96,8 @@ export class ModelGateway implements LlmProvider {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
   private readonly log: Logger;
+  /** The org endpoint's DNS check, run once per gateway (cleared on failure so a transient error is retried). */
+  private endpointCheck?: Promise<void>;
 
   constructor(private readonly opts: GatewayOptions = {}) {
     this.env = llmEnvSchema.parse(opts.env ?? process.env);
@@ -123,6 +128,31 @@ export class ModelGateway implements LlmProvider {
     );
   }
 
+  /**
+   * The per-attempt timeout for a route: LLM_TIMEOUT_MS, raised for long outputs so a non-streamed call that may
+   * generate `maxTokens` tokens at LLM_MIN_OUTPUT_TOKENS_PER_SEC is not cut off and retried.
+   */
+  attemptTimeoutMs(route: Pick<ResolvedRoute, "maxTokens">): number {
+    const rate = this.env.LLM_MIN_OUTPUT_TOKENS_PER_SEC;
+    const forOutput = rate > 0 ? Math.ceil((route.maxTokens / rate) * 1000) : 0;
+    return Math.max(this.env.LLM_TIMEOUT_MS, forOutput);
+  }
+
+  /** SSRF check of an org's own endpoint: every address its host resolves to must be public. */
+  private async checkOrgEndpoint(): Promise<void> {
+    if (this.opts.provider) return;
+    const target = providerTarget({ env: this.env, orgOverride: this.opts.orgOverride });
+    if (!target.orgEndpoint || !target.baseURL) return;
+    this.endpointCheck ??= assertPublicOrgEndpoint(target.baseURL, {
+      allowPrivate: this.env.LLM_ALLOW_PRIVATE_ORG_ENDPOINTS,
+      resolve: this.opts.resolveHost,
+    }).catch((err: unknown) => {
+      this.endpointCheck = undefined;
+      throw err;
+    });
+    await this.endpointCheck;
+  }
+
   private providerFor(route: ResolvedRoute): LlmProvider {
     if (this.opts.provider) return this.opts.provider;
     const existing = this.providers.get(route.provider);
@@ -139,8 +169,11 @@ export class ModelGateway implements LlmProvider {
           model: route.model,
           apiKey: target.apiKey,
           baseURL: target.baseURL,
+          // The org's own key or endpoint: the SDK must not add the operator's env credentials or headers.
+          orgScoped: target.fromOrg && (!target.matchesEnv || target.apiKey !== this.env.LLM_API_KEY),
           timeoutMs: this.env.LLM_TIMEOUT_MS,
           messages: this.opts.anthropic,
+          fetch: this.opts.fetch,
         });
         break;
       case "openai":
@@ -169,21 +202,21 @@ export class ModelGateway implements LlmProvider {
   }
 
   async json<T>(req: JsonRequest<T>): Promise<GatewayJsonResult<T>> {
-    return this.run(req, "json", (provider, prompt, route, signal) =>
-      provider.json({ ...req, prompt, model: route.model, effort: route.effort, maxTokens: route.maxTokens, signal }),
+    return this.run(req, "json", (provider, prompt, route, signal, timeoutMs) =>
+      provider.json({ ...req, prompt, model: route.model, effort: route.effort, maxTokens: route.maxTokens, signal, timeoutMs }),
     );
   }
 
   async text(req: TextRequest): Promise<GatewayTextResult> {
-    return this.run(req, "text", (provider, prompt, route, signal) =>
-      provider.text({ ...req, prompt, model: route.model, effort: route.effort, maxTokens: route.maxTokens, signal }),
+    return this.run(req, "text", (provider, prompt, route, signal, timeoutMs) =>
+      provider.text({ ...req, prompt, model: route.model, effort: route.effort, maxTokens: route.maxTokens, signal, timeoutMs }),
     );
   }
 
   private async run<R extends JsonResult<unknown> | TextResult>(
     req: TextRequest & { schema?: z.ZodType; schemaName?: string },
     kind: CachedKind,
-    call: (provider: LlmProvider, prompt: string, route: ResolvedRoute, signal: AbortSignal) => Promise<R>,
+    call: (provider: LlmProvider, prompt: string, route: ResolvedRoute, signal: AbortSignal, timeoutMs: number) => Promise<R>,
   ): Promise<R & GatewayMeta> {
     if (req.signal?.aborted) throw new LlmAbortError("model call cancelled", { cause: req.signal.reason });
     const route = this.route(req);
@@ -205,6 +238,7 @@ export class ModelGateway implements LlmProvider {
     let provider: LlmProvider;
     try {
       provider = this.providerFor(route);
+      await this.checkOrgEndpoint();
     } catch (err) {
       await this.record(route, req.meta, { status: "error", usage: ZERO_USAGE, attempts: 0, started, error: err });
       throw err instanceof LlmError ? err : new LlmError(`could not create the ${route.provider} provider: ${errorMessage(err)}`, { cause: err });
@@ -212,11 +246,12 @@ export class ModelGateway implements LlmProvider {
 
     let prompt = req.prompt;
     let corrected = false;
+    const timeoutMs = this.attemptTimeoutMs(route);
     const outcome: RetryOutcome<R> = await withRetries(
-      (signal) => call(provider, prompt, route, signal),
+      (signal) => call(provider, prompt, route, signal, timeoutMs),
       {
         maxRetries: this.env.LLM_MAX_RETRIES,
-        timeoutMs: this.env.LLM_TIMEOUT_MS,
+        timeoutMs,
         sleep: this.sleep,
         backoff: { ...this.opts.backoff, ...(this.opts.random ? { random: this.opts.random } : {}) },
       },
@@ -258,9 +293,10 @@ export class ModelGateway implements LlmProvider {
     const result = outcome.value;
     const usage = addUsage(outcome.failedUsage, result.usage);
     await this.record(route, req.meta, { status: "ok", usage, attempts: outcome.attempts, started, servedModel: result.servedModel });
-    if (cache && cacheKey) {
+    // An answer cut off at the output limit is not reused (a call with a larger budget would get it too).
+    if (cache && cacheKey && !("truncated" in result && result.truncated)) {
       const value = "data" in result ? result.data : result.text;
-      await this.cacheSet(cache, cacheKey, kind, value, usage);
+      await this.cacheSet(cache, cacheKey, kind, value, usage, req.meta?.orgId ?? null);
     }
     const meta: GatewayMeta = { route, attempts: outcome.attempts, cached: false };
     return Object.assign({}, result, { usage }, meta);
@@ -270,11 +306,13 @@ export class ModelGateway implements LlmProvider {
     try {
       return responseCacheKey({
         kind,
+        orgId: req.meta?.orgId ?? null,
         provider: route.provider,
         baseURL: route.baseURL,
         model: route.model,
         task: route.task,
         effort: route.effort,
+        maxTokens: route.maxTokens,
         system: req.system,
         prompt: req.prompt,
         schemaName: req.schemaName,
@@ -300,9 +338,16 @@ export class ModelGateway implements LlmProvider {
     }
   }
 
-  private async cacheSet(cache: ResponseCache, key: string, kind: CachedKind, value: unknown, usage: Usage): Promise<void> {
+  private async cacheSet(
+    cache: ResponseCache,
+    key: string,
+    kind: CachedKind,
+    value: unknown,
+    usage: Usage,
+    orgId: string | null,
+  ): Promise<void> {
     try {
-      await cache.set(key, { kind, response: value, usage });
+      await cache.set(key, { kind, response: value, usage, orgId });
     } catch (err) {
       this.log.warn("response cache write failed", { error: errorMessage(err) });
     }

@@ -392,8 +392,10 @@ export const modelCalls = pgTable(
 );
 
 /**
- * Embeddings by content hash (R6.16). Content-addressed, so it is shared across orgs: a row only says which vector
- * a given model returns for a given text. Vectors are zero-padded to EMBEDDING_DIM; `dims` is the original width.
+ * Embeddings by content hash (R6.16). Content-addressed and deliberately shared across orgs: a row holds only the
+ * vector a given model returns for a given text (never the text), so identical files in different orgs are embedded
+ * once. Rows older than EMBEDDING_CACHE_TTL_DAYS are re-embedded and pruned. Vectors are zero-padded to
+ * EMBEDDING_DIM; `dims` is the original width.
  */
 export const embeddingCache = pgTable(
   "embedding_cache",
@@ -408,13 +410,16 @@ export const embeddingCache = pgTable(
 );
 
 /**
- * Opt-in cache of model responses (R6.16), keyed by a hash of everything that determines the answer (provider and
- * endpoint, model, task, effort, system, prompt, output schema). Expired rows are ignored and pruned.
+ * Opt-in cache of model responses (R6.16), keyed by a hash of everything that determines the answer (org, provider
+ * and endpoint, model, task, effort, output limit, system, prompt, output schema). Responses can quote private
+ * code, so entries are per org (`org_id`, null for calls without one) and purged with it. Expired rows are ignored
+ * and pruned.
  */
 export const llmResponseCache = pgTable(
   "llm_response_cache",
   {
     key: text("key").primaryKey(),
+    orgId: text("org_id"),
     kind: text("kind").$type<"json" | "text">().notNull(),
     response: jsonb("response").$type<unknown>().notNull(),
     usage: jsonb("usage")
@@ -423,5 +428,5 @@ export const llmResponseCache = pgTable(
     createdAt: createdAt(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
-  (t) => [index().on(t.expiresAt)],
+  (t) => [index().on(t.expiresAt), index().on(t.orgId)],
 );

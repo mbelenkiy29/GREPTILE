@@ -7,13 +7,17 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** Marker used when the budget cannot hold any content (cut to the budget; empty only for a zero budget). */
+const SHORT_MARKER = "[… truncated]";
+
 function marker(omittedLines: number): string {
   return `[… truncated ${omittedLines} more line${omittedLines === 1 ? "" : "s"}]`;
 }
 
 /**
  * Cuts `text` to at most `maxTokens` estimated tokens, keeping whole lines and ending with a truncation marker
- * that says how many lines were dropped. Only when not even the first line fits is a line cut mid-way.
+ * that says how many lines were dropped. Only when not even the first line fits is a line cut mid-way. A budget too
+ * small for that returns just a (possibly shortened) "[… truncated]" marker; a zero budget returns "".
  */
 export function truncateToTokens(text: string, maxTokens: number): string {
   if (estimateTokens(text) <= maxTokens) return text;
@@ -21,7 +25,8 @@ export function truncateToTokens(text: string, maxTokens: number): string {
   const lines = text.split("\n");
   // Reserve room for the widest marker this text can need (every line dropped).
   const reserve = marker(lines.length).length + 1;
-  if (reserve > budget) return "";
+  // Too small for a line and the full marker: return as much of a short marker as fits, so the cut is still visible.
+  if (reserve > budget) return SHORT_MARKER.slice(0, budget);
   const room = budget - reserve;
   const kept: string[] = [];
   let used = 0;

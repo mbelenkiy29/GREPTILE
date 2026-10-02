@@ -50,6 +50,8 @@ interface RequestBase {
   cache?: boolean;
   /** Cancels the call (e.g. a superseded review). Cancellation is never retried. */
   signal?: AbortSignal;
+  /** Per-attempt transport timeout; the gateway sets it from the route (callers normally leave it unset). */
+  timeoutMs?: number;
 }
 
 export interface JsonRequest<T> extends RequestBase {
@@ -71,6 +73,8 @@ export interface TextResult {
   text: string;
   usage: Usage;
   servedModel?: string;
+  /** The answer stopped at the output limit (`max_tokens` / `length`); never served from the response cache. */
+  truncated?: boolean;
 }
 
 /** Every LLM call in OpenReview goes through this interface (H4). */

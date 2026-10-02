@@ -26,6 +26,7 @@ export {
   type ModelCallTotals,
 } from "./recorder";
 export { PostgresResponseCache, responseCacheKey, type ResponseCache } from "./cache";
+export { assertPublicOrgEndpoint, isNonPublicAddress, type HostResolver } from "./endpoint-guard";
 export { CachedEmbeddings } from "./embedding-cache";
 
 /**
@@ -65,5 +66,6 @@ export function embeddings(opts: { db?: Db } = {}): EmbeddingProvider {
     pricing: pricingTable(e.LLM_PRICING_JSON),
     maxRetries: e.LLM_MAX_RETRIES,
     timeoutMs: e.LLM_TIMEOUT_MS,
+    ttlDays: e.EMBEDDING_CACHE_TTL_DAYS,
   });
 }

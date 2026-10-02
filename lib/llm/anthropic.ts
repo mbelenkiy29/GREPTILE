@@ -27,6 +27,34 @@ import {
 
 export { DEFAULT_ANTHROPIC_MODEL };
 
+/** The first-party Messages API. */
+export const ANTHROPIC_API_URL = "https://api.anthropic.com";
+
+/** True when `baseURL` is the first-party API (unset means the SDK default, which is first-party). */
+export function isFirstPartyAnthropic(baseURL: string | undefined): boolean {
+  if (!baseURL) return true;
+  try {
+    return new URL(baseURL).hostname === "api.anthropic.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Header names the SDK would add from `ANTHROPIC_CUSTOM_HEADERS` (one `Name: value` per line), mapped to null so an
+ * org-scoped client removes them.
+ */
+function envCustomHeadersRemoved(): Record<string, null> {
+  const raw = process.env.ANTHROPIC_CUSTOM_HEADERS;
+  const out: Record<string, null> = {};
+  if (!raw) return out;
+  for (const line of raw.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon >= 0) out[line.substring(0, colon).trim()] = null;
+  }
+  return out;
+}
+
 /** Server-side refusal fallback (`fallbacks: "default"` routes a declined request by refusal category). */
 export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
@@ -83,18 +111,31 @@ export interface AnthropicProviderOptions {
   model?: string;
   apiKey?: string;
   baseURL?: string;
+  /**
+   * The client serves an organization's own credentials or endpoint. The SDK then reads nothing from the process
+   * env: no ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, or ANTHROPIC_CUSTOM_HEADERS, so operator
+   * credentials never reach an org-chosen endpoint. Requires `apiKey`.
+   */
+  orgScoped?: boolean;
+  /** Transport for the default SDK client (tests). */
+  fetch?: typeof fetch;
   /** Per-request timeout handed to the SDK (the gateway also enforces it). */
   timeoutMs?: number;
   /** Injected transport; defaults to the official SDK with its own retries disabled (the gateway retries). */
   messages?: AnthropicMessagesApi;
 }
 
-/** Builds the Messages API body for `model`, sending effort and fallbacks only where the model accepts them. */
+/**
+ * Builds the Messages API body for `model`, sending effort and fallbacks only where the model accepts them. The
+ * server-side fallback beta is first-party only, so it is left out when `firstParty` is false (a proxy or other
+ * Anthropic-compatible endpoint may reject unknown parameters).
+ */
 export function anthropicRequest(
   model: string,
   req: { system: string; prompt: string; maxTokens?: number; effort?: Effort },
   defaultEffort: Effort,
   format?: NonNullable<MessageCreateParamsNonStreaming["output_config"]>["format"],
+  firstParty = true,
 ): MessageCreateParamsNonStreaming {
   const caps = anthropicCaps(model);
   const outputConfig: NonNullable<MessageCreateParamsNonStreaming["output_config"]> = {};
@@ -103,7 +144,7 @@ export function anthropicRequest(
   return {
     model,
     max_tokens: req.maxTokens ?? 16_000,
-    ...(caps.fallbacks ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
+    ...(caps.fallbacks && firstParty ? { betas: [FALLBACK_BETA], fallbacks: "default" as const } : {}),
     system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: req.prompt }],
     ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
@@ -151,17 +192,34 @@ export class AnthropicProvider implements LlmProvider {
   readonly model: string;
   private readonly messages: AnthropicMessagesApi;
   private readonly timeoutMs?: number;
+  private readonly firstParty: boolean;
 
   constructor(opts: AnthropicProviderOptions = {}) {
     this.model = opts.model ?? DEFAULT_ANTHROPIC_MODEL;
     this.timeoutMs = opts.timeoutMs;
-    this.messages =
-      opts.messages ??
-      new Anthropic({ apiKey: opts.apiKey, baseURL: opts.baseURL, maxRetries: 0, timeout: opts.timeoutMs }).beta.messages;
+    if (opts.orgScoped && !opts.apiKey) {
+      throw new LlmError("an organization-scoped Anthropic client needs the organization's own API key");
+    }
+    // Without an explicit base URL the default SDK client honors ANTHROPIC_BASE_URL (operator-scoped only).
+    const effectiveBase = opts.baseURL ?? (opts.messages || opts.orgScoped ? undefined : process.env.ANTHROPIC_BASE_URL || undefined);
+    this.firstParty = isFirstPartyAnthropic(effectiveBase);
+    this.messages = opts.messages ?? this.client(opts).beta.messages;
   }
 
-  private options(signal?: AbortSignal): AnthropicRequestOptions {
-    return { ...(signal ? { signal } : {}), ...(this.timeoutMs ? { timeout: this.timeoutMs } : {}) };
+  private client(opts: AnthropicProviderOptions): Anthropic {
+    const common = { apiKey: opts.apiKey, maxRetries: 0, timeout: opts.timeoutMs, ...(opts.fetch ? { fetch: opts.fetch } : {}) };
+    if (!opts.orgScoped) return new Anthropic({ ...common, baseURL: opts.baseURL });
+    return new Anthropic({
+      ...common,
+      authToken: null,
+      baseURL: opts.baseURL ?? ANTHROPIC_API_URL,
+      defaultHeaders: envCustomHeadersRemoved(),
+    });
+  }
+
+  private options(signal?: AbortSignal, timeoutMs?: number): AnthropicRequestOptions {
+    const timeout = timeoutMs ?? this.timeoutMs;
+    return { ...(signal ? { signal } : {}), ...(timeout ? { timeout } : {}) };
   }
 
   private served(res: AnthropicResponse, model: string): { servedModel?: string } {
@@ -193,7 +251,10 @@ export class AnthropicProvider implements LlmProvider {
     };
     let res: AnthropicResponse;
     try {
-      res = await this.messages.parse(anthropicRequest(model, req, "high", safeFormat), this.options(req.signal));
+      res = await this.messages.parse(
+        anthropicRequest(model, req, "high", safeFormat, this.firstParty),
+        this.options(req.signal, req.timeoutMs),
+      );
     } catch (err) {
       throw fromAnthropicError(err);
     }
@@ -218,7 +279,7 @@ export class AnthropicProvider implements LlmProvider {
     const model = req.model ?? this.model;
     let res: AnthropicResponse;
     try {
-      res = await this.messages.create(anthropicRequest(model, req, "medium"), this.options(req.signal));
+      res = await this.messages.create(anthropicRequest(model, req, "medium", undefined, this.firstParty), this.options(req.signal, req.timeoutMs));
     } catch (err) {
       throw fromAnthropicError(err);
     }
@@ -227,6 +288,6 @@ export class AnthropicProvider implements LlmProvider {
       throw new LlmRefusalError(res.stop_details?.explanation || "model refused", { usage });
     }
     const text = res.content.flatMap((b) => (b.type === "text" && typeof b.text === "string" ? [b.text] : [])).join("");
-    return { text, usage, ...this.served(res, model) };
+    return { text, usage, ...(res.stop_reason === "max_tokens" ? { truncated: true } : {}), ...this.served(res, model) };
   }
 }

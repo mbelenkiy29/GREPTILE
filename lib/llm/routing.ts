@@ -1,4 +1,5 @@
 import type { LlmEnv } from "@/lib/env";
+import { assertOrgEndpointShape } from "./endpoint-guard";
 import {
   LlmError,
   type ChatTask,
@@ -128,14 +129,24 @@ export interface ProviderTarget {
    */
   matchesEnv: boolean;
   fromOrg: boolean;
+  /**
+   * The org supplied `baseURL` and it is not the operator's endpoint: requests go to an org-chosen host, so it is
+   * SSRF-checked (`endpoint-guard.ts`) and must never receive operator credentials.
+   */
+  orgEndpoint: boolean;
 }
 
 export function providerTarget(ctx: RouteContext): ProviderTarget {
   const { env, orgOverride: org } = ctx;
   const envProvider = normalizeProvider(env.LLM_PROVIDER, env.LLM_BASE_URL);
-  if (!org) return withDefaultBase({ provider: envProvider, baseURL: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, matchesEnv: true, fromOrg: false });
+  if (!org) {
+    return withDefaultBase({ provider: envProvider, baseURL: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, matchesEnv: true, fromOrg: false, orgEndpoint: false });
+  }
   const provider = normalizeProvider(org.provider, org.baseURL);
   const same = provider === envProvider && (!org.baseURL || org.baseURL === env.LLM_BASE_URL);
+  const orgEndpoint = !!org.baseURL && org.baseURL !== env.LLM_BASE_URL;
+  // The org's own endpoint is untrusted input: https, no credentials, no private IP literals (DNS is checked later).
+  if (orgEndpoint && org.baseURL) assertOrgEndpointShape(org.baseURL, env.LLM_ALLOW_PRIVATE_ORG_ENDPOINTS);
   return withDefaultBase({
     provider,
     baseURL: org.baseURL ?? (same ? env.LLM_BASE_URL : undefined),
@@ -143,6 +154,7 @@ export function providerTarget(ctx: RouteContext): ProviderTarget {
     apiKey: org.apiKey ?? (same ? env.LLM_API_KEY : undefined),
     matchesEnv: same,
     fromOrg: true,
+    orgEndpoint,
   });
 }
 

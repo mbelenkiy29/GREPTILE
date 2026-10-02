@@ -4,6 +4,12 @@ import { z } from "zod";
 const optionalNumber = <T extends z.ZodType>(inner: T) =>
   z.preprocess((v) => (v === undefined || v === "" ? undefined : Number(v)), inner);
 
+/** A boolean flag: "true"/"1"/"yes" are true; unset or empty is false (already-parsed booleans pass through). */
+const flag = z
+  .union([z.boolean(), z.string()])
+  .optional()
+  .transform((v) => (typeof v === "boolean" ? v : ["true", "1", "yes"].includes((v ?? "").trim().toLowerCase())));
+
 const optional = z
   .string()
   .optional()
@@ -29,6 +35,13 @@ const llmShape = {
   LLM_MODEL_DEEP: optional,
   LLM_TIMEOUT_MS: optionalNumber(z.number().int().positive().default(180_000)),
   LLM_MAX_RETRIES: optionalNumber(z.number().int().min(0).max(10).default(3)),
+  /**
+   * Slowest output rate a call is allowed: an attempt may run for max(LLM_TIMEOUT_MS, maxTokens / rate) so long
+   * deep-mode calls are not cut off. 0 disables the allowance.
+   */
+  LLM_MIN_OUTPUT_TOKENS_PER_SEC: optionalNumber(z.number().min(0).default(60)),
+  /** Let organizations' own LLM endpoints use http and private / loopback / link-local addresses (SSRF guard off). */
+  LLM_ALLOW_PRIVATE_ORG_ENDPOINTS: flag,
   /** USD per million tokens, merged over the built-in table: {"model": {"input": 1, "output": 2, ...}}. */
   LLM_PRICING_JSON: optional,
   LLM_CACHE_TTL_HOURS: optionalNumber(z.number().positive().default(168)),
@@ -36,6 +49,8 @@ const llmShape = {
   EMBEDDING_MODEL: optional,
   EMBEDDING_BASE_URL: optional,
   EMBEDDING_API_KEY: optional,
+  /** Embedding cache rows older than this are re-embedded and pruned. */
+  EMBEDDING_CACHE_TTL_DAYS: optionalNumber(z.number().positive().default(90)),
 };
 
 const schema = z.object({

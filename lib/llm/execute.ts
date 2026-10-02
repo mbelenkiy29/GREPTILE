@@ -40,6 +40,27 @@ export async function runAttempt<T>(fn: (signal: AbortSignal) => Promise<T>, tim
   }
 }
 
+/** Sleeps `ms` unless `signal` aborts first; returns false when cancelled (before or during the wait). */
+export async function sleepUnlessAborted(sleep: (ms: number) => Promise<void>, ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await sleep(ms);
+    return true;
+  }
+  if (signal.aborted) return false;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<false>((resolve) => {
+    onAbort = () => resolve(false);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const slept = sleep(ms).then(() => true as const);
+    slept.catch(() => undefined);
+    return (await Promise.race([slept, aborted])) && !signal.aborted;
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export interface RetryPolicy {
   /** Retries after the first attempt for transient failures. */
   maxRetries: number;
@@ -85,9 +106,9 @@ export async function withRetries<T>(
         const delay = backoffDelay(retries, err.retryAfterMs, policy.backoff);
         retries++;
         hooks.onRetry?.(err, delay, attempt);
-        await policy.sleep(delay);
-        if (hooks.signal?.aborted) {
-          return { ok: false, error: new LlmAbortError("model call cancelled"), attempts, failedUsage };
+        // Cancellation ends a backoff wait at once (a retry-after can be up to two minutes).
+        if (!(await sleepUnlessAborted(policy.sleep, delay, hooks.signal))) {
+          return { ok: false, error: new LlmAbortError("model call cancelled", { cause: hooks.signal?.reason }), attempts, failedUsage };
         }
         continue;
       }

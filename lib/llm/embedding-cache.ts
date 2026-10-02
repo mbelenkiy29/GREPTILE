@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { embeddingCache } from "@/lib/db/schema";
 import { errorMessage, log, type Logger } from "@/lib/log";
@@ -29,18 +29,28 @@ export interface CachedEmbeddingsOptions {
   now?: () => number;
   backoff?: BackoffOptions;
   logger?: Logger;
+  /** Rows older than this are treated as misses (re-embedded and refreshed) and pruned (default 90 days). */
+  ttlDays?: number;
+  /** Minimum time between opportunistic prunes of expired rows (default 10 minutes). */
+  pruneIntervalMs?: number;
+  /** Most expired rows deleted per prune (default 500). */
+  pruneBatch?: number;
 }
 
 /**
  * Embedding cache (R6.16): looks up every text's sha256 in `embedding_cache` in one batch per chunk, embeds only
  * the misses (with timeout and retries), stores them, and records the call in `model_calls` (task `embed`).
  * Duplicate texts within a call are embedded once. Cache read/write failures degrade to calling the provider.
+ * Rows expire after `ttlDays`: an expired row is a miss whose re-embedding refreshes it, and expired rows are
+ * pruned opportunistically as the cache is written.
  */
 export class CachedEmbeddings implements EmbeddingProvider {
   readonly name: string;
   readonly model: string;
   private readonly now: () => number;
   private readonly log: Logger;
+  private readonly ttlMs: number;
+  private lastPrune = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly inner: EmbeddingProvider,
@@ -50,6 +60,7 @@ export class CachedEmbeddings implements EmbeddingProvider {
     this.name = inner.name;
     this.model = inner.model;
     this.now = opts.now ?? Date.now;
+    this.ttlMs = (opts.ttlDays ?? 90) * 86_400_000;
     this.log = (opts.logger ?? log).child({ component: "embeddings", model: inner.model });
   }
 
@@ -107,7 +118,13 @@ export class CachedEmbeddings implements EmbeddingProvider {
         const rows = await this.opts.db
           .select({ hash: embeddingCache.contentHash, dims: embeddingCache.dims, embedding: embeddingCache.embedding })
           .from(embeddingCache)
-          .where(and(eq(embeddingCache.model, this.model), inArray(embeddingCache.contentHash, chunk)));
+          .where(
+            and(
+              eq(embeddingCache.model, this.model),
+              inArray(embeddingCache.contentHash, chunk),
+              gt(embeddingCache.createdAt, new Date(this.now() - this.ttlMs)),
+            ),
+          );
         for (const r of rows) found.set(r.hash, r.embedding.slice(0, r.dims));
       }
     } catch (err) {
@@ -118,17 +135,43 @@ export class CachedEmbeddings implements EmbeddingProvider {
   }
 
   private async store(rows: { hash: string; vector: number[] }[]): Promise<void> {
+    const createdAt = new Date(this.now());
     try {
       for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
         const chunk = rows.slice(i, i + LOOKUP_CHUNK);
         await this.opts.db
           .insert(embeddingCache)
-          .values(chunk.map((r) => ({ model: this.model, contentHash: r.hash, dims: r.vector.length, embedding: toStoredEmbedding(r.vector) })))
-          .onConflictDoNothing();
+          .values(
+            chunk.map((r) => ({ model: this.model, contentHash: r.hash, dims: r.vector.length, embedding: toStoredEmbedding(r.vector), createdAt })),
+          )
+          // A miss on an expired row re-embedded it: refresh the row in place.
+          .onConflictDoUpdate({
+            target: [embeddingCache.model, embeddingCache.contentHash],
+            set: { dims: sql`excluded.dims`, embedding: sql`excluded.embedding`, createdAt },
+          });
+      }
+      if (createdAt.getTime() - this.lastPrune >= (this.opts.pruneIntervalMs ?? 600_000)) {
+        this.lastPrune = createdAt.getTime();
+        await this.prune();
       }
     } catch (err) {
       this.log.warn("embedding cache write failed", { error: errorMessage(err) });
     }
+  }
+
+  /** Deletes up to `pruneBatch` rows older than the TTL (any model); returns how many were removed. */
+  async prune(): Promise<number> {
+    const cutoff = new Date(this.now() - this.ttlMs);
+    const expired = this.opts.db
+      .select({ model: embeddingCache.model, hash: embeddingCache.contentHash })
+      .from(embeddingCache)
+      .where(lte(embeddingCache.createdAt, cutoff))
+      .limit(this.opts.pruneBatch ?? 500);
+    const deleted = await this.opts.db
+      .delete(embeddingCache)
+      .where(sql`(${embeddingCache.model}, ${embeddingCache.contentHash}) in ${expired}`)
+      .returning({ hash: embeddingCache.contentHash });
+    return deleted.length;
   }
 
   private async record(

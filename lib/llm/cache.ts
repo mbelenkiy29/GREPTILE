@@ -7,7 +7,9 @@ import type { Usage } from "./types";
 
 /**
  * Response cache (R6.16). Only calls that pass `cache: true` use it. The key covers everything that determines the
- * answer, so a hit is a response the same model already gave to the same instructions and input.
+ * answer, so a hit is a response the same model already gave to the same instructions and input. Entries are
+ * scoped to the calling org (its id is part of the key and stored on the row): cached output can quote private
+ * code, so one org never gets a hit from another's call, and `purgeOrg` removes an org's entries.
  */
 
 export type CachedKind = "json" | "text";
@@ -17,6 +19,8 @@ export interface CachedResponse {
   response: unknown;
   /** Tokens the original call spent (a hit spends none). */
   usage: Usage;
+  /** Org that made the call (null for calls without org context, e.g. CLI). */
+  orgId?: string | null;
 }
 
 export interface ResponseCache {
@@ -26,12 +30,16 @@ export interface ResponseCache {
 
 export interface ResponseCacheKeyParts {
   kind: CachedKind;
+  /** Calling org; entries are never shared across orgs. */
+  orgId?: string | null;
   provider: string;
   /** Endpoint for OpenAI-style providers: the same model name on two servers is two models. */
   baseURL?: string;
   model: string;
   task: string | null;
   effort?: string;
+  /** Output limit: a smaller budget can yield a different (shorter) answer. */
+  maxTokens?: number;
   system: string;
   prompt: string;
   schemaName?: string;
@@ -41,13 +49,15 @@ export interface ResponseCacheKeyParts {
 /** sha256 over an unambiguous encoding of every part (a JSON array, so no delimiter collisions). */
 export function responseCacheKey(p: ResponseCacheKeyParts): string {
   const encoded = JSON.stringify([
-    "v1",
+    "v2",
+    p.orgId ?? "",
     p.kind,
     p.provider,
     p.baseURL ?? "",
     p.model,
     p.task ?? "",
     p.effort ?? "",
+    p.maxTokens ?? null,
     p.system,
     p.prompt,
     p.schemaName ?? "",
@@ -108,6 +118,7 @@ export class PostgresResponseCache implements ResponseCache {
   async set(key: string, entry: CachedResponse): Promise<void> {
     const now = this.now();
     const values = {
+      orgId: entry.orgId ?? null,
       kind: entry.kind,
       response: { value: entry.response },
       usage: entry.usage,
@@ -122,6 +133,15 @@ export class PostgresResponseCache implements ResponseCache {
       this.lastPrune = now;
       await this.prune();
     }
+  }
+
+  /** Deletes every entry an org's calls created (org deletion, data purge); returns how many were removed. */
+  async purgeOrg(orgId: string): Promise<number> {
+    const deleted = await this.db
+      .delete(llmResponseCache)
+      .where(eq(llmResponseCache.orgId, orgId))
+      .returning({ key: llmResponseCache.key });
+    return deleted.length;
   }
 
   /** Deletes up to `pruneBatch` expired rows; returns how many were removed. */

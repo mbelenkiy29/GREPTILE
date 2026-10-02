@@ -1,13 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { eq } from "drizzle-orm";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { modelCalls } from "@/lib/db/schema";
 import { setLogSink } from "@/lib/log";
 import { createGateway, type GatewayOptions } from "@/lib/llm/gateway";
 import { FakeLlm, type FakeCall } from "@/lib/llm/fake";
 import { InMemoryModelCallRecorder, PostgresModelCallRecorder, modelCallTotals } from "@/lib/llm/recorder";
-import { AnthropicProvider, anthropicRequest } from "@/lib/llm/anthropic";
+import { AnthropicProvider, anthropicRequest, type AnthropicMessagesApi, type AnthropicRequestOptions } from "@/lib/llm/anthropic";
+import { isNonPublicAddress } from "@/lib/llm/endpoint-guard";
 import { backoffDelay, parseRetryAfter } from "@/lib/llm/retry";
 import {
   LlmAbortError,
@@ -23,6 +24,8 @@ import { anthropicMessage, chatCompletion, fakeFetch, jsonResponse, type Respond
 const findingsSchema = z.object({ findings: z.array(z.object({ title: z.string(), line: z.number() })) });
 const FINDINGS = { findings: [{ title: "Null deref", line: 12 }] };
 const noSleep = async () => undefined;
+/** DNS that maps every host to a public address (the SSRF check never touches the network in tests). */
+const PUBLIC_DNS = async () => ["93.184.215.14"];
 
 function sleeps() {
   const delays: number[] = [];
@@ -139,14 +142,15 @@ describe("model gateway routing", () => {
     const http = fakeFetch(() => jsonResponse(chatCompletion(JSON.stringify(FINDINGS))));
     const byo = createGateway({
       env,
-      orgOverride: { provider: "openai-compatible", baseURL: "http://llm.acme.internal:8000/v1", model: "acme-coder", apiKey: "acme-key" },
+      orgOverride: { provider: "openai-compatible", baseURL: "https://llm.acme.dev/v1", model: "acme-coder", apiKey: "acme-key" },
       fetch: http.fetch,
+      resolveHost: PUBLIC_DNS,
       sleep: noSleep,
     });
     const res = await byo.json({ system: "s", prompt: "p", schema: findingsSchema, schemaName: "review_findings", task: "review" });
-    expect(res.route).toMatchObject({ provider: "openai-compatible", model: "acme-coder", source: "org", baseURL: "http://llm.acme.internal:8000/v1" });
+    expect(res.route).toMatchObject({ provider: "openai-compatible", model: "acme-coder", source: "org", baseURL: "https://llm.acme.dev/v1" });
     expect(res.route.effort).toBeUndefined();
-    expect(http.requests[0]!.url).toBe("http://llm.acme.internal:8000/v1/chat/completions");
+    expect(http.requests[0]!.url).toBe("https://llm.acme.dev/v1/chat/completions");
     expect(http.requests[0]!.headers.authorization).toBe("Bearer acme-key");
     // The operator's key never goes to an org's endpoint.
     expect(JSON.stringify(http.requests[0]!.headers)).not.toContain("operator");
@@ -448,7 +452,7 @@ describe("reliability", () => {
       },
     };
     const recorder = new InMemoryModelCallRecorder();
-    const g = createGateway({ env: { LLM_PROVIDER: "fake", LLM_TIMEOUT_MS: "25" }, provider: slowOnce, recorder, sleep: noSleep });
+    const g = createGateway({ env: { LLM_PROVIDER: "fake", LLM_TIMEOUT_MS: "25", LLM_MIN_OUTPUT_TOKENS_PER_SEC: "0" }, provider: slowOnce, recorder, sleep: noSleep });
     const res = await g.text({ system: "s", prompt: "p" });
     expect(res.text).toBe("second");
     expect(res.attempts).toBe(2);
@@ -576,5 +580,205 @@ describe("accounting", () => {
     } finally {
       fx.fixture.cleanup();
     }
+  });
+});
+
+describe("bring-your-own endpoint safety", () => {
+  const OPERATOR_ENV = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"] as const;
+
+  test("R6.15 an org's own Anthropic key or endpoint never receives the operator's env token, headers, or base URL", async () => {
+    const saved = Object.fromEntries(OPERATOR_ENV.map((k) => [k, process.env[k]]));
+    process.env.ANTHROPIC_AUTH_TOKEN = "operator-secret-token";
+    process.env.ANTHROPIC_CUSTOM_HEADERS = "X-Operator-Tenant: operator-tenant\nX-Operator-Route: operator-route";
+    process.env.ANTHROPIC_BASE_URL = "https://operator-proxy.example.com";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-operator-env-key";
+    try {
+      const http = fakeFetch(() => jsonResponse(anthropicMessage({ text: "hi" })));
+      const env = { LLM_PROVIDER: "anthropic" };
+      const ask = (g: ReturnType<typeof createGateway>) => g.text({ system: "s", prompt: "p", task: "chat" });
+
+      // The real SDK, built by the gateway: an org endpoint gets the org key and nothing of the operator's.
+      await ask(
+        createGateway({
+          env,
+          orgOverride: { provider: "anthropic", baseURL: "https://llm-proxy.acme.dev", apiKey: "sk-ant-org-key-0000000000" },
+          fetch: http.fetch,
+          resolveHost: PUBLIC_DNS,
+          sleep: noSleep,
+        }),
+      );
+      const org = http.requests[0]!;
+      expect(org.url).toMatch(/^https:\/\/llm-proxy\.acme\.dev\/v1\/messages/);
+      expect(org.headers["x-api-key"]).toBe("sk-ant-org-key-0000000000");
+      expect(org.headers.authorization).toBeUndefined();
+      expect(org.headers["x-operator-tenant"]).toBeUndefined();
+      expect(JSON.stringify(org.headers)).not.toContain("operator");
+      // A non-first-party endpoint never gets the first-party-only fallback beta.
+      expect(org.body).not.toHaveProperty("fallbacks");
+      expect(org.headers["anthropic-beta"] ?? "").not.toContain("server-side-fallback");
+
+      // The org's own key on the operator's provider goes to the first-party API, not ANTHROPIC_BASE_URL.
+      await ask(createGateway({ env, orgOverride: { provider: "anthropic", apiKey: "sk-ant-org-key-0000000000" }, fetch: http.fetch, sleep: noSleep }));
+      const ownKey = http.requests[1]!;
+      expect(ownKey.url).toMatch(/^https:\/\/api\.anthropic\.com\/v1\/messages/);
+      expect(ownKey.headers.authorization).toBeUndefined();
+      expect(JSON.stringify(ownKey.headers)).not.toContain("operator");
+      expect(ownKey.body).toMatchObject({ fallbacks: "default" });
+
+      // The operator's own calls keep the SDK's env configuration (behind a proxy: no fallback beta).
+      await ask(createGateway({ env, fetch: http.fetch, sleep: noSleep }));
+      const operator = http.requests[2]!;
+      expect(operator.url).toMatch(/^https:\/\/operator-proxy\.example\.com\/v1\/messages/);
+      expect(operator.headers.authorization).toBe("Bearer operator-secret-token");
+      expect(operator.body).not.toHaveProperty("fallbacks");
+
+      expect(() => new AnthropicProvider({ orgScoped: true, baseURL: "https://llm-proxy.acme.dev" })).toThrow(/organization's own API key/);
+    } finally {
+      for (const k of OPERATOR_ENV) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  });
+
+  test("R6.15 an org's own endpoint must be https and public: private, loopback, link-local, and metadata targets are refused", async () => {
+    const http = fakeFetch(() => jsonResponse(chatCompletion("ok")));
+    const recorder = new InMemoryModelCallRecorder();
+    const env = { LLM_PROVIDER: "anthropic" };
+    const org = (baseURL: string) => ({ provider: "openai-compatible" as const, baseURL, model: "acme-coder", apiKey: "acme-key" });
+    const ask = (g: ReturnType<typeof createGateway>) => g.text({ system: "s", prompt: "p", task: "chat" });
+
+    for (const bad of [
+      "http://llm.acme.dev/v1",
+      "https://user:pw@llm.acme.dev/v1",
+      "https://127.0.0.1/v1",
+      "https://2130706433/v1",
+      "https://10.1.2.3/v1",
+      "https://172.18.0.3:6379/v1",
+      "https://192.168.1.10/v1",
+      "https://100.64.0.1/v1",
+      "https://169.254.169.254/latest/meta-data",
+      "https://[::1]/v1",
+      "https://[::ffff:127.0.0.1]/v1",
+      "https://[fd00:ec2::254]/v1",
+      "https://[fe80::1]/v1",
+      "https://localhost/v1",
+      "https://api.localhost/v1",
+      "not a url",
+    ]) {
+      const g = createGateway({ env, orgOverride: org(bad), fetch: http.fetch, resolveHost: PUBLIC_DNS, sleep: noSleep, recorder });
+      await expect(ask(g), bad).rejects.toThrow(LlmError);
+    }
+
+    // Hostnames are resolved: any private answer is refused (internal service names, metadata aliases, mixed sets).
+    const resolved: Record<string, string[]> = {
+      redis: ["172.18.0.3"],
+      "metadata.google.internal": ["169.254.169.254"],
+      "mixed.acme.dev": ["93.184.215.14", "10.0.0.5"],
+      "v6.acme.dev": ["fe80::1"],
+    };
+    for (const [host, addresses] of Object.entries(resolved)) {
+      const g = createGateway({ env, orgOverride: org(`https://${host}/v1`), fetch: http.fetch, resolveHost: async () => addresses, sleep: noSleep, recorder });
+      await expect(ask(g), host).rejects.toThrow(/resolves to a private, loopback, or link-local address/);
+    }
+    const unresolvable = createGateway({
+      env,
+      orgOverride: org("https://nowhere.acme.dev/v1"),
+      fetch: http.fetch,
+      resolveHost: async () => Promise.reject(new Error("ENOTFOUND")),
+      sleep: noSleep,
+      recorder,
+    });
+    await expect(ask(unresolvable)).rejects.toThrow(/cannot resolve/);
+    expect(http.requests).toHaveLength(0);
+    expect(recorder.calls.length).toBeGreaterThan(0);
+    expect(recorder.calls.every((c) => c.status === "error" && c.attempts === 0)).toBe(true);
+
+    // A public host is allowed, and resolved once per gateway.
+    let lookups = 0;
+    const ok = createGateway({
+      env,
+      orgOverride: org("https://llm.acme.dev/v1"),
+      fetch: http.fetch,
+      resolveHost: async () => {
+        lookups++;
+        return ["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"];
+      },
+      sleep: noSleep,
+    });
+    await ask(ok);
+    await ask(ok);
+    expect(lookups).toBe(1);
+    expect(http.requests.map((r) => r.url)).toEqual(["https://llm.acme.dev/v1/chat/completions", "https://llm.acme.dev/v1/chat/completions"]);
+
+    // Operators can let orgs use internal endpoints; credentials in the URL are still refused.
+    const noDns = async (): Promise<string[]> => Promise.reject(new Error("DNS must not be needed"));
+    const internal = { ...env, LLM_ALLOW_PRIVATE_ORG_ENDPOINTS: "true" };
+    await ask(createGateway({ env: internal, orgOverride: org("http://10.0.0.5:8000/v1"), fetch: http.fetch, resolveHost: noDns, sleep: noSleep }));
+    expect(http.requests.at(-1)!.url).toBe("http://10.0.0.5:8000/v1/chat/completions");
+    expect(() => createGateway({ env: internal, orgOverride: org("http://u:p@10.0.0.5/v1") }).routeFor("chat")).toThrow(/credentials/);
+
+    // The operator's own LLM_BASE_URL is never restricted (a local Ollama is legitimate).
+    const local = createGateway({
+      env: { LLM_PROVIDER: "openai-compatible", LLM_BASE_URL: "http://localhost:11434/v1", LLM_MODEL: "qwen" },
+      fetch: http.fetch,
+      resolveHost: noDns,
+      sleep: noSleep,
+    });
+    await ask(local);
+    expect(http.requests.at(-1)!.url).toBe("http://localhost:11434/v1/chat/completions");
+
+    expect(isNonPublicAddress("8.8.8.8")).toBe(false);
+    expect(isNonPublicAddress("2606:4700:4700::1111")).toBe(false);
+    expect(isNonPublicAddress("::ffff:7f00:1")).toBe(true);
+    expect(isNonPublicAddress("::ffff:5db8:d70e")).toBe(false);
+    expect(isNonPublicAddress("not-an-ip")).toBe(true);
+  });
+});
+
+describe("timeouts and cancellation", () => {
+  test("R6.15 the per-attempt timeout grows with the output limit so long deep-mode calls are not cut off", async () => {
+    const g = createGateway({ env: { LLM_PROVIDER: "fake" } });
+    expect(g.attemptTimeoutMs({ maxTokens: 4_000 })).toBe(180_000);
+    expect(g.attemptTimeoutMs(g.routeFor("review", "deep"))).toBe(Math.ceil((16_000 / 60) * 1000));
+    expect(createGateway({ env: { LLM_PROVIDER: "fake", LLM_TIMEOUT_MS: "600000" } }).attemptTimeoutMs({ maxTokens: 16_000 })).toBe(600_000);
+    expect(createGateway({ env: { LLM_PROVIDER: "fake", LLM_MIN_OUTPUT_TOKENS_PER_SEC: "0" } }).attemptTimeoutMs({ maxTokens: 16_000 })).toBe(180_000);
+
+    // The SDK request carries the same timeout, so the transport does not give up first.
+    const seen: (AnthropicRequestOptions | undefined)[] = [];
+    const messages: AnthropicMessagesApi = {
+      create: async (_body, options) => {
+        seen.push(options);
+        return anthropicMessage({ text: "done" });
+      },
+      parse: async () => Promise.reject(new Error("unused")),
+    };
+    const a = createGateway({ env: { LLM_PROVIDER: "anthropic", LLM_API_KEY: "sk-ant-test-key-0000000000" }, anthropic: messages, sleep: noSleep });
+    await a.text({ system: "s", prompt: "p", task: "review", mode: "deep" });
+    await a.text({ system: "s", prompt: "p", task: "classify" });
+    expect(seen.map((o) => o?.timeout)).toEqual([266_667, 180_000]);
+  });
+
+  test("R6.15 cancelling during a retry backoff ends the call at once", async () => {
+    const provider = scriptedProvider(() => new LlmError("overloaded", { status: 529, retryable: true, retryAfterMs: 120_000 }));
+    const recorder = new InMemoryModelCallRecorder();
+    let sleptFor = 0;
+    const g = createGateway({
+      env: { LLM_PROVIDER: "fake" },
+      provider,
+      recorder,
+      // A backoff wait that would never end on its own.
+      sleep: (ms) => {
+        sleptFor = ms;
+        return new Promise(() => undefined);
+      },
+    });
+    const controller = new AbortController();
+    const pending = g.text({ system: "s", prompt: "p", signal: controller.signal }).catch((e: unknown) => e);
+    await vi.waitFor(() => expect(sleptFor).toBe(120_000));
+    controller.abort();
+    expect(await pending).toBeInstanceOf(LlmAbortError);
+    expect(provider.calls).toHaveLength(1);
+    expect(recorder.calls.at(-1)).toMatchObject({ status: "error", attempts: 1 });
   });
 });

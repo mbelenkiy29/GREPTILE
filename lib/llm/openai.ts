@@ -244,7 +244,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const model = this.modelFor(req);
     const res = await this.chat(model, req.system, req.prompt, req.maxTokens ?? 16_000, {}, req.signal);
     if (!res.content) throw new LlmError(`empty completion (finish: ${res.finishReason})`, { usage: res.usage });
-    return { text: res.content, usage: res.usage, ...(res.servedModel ? { servedModel: res.servedModel } : {}) };
+    return {
+      text: res.content,
+      usage: res.usage,
+      ...(res.finishReason === "length" ? { truncated: true } : {}),
+      ...(res.servedModel ? { servedModel: res.servedModel } : {}),
+    };
   }
 }
 

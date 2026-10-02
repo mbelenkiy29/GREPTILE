@@ -4,15 +4,16 @@ import { z } from "zod";
 import { embeddingCache, llmResponseCache, modelCalls } from "@/lib/db/schema";
 import { estimateTokens, fitItemsToBudget, truncateToTokens } from "@/lib/llm/budget";
 import { PostgresResponseCache, responseCacheKey, type ResponseCacheKeyParts } from "@/lib/llm/cache";
-import { CachedEmbeddings } from "@/lib/llm/embedding-cache";
+import { CachedEmbeddings, contentHash } from "@/lib/llm/embedding-cache";
+import { AnthropicProvider, type AnthropicMessagesApi } from "@/lib/llm/anthropic";
 import { FakeEmbeddings, FakeLlm } from "@/lib/llm/fake";
 import { createGateway } from "@/lib/llm/gateway";
-import { OpenAiCompatibleEmbeddings } from "@/lib/llm/openai";
+import { OpenAiCompatibleEmbeddings, OpenAiCompatibleProvider } from "@/lib/llm/openai";
 import { BUILTIN_PRICING, estimateCost, pricingTable } from "@/lib/llm/pricing";
 import { InMemoryModelCallRecorder, PostgresModelCallRecorder, modelCallTotals } from "@/lib/llm/recorder";
-import { LlmError } from "@/lib/llm/types";
+import { LlmError, type LlmProvider } from "@/lib/llm/types";
 import { createTestDb } from "./helpers/db";
-import { fakeFetch, jsonResponse } from "./helpers/fake-fetch";
+import { anthropicMessage, chatCompletion, fakeFetch, jsonResponse } from "./helpers/fake-fetch";
 
 /** FakeEmbeddings that remembers which texts reached the "provider". */
 class CountingEmbeddings extends FakeEmbeddings {
@@ -169,6 +170,7 @@ describe("response cache", () => {
       provider: "fake",
       model: "fake-model",
       task: null,
+      maxTokens: 16_000,
       system: "s",
       prompt: "p",
       schemaName: "verdict",
@@ -180,7 +182,7 @@ describe("response cache", () => {
     expect(fake.calls).toHaveLength(1);
   });
 
-  test("R6.16 response cache keys cover provider, endpoint, model, task, effort, prompts, and schema", () => {
+  test("R6.16 response cache keys cover org, provider, endpoint, model, task, effort, output limit, prompts, and schema", () => {
     const base: ResponseCacheKeyParts = {
       kind: "json",
       provider: "anthropic",
@@ -202,6 +204,8 @@ describe("response cache", () => {
       { model: "claude-sonnet-5-5" },
       { task: "review" },
       { effort: "high" },
+      { maxTokens: 4_000 },
+      { orgId: "org_b" },
       { system: "sys2" },
       { prompt: "prompt2" },
       { schemaName: "other" },
@@ -314,7 +318,10 @@ describe("cost and budgets", () => {
     const one = truncateToTokens("y".repeat(1_000), 20);
     expect(one).toMatch(/^y+\n\[… truncated 1 more line\]$/);
     expect(estimateTokens(one)).toBeLessThanOrEqual(20);
-    expect(truncateToTokens("y".repeat(1_000), 2)).toBe("");
+    // A budget too small for any line still says the text was cut.
+    expect(truncateToTokens("y".repeat(1_000), 2)).toBe("[… trunc");
+    expect(truncateToTokens("y".repeat(1_000), 4)).toBe("[… truncated]");
+    expect(truncateToTokens("y".repeat(1_000), 0)).toBe("");
 
     const items = [
       { id: "a", size: 40 },
@@ -327,5 +334,85 @@ describe("cost and budgets", () => {
     expect(fit.dropped.map((i) => i.id)).toEqual(["b", "d"]);
     expect(fit.used).toBe(70);
     expect(fitItemsToBudget([], 10, () => 1)).toEqual({ kept: [], dropped: [], used: 0 });
+  });
+});
+
+describe("cache scoping and retention", () => {
+  test("R6.16 response cache entries are per org and purgeable, and answers cut off at the output limit are not cached", async () => {
+    const db = await createTestDb();
+    const cache = new PostgresResponseCache(db, { ttlHours: 1 });
+    let n = 0;
+    const fake = new FakeLlm(() => `answer ${++n}`);
+    const g = createGateway({ env: { LLM_PROVIDER: "fake" }, provider: fake, cache });
+    const ask = (orgId: string, extra: { maxTokens?: number } = {}) =>
+      g.text({ system: "Summarize.", prompt: "diff", task: "summary", cache: true, meta: { orgId }, ...extra });
+
+    expect(await ask("org_a")).toMatchObject({ cached: false, text: "answer 1" });
+    expect(await ask("org_a")).toMatchObject({ cached: true, text: "answer 1" });
+    // Another org never gets org_a's answer.
+    expect(await ask("org_b")).toMatchObject({ cached: false, text: "answer 2" });
+    // A different output limit is a different entry.
+    expect(await ask("org_a", { maxTokens: 100 })).toMatchObject({ cached: false, text: "answer 3" });
+    const rows = await db.select().from(llmResponseCache);
+    expect(rows.map((r) => r.orgId).sort()).toEqual(["org_a", "org_a", "org_b"]);
+
+    expect(await cache.purgeOrg("org_a")).toBe(2);
+    expect((await db.select().from(llmResponseCache)).map((r) => r.orgId)).toEqual(["org_b"]);
+    expect(await ask("org_a")).toMatchObject({ cached: false, text: "answer 4" });
+
+    // A truncated answer is returned but never stored.
+    const cut: LlmProvider = {
+      name: "cut",
+      model: "fake-model",
+      json: () => Promise.reject(new Error("unused")),
+      text: async () => ({ text: "partial", usage: { inputTokens: 1, outputTokens: 100 }, truncated: true }),
+    };
+    const g2 = createGateway({ env: { LLM_PROVIDER: "fake" }, provider: cut, cache });
+    const long = { system: "Explain.", prompt: "everything", task: "chat" as const, cache: true, meta: { orgId: "org_c" } };
+    expect(await g2.text(long)).toMatchObject({ text: "partial", cached: false });
+    expect(await g2.text(long)).toMatchObject({ cached: false });
+    expect(await db.select().from(llmResponseCache).where(eq(llmResponseCache.orgId, "org_c"))).toHaveLength(0);
+
+    // Providers flag answers that hit the output limit.
+    const maxed: AnthropicMessagesApi = {
+      create: async () => anthropicMessage({ text: "cut off", stopReason: "max_tokens" }),
+      parse: async () => Promise.reject(new Error("unused")),
+    };
+    expect(await new AnthropicProvider({ messages: maxed }).text({ system: "s", prompt: "p" })).toMatchObject({ text: "cut off", truncated: true });
+    const length = fakeFetch(() => {
+      const body = chatCompletion("cut off");
+      body.choices[0]!.finish_reason = "length";
+      return jsonResponse(body);
+    });
+    const openai = new OpenAiCompatibleProvider({ flavor: "openai-compatible", baseURL: "http://localhost:8000/v1", model: "m", fetch: length.fetch });
+    expect(await openai.text({ system: "s", prompt: "p" })).toMatchObject({ text: "cut off", truncated: true });
+  });
+
+  test("R6.16 embedding cache rows expire after EMBEDDING_CACHE_TTL_DAYS: they are re-embedded, refreshed, and pruned", async () => {
+    const db = await createTestDb();
+    let clock = Date.parse("2026-01-01T00:00:00Z");
+    const inner = new CountingEmbeddings(64);
+    const cached = new CachedEmbeddings(inner, { db, ttlDays: 1, now: () => clock, pruneIntervalMs: 0 });
+
+    await cached.embed(["alpha", "beta"]);
+    clock += 12 * HOUR;
+    await cached.embed(["alpha"]);
+    expect(inner.batches).toHaveLength(1);
+
+    clock += 13 * HOUR;
+    await cached.embed(["alpha"]);
+    // Past the TTL "alpha" is a miss: embedded again and its row refreshed; expired "beta" is pruned.
+    expect(inner.batches).toEqual([["alpha", "beta"], ["alpha"]]);
+    const rows = await db.select().from(embeddingCache);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.contentHash).toBe(contentHash("alpha"));
+    expect(rows[0]!.createdAt.getTime()).toBe(clock);
+
+    clock += 2 * HOUR;
+    await cached.embed(["alpha"]);
+    expect(inner.batches).toHaveLength(2);
+    clock += 30 * HOUR;
+    expect(await cached.prune()).toBe(1);
+    expect(await db.select().from(embeddingCache)).toHaveLength(0);
   });
 });
