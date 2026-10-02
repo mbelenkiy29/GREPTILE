@@ -220,6 +220,8 @@ export const reviewComments = pgTable(
     title: text("title").notNull(),
     body: text("body").notNull(),
     fingerprint: text("fingerprint").notNull(),
+    /** Custom rule this comment enforces, if any (R2.1). */
+    ruleId: text("rule_id"),
     externalId: bigint("external_id", { mode: "number" }),
     headSha: text("head_sha").notNull(),
     createdAt: createdAt(),
@@ -244,4 +246,31 @@ export const mentionReplies = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("mention_replies_source_uq").on(t.repoId, t.sourceCommentId)],
+);
+
+export const ruleStatus = pgEnum("rule_status", ["active", "candidate", "rejected"]);
+
+/**
+ * Plain-English review rules (R2.1), org-wide (`repoId` null) or per repo, optionally
+ * limited to glob `paths`. Mined candidates (R2.5) start as `candidate` until approved.
+ */
+export const rules = pgTable(
+  "rules",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id").references(() => repos.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    paths: text("paths").array().notNull().default([]),
+    status: ruleStatus("status").notNull().default("active"),
+    source: text("source").notNull().default("dashboard"),
+    rationale: text("rationale"),
+    evidence: jsonb("evidence").$type<{ commentId: number; author: string; excerpt: string }[]>(),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.orgId, t.status), index().on(t.repoId)],
 );

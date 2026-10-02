@@ -3,6 +3,7 @@ import type { Db } from "@/lib/db";
 import { installations, repos, reviewComments, reviews } from "@/lib/db/schema";
 import type { GitHost } from "@/lib/git/types";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
+import { activeRulesForRepo } from "@/lib/data/rules";
 import { reviewPullRequest, type ReviewOptions } from "./engine";
 import { publishReview } from "./publish";
 
@@ -49,10 +50,11 @@ export async function runReviewJob(
     .returning();
 
   try {
+    const rules = await activeRulesForRepo(db, job.orgId, job.repoId);
     const result = await reviewPullRequest(
       deps,
       { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client, pr },
-      opts,
+      { rules, ...opts },
     );
     const published = await publishReview(
       { db, client },

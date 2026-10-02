@@ -15,6 +15,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <nav className="nav" aria-label="Dashboard">
             <Link href="/dashboard/repos">Repositories</Link>
             <Link href="/dashboard/reviews">Reviews</Link>
+            <Link href="/dashboard/rules">Rules</Link>
           </nav>
           <div className="spacer" />
           <OrganizationSwitcher hidePersonal afterSelectOrganizationUrl="/dashboard" />

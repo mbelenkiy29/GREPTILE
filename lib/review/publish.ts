@@ -116,6 +116,7 @@ export async function publishReview(
           title: f.title,
           body: f.body,
           fingerprint: fp,
+          ruleId: f.rule?.id ?? null,
           externalId: idByFp.get(fp) ?? null,
           headSha: result.pr.headSha,
         })),

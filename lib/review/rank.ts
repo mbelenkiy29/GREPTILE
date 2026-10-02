@@ -1,3 +1,4 @@
+import { ruleApplies, type ReviewRule } from "@/lib/rules";
 import type { FileDiff } from "./diff";
 import type { Finding, RawFinding, Severity } from "./findings";
 
@@ -47,8 +48,15 @@ function anchor(f: RawFinding, d: FileDiff): RawFinding | null {
 export function rankFindings(
   raw: { agent: string; category: string; finding: RawFinding }[],
   diffs: FileDiff[],
-  opts: { maxComments?: number; minConfidence?: number } = {},
+  opts: { maxComments?: number; minConfidence?: number; rules?: ReviewRule[] } = {},
 ): Finding[] {
+  const rulesById = new Map((opts.rules ?? []).map((r) => [r.id, r]));
+  /** A citation is kept only if the rule exists and covers the finding's file. */
+  const citedRule = (f: RawFinding) => {
+    const id = f.ruleId?.replace(/^\[|\]$/g, "");
+    const rule = id ? rulesById.get(id) : undefined;
+    return rule && ruleApplies(rule, f.path) ? { id: rule.id, text: rule.text } : undefined;
+  };
   const byPath = new Map(diffs.map((d) => [d.path, d]));
   const merged: Finding[] = [];
 
@@ -65,18 +73,21 @@ export function rankFindings(
           similarity(m.body, f.body) >= 0.5 ||
           (m.line === f.line && m.category === category && !m.agents.includes(agent))),
     );
+    const rule = citedRule(f);
     if (!dup) {
-      merged.push({ ...f, category, agents: [agent], score: 0 });
+      merged.push({ ...f, ruleId: rule?.id ?? null, category, agents: [agent], score: 0, ...(rule ? { rule } : {}) });
       continue;
     }
     if (!dup.agents.includes(agent)) dup.agents.push(agent);
     const incomingWins =
       SEVERITY_WEIGHT[f.severity] * f.confidence > SEVERITY_WEIGHT[dup.severity] * dup.confidence;
-    if (incomingWins) Object.assign(dup, { ...f, category, agents: dup.agents });
+    if (incomingWins) Object.assign(dup, { ...f, ruleId: dup.ruleId, category, agents: dup.agents });
     dup.suggestion ??= f.suggestion;
+    if (!dup.rule && rule) Object.assign(dup, { rule, ruleId: rule.id });
   }
 
-  for (const m of merged) m.score = score(m);
+  // Rule violations are what the team explicitly asked for, so they rank above equal-severity findings.
+  for (const m of merged) m.score = score(m) * (m.rule ? 1.25 : 1);
   return merged
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.line - b.line)
     .slice(0, opts.maxComments ?? 20);

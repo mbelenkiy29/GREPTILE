@@ -15,6 +15,11 @@ export const findingSchema = z.object({
     .nullable()
     .describe("Exact replacement code for lines line..endLine (no diff markers), or null if no mechanical fix"),
   confidence: z.number().int().min(1).max(5).describe("1 = speculative, 5 = certain"),
+  ruleId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Id of the team rule this finding enforces, e.g. "rule:12", or null'),
 });
 
 export const reviewerOutputSchema = z.object({ findings: z.array(findingSchema) });
@@ -26,4 +31,6 @@ export interface Finding extends RawFinding {
   /** Reviewer agents that reported this (after dedupe). */
   agents: string[];
   score: number;
+  /** The team rule this finding enforces, validated against the rules in scope (R2.1). */
+  rule?: { id: string; text: string };
 }

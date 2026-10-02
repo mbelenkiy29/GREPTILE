@@ -7,6 +7,7 @@ import { buildReviewContext, type ReviewContext } from "./context";
 import { isReviewablePath, parsePatch, renderDiff, type FileDiff } from "./diff";
 import type { Finding } from "./findings";
 import { rankFindings } from "./rank";
+import { applicableRules, renderRulesSection, type ReviewRule } from "@/lib/rules";
 
 export const summarySchema = z.object({
   whatChanged: z.array(z.string()).describe("3-6 short bullets describing what the PR changes, most important first"),
@@ -24,6 +25,8 @@ export type ReviewSummary = z.infer<typeof summarySchema>;
 
 export interface ReviewResult {
   pr: PullRequest;
+  /** Rules that were in scope for this PR. */
+  rules: ReviewRule[];
   diffs: FileDiff[];
   context: ReviewContext;
   findings: Finding[];
@@ -41,6 +44,8 @@ export interface ReviewOptions {
   ignore?: RegExp[];
   extraInstructions?: string[];
   model?: string;
+  /** Active custom rules for the repo (R2.1); filtered to those whose paths the PR touches. */
+  rules?: ReviewRule[];
 }
 
 const SUMMARY_SYSTEM = `You summarize pull requests for Tracewise. Given the diff, the impacted code beyond it, and the
@@ -81,7 +86,8 @@ export async function reviewPullRequest(
     budgetChars: opts.budgetChars,
   });
 
-  const prompt = reviewPrompt(pr, diffs, context);
+  const rules = applicableRules(opts.rules ?? [], diffs.map((d) => d.path));
+  const prompt = reviewPrompt(pr, diffs, context, { sections: [renderRulesSection(rules)] });
   const agentRuns = await runReviewers(deps.llm, prompt, opts.agents ?? REVIEWERS, {
     extraInstructions: opts.extraInstructions,
     model: opts.model,
@@ -89,7 +95,7 @@ export async function reviewPullRequest(
   const findings = rankFindings(
     agentRuns.flatMap((r) => r.findings.map((finding) => ({ agent: r.agent, category: r.category, finding }))),
     diffs,
-    { maxComments: opts.maxComments, minConfidence: opts.minConfidence },
+    { maxComments: opts.maxComments, minConfidence: opts.minConfidence, rules },
   );
 
   const findingsText = findings.length
@@ -105,5 +111,5 @@ export async function reviewPullRequest(
   });
 
   const usage = [...agentRuns.map((r) => r.usage), summaryUsage].reduce(addUsage, ZERO_USAGE);
-  return { pr, diffs, context, findings, summary, agentRuns, usage };
+  return { pr, rules, diffs, context, findings, summary, agentRuns, usage };
 }

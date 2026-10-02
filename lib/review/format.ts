@@ -38,6 +38,7 @@ function fence(code: string) {
 /** Inline comment body with a GitHub suggestion block when a fix is available (R1.5). */
 export function renderInlineComment(f: Finding, fingerprint: string): string {
   const parts = [`**${SEVERITY_LABEL[f.severity]} · ${f.category}** — ${f.title}`, f.body.trim()];
+  if (f.rule) parts.push(`**Rule** (\`${f.rule.id}\`): ${f.rule.text}`);
   if (f.suggestion !== null) {
     const ticks = fence(f.suggestion);
     parts.push(`${ticks}suggestion\n${f.suggestion.replace(/\n$/, "")}\n${ticks}`);

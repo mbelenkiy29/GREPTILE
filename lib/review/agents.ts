@@ -48,7 +48,12 @@ export function reviewerSystemPrompt(agent: ReviewerAgent, extraInstructions: st
   ].join("\n\n");
 }
 
-export function reviewPrompt(pr: PullRequest, diffs: FileDiff[], ctx: ReviewContext): string {
+export interface ReviewGuidance {
+  /** Extra prompt sections (team rules, context files, learned preferences), already rendered. */
+  sections: string[];
+}
+
+export function reviewPrompt(pr: PullRequest, diffs: FileDiff[], ctx: ReviewContext, guidance: ReviewGuidance = { sections: [] }): string {
   const impacted = ctx.impacted
     .map((i) => `--- ${i.relation} of ${i.via}: ${i.path}:${i.startLine}-${i.endLine} (${i.name})\n${i.content}`)
     .join("\n\n");
@@ -56,6 +61,7 @@ export function reviewPrompt(pr: PullRequest, diffs: FileDiff[], ctx: ReviewCont
   return [
     `# Pull request #${pr.number}: ${pr.title}`,
     pr.body ? `## Description\n${pr.body.slice(0, 4000)}` : "",
+    ...guidance.sections.filter(Boolean),
     `## Changed symbols\n${changed || "(none detected)"}`,
     `## Diff\n${diffs.map(renderDiff).join("\n\n")}`,
     `## Impacted code beyond the diff (from the repository graph)\n${impacted || "(none found)"}`,

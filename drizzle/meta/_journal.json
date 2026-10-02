@@ -22,6 +22,13 @@
       "when": 1790969062480,
       "tag": "0002_symbol_embedding_index",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790970948956,
+      "tag": "0003_rules",
+      "breakpoints": true
     }
   ]
 }
