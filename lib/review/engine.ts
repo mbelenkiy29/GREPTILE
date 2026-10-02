@@ -9,6 +9,7 @@ import type { Finding } from "./findings";
 import { rankFindings } from "./rank";
 import { applicableRules, globMatch, renderRulesSection, type ReviewRule } from "@/lib/rules";
 import type { Severity } from "./findings";
+import { renderContextSection, type ContextDoc } from "./context-files";
 
 export const summarySchema = z.object({
   whatChanged: z.array(z.string()).describe("3-6 short bullets describing what the PR changes, most important first"),
@@ -53,6 +54,8 @@ export interface ReviewOptions {
   minSeverity?: Severity;
   /** Messages shown at the top of the summary comment (e.g. config problems). */
   notices?: string[];
+  /** Context files always included in the review prompt (R2.3). */
+  contextDocs?: ContextDoc[];
 }
 
 const SUMMARY_SYSTEM = `You summarize pull requests for Tracewise. Given the diff, the impacted code beyond it, and the
@@ -95,7 +98,7 @@ export async function reviewPullRequest(
   });
 
   const rules = applicableRules(opts.rules ?? [], diffs.map((d) => d.path));
-  const prompt = reviewPrompt(pr, diffs, context, { sections: [renderRulesSection(rules)] });
+  const prompt = reviewPrompt(pr, diffs, context, { sections: [renderContextSection(opts.contextDocs ?? []), renderRulesSection(rules)] });
   const agentRuns = await runReviewers(deps.llm, prompt, opts.agents ?? REVIEWERS, {
     extraInstructions: opts.extraInstructions,
     model: opts.model,

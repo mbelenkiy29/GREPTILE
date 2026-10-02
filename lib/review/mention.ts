@@ -6,6 +6,8 @@ import { searchSymbols } from "@/lib/indexer/search";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { buildReviewContext, type ImpactedCode } from "./context";
 import { isReviewablePath, parsePatch, renderDiff } from "./diff";
+import { loadEffectiveConfig } from "@/lib/config/repo-config";
+import { loadContextDocs, renderContextSection } from "./context-files";
 
 export const MENTION_MARKER = "<!-- tracewise:mention -->";
 
@@ -99,12 +101,18 @@ export async function answerMention(
     return true;
   });
 
+  const config = await loadEffectiveConfig(client, repoName, pr.baseSha, row.repo.settings);
+  const { docs } = await loadContextDocs(client, repoName, pr.baseSha, config.context);
+
   const prompt = [
     `# Question from @${job.author}\n${question}`,
+    renderContextSection(docs),
     `# Pull request #${pr.number}: ${pr.title}\n${pr.body.slice(0, 2000)}`,
     `## Diff\n${diffs.map(renderDiff).join("\n\n").slice(0, 30_000)}`,
     `## Repository code\n${code.map((c) => `--- ${c.path}:${c.startLine}-${c.endLine} ${c.name} (${c.relation}, ${c.via})\n${c.content}`).join("\n\n").slice(0, 40_000)}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const { text } = await deps.llm.text({ system: SYSTEM, prompt, effort: "medium" });
   const quoted = question.split("\n").slice(0, 3).map((l) => `> ${l}`).join("\n");

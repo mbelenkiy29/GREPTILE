@@ -6,6 +6,7 @@ import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { STRICTNESS_LEVELS, loadEffectiveConfig } from "@/lib/config/repo-config";
 import { activeRulesForRepo } from "@/lib/data/rules";
 import { REVIEWERS } from "./agents";
+import { loadContextDocs } from "./context-files";
 import { reviewPullRequest, type ReviewOptions } from "./engine";
 import { publishReview } from "./publish";
 
@@ -55,6 +56,7 @@ export async function runReviewJob(
     const config = await loadEffectiveConfig(client, row.repo.fullName, pr.baseSha, row.repo.settings);
     const level = STRICTNESS_LEVELS[config.strictness];
     const rules = [...(await activeRulesForRepo(db, job.orgId, job.repoId)), ...config.rules];
+    const context = await loadContextDocs(client, row.repo.fullName, pr.baseSha, config.context);
     const result = await reviewPullRequest(
       deps,
       { orgId: job.orgId, repoId: job.repoId, repoFullName: row.repo.fullName, prNumber: job.prNumber, client, pr },
@@ -65,7 +67,8 @@ export async function runReviewJob(
         minConfidence: level.minConfidence,
         maxComments: level.maxComments,
         minSeverity: level.minSeverity,
-        notices: config.notices,
+        notices: [...config.notices, ...context.notices],
+        contextDocs: context.docs,
         ...opts,
       },
     );

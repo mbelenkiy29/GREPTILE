@@ -22,6 +22,8 @@ export const repoConfigSchema = z
     ignore: z.array(glob).max(200).optional(),
     strictness: z.enum(STRICTNESS).optional(),
     commentTypes: z.array(z.enum(COMMENT_TYPES)).min(1).optional(),
+    /** Docs (paths or globs) always included as review context (R2.3). */
+    context: z.array(glob).max(50).optional(),
   })
   .strict();
 
@@ -31,14 +33,20 @@ export interface EffectiveConfig {
   strictness: Strictness;
   commentTypes: CommentType[];
   ignore: string[];
+  context: string[];
   /** Rules declared in tracewise.json, in addition to dashboard rules. */
   rules: ReviewRule[];
   /** Where each setting came from, for display. */
-  sources: Record<"strictness" | "commentTypes" | "ignore", "default" | "dashboard" | "file">;
+  sources: Record<"strictness" | "commentTypes" | "ignore" | "context", "default" | "dashboard" | "file">;
   notices: string[];
 }
 
-export const DEFAULTS = { strictness: "medium" as Strictness, commentTypes: [...COMMENT_TYPES] as CommentType[], ignore: [] as string[] };
+export const DEFAULTS = {
+  strictness: "medium" as Strictness,
+  commentTypes: [...COMMENT_TYPES] as CommentType[],
+  ignore: [] as string[],
+  context: [] as string[],
+};
 
 /** Review thresholds each strictness level maps to. */
 export const STRICTNESS_LEVELS: Record<Strictness, { minConfidence: number; maxComments: number; minSeverity: "low" | "medium" | "high" }> = {
@@ -65,7 +73,7 @@ export function parseRepoConfig(text: string): { config?: RepoConfigFile; error?
 
 /** Defaults ← dashboard settings ← tracewise.json, key by key: the repo file wins. */
 export function resolveConfig(dashboard: RepoSettings | null | undefined, file: RepoConfigFile | undefined, notices: string[] = []): EffectiveConfig {
-  const pick = <K extends "strictness" | "commentTypes" | "ignore">(key: K) => {
+  const pick = <K extends "strictness" | "commentTypes" | "ignore" | "context">(key: K) => {
     if (file?.[key] !== undefined) return { value: file[key]!, source: "file" as const };
     if (dashboard?.[key] !== undefined) return { value: dashboard[key]!, source: "dashboard" as const };
     return { value: DEFAULTS[key], source: "default" as const };
@@ -73,6 +81,7 @@ export function resolveConfig(dashboard: RepoSettings | null | undefined, file: 
   const strictness = pick("strictness");
   const commentTypes = pick("commentTypes");
   const ignore = pick("ignore");
+  const context = pick("context");
   const rules: ReviewRule[] = (file?.rules ?? []).map((r, i) =>
     typeof r === "string"
       ? { id: `config:${i + 1}`, text: r, paths: [], scope: "config" }
@@ -82,8 +91,9 @@ export function resolveConfig(dashboard: RepoSettings | null | undefined, file: 
     strictness: strictness.value as Strictness,
     commentTypes: commentTypes.value as CommentType[],
     ignore: ignore.value as string[],
+    context: context.value as string[],
     rules,
-    sources: { strictness: strictness.source, commentTypes: commentTypes.source, ignore: ignore.source },
+    sources: { strictness: strictness.source, commentTypes: commentTypes.source, ignore: ignore.source, context: context.source },
     notices,
   };
 }

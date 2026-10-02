@@ -71,6 +71,8 @@ export interface GitClient {
   getPullRequest(repo: string, number: number): Promise<PullRequest>;
   listPullRequestFiles(repo: string, number: number): Promise<PullRequestFile[]>;
   getFileContent(repo: string, path: string, ref: string): Promise<string | null>;
+  /** Every file path in the repository at `ref`. */
+  listTree(repo: string, ref: string): Promise<string[]>;
   compareCommits(repo: string, base: string, head: string): Promise<ChangedFile[]>;
   listIssueComments(repo: string, number: number): Promise<IssueComment[]>;
   createIssueComment(repo: string, number: number, body: string): Promise<IssueComment>;

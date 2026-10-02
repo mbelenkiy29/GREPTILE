@@ -174,6 +174,11 @@ class GitHubClient implements GitClient {
     }
   }
 
+  async listTree(repo: string, ref: string): Promise<string[]> {
+    const res = await this.req<any>(`/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+    return (res.tree ?? []).filter((t: any) => t.type === "blob").map((t: any) => t.path as string);
+  }
+
   async compareCommits(repo: string, base: string, head: string): Promise<ChangedFile[]> {
     const res = await this.req<any>(`/repos/${repo}/compare/${base}...${head}`);
     return (res.files ?? []).map((f: any) => ({ path: f.filename, previousPath: f.previous_filename, status: f.status }));

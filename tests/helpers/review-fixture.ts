@@ -47,6 +47,7 @@ export async function reviewFixture(opts: { baseExtra?: Record<string, string>; 
   const fixture = new FixtureRepo();
   const base = fixture.commit({ ...BASE_FILES, ...opts.baseExtra }, "base");
   const host = new FakeGitHost();
+  host.treeAt = (_repo, ref) => fixture.git("ls-tree", "-r", "--name-only", ref).split("\n").filter(Boolean);
   host.contentAt = (_repo, path, ref) => {
     try {
       return fixture.git("show", `${ref}:${path}`) + "\n";
