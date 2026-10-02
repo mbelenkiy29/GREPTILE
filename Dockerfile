@@ -1,11 +1,17 @@
 # syntax=docker/dockerfile:1
+# Optional build secret `extra_ca`: a PEM bundle to trust when installs go
+# through a TLS-intercepting proxy. Empty (unused) by default.
 FROM node:22-alpine AS base
-RUN corepack enable
 WORKDIR /app
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    npm install -g pnpm@10.28.0
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=secret,id=extra_ca,required=false \
+    if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
+    pnpm install --frozen-lockfile
 
 FROM base AS build
 ENV NEXT_TELEMETRY_DISABLED=1

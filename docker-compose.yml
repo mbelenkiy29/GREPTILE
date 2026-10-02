@@ -30,7 +30,10 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      secrets:
+        - extra_ca
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-tracewise}:${POSTGRES_PASSWORD:-tracewise}@postgres:5432/${POSTGRES_DB:-tracewise}
@@ -48,6 +51,11 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 5
+
+secrets:
+  # Set EXTRA_CA_CERT to a PEM bundle only if builds run behind a TLS-intercepting proxy.
+  extra_ca:
+    file: ${EXTRA_CA_CERT:-./docker/no-extra-ca.pem}
 
 volumes:
   pgdata:
