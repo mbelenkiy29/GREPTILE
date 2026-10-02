@@ -11,6 +11,15 @@ import type {
   ReviewComment,
 } from "@/lib/git/types";
 
+/** Every permission OpenReview requires or recommends (R1.1). */
+export const FULL_PERMISSIONS: Record<string, string> = {
+  metadata: "read",
+  contents: "read",
+  pull_requests: "write",
+  issues: "write",
+  checks: "read",
+};
+
 interface FakePr {
   pr: PullRequest;
   files: PullRequestFile[];
@@ -34,18 +43,37 @@ export class FakeGitHost implements GitHost {
   treeAt?: (repo: string, ref: string) => string[];
   private nextId = 1000;
 
-  addInstallation(id: number, accountLogin: string, repos: RemoteRepo[]) {
-    this.installations.set(id, { id, accountLogin, repos });
+  /** Registers an installation; it reports every permission OpenReview needs unless `extra` says otherwise. */
+  addInstallation(
+    id: number,
+    accountLogin: string,
+    repos: RemoteRepo[],
+    extra: Pick<RemoteInstallation, "accountType" | "permissions" | "repositorySelection"> = {},
+  ) {
+    this.installations.set(id, {
+      id,
+      accountLogin,
+      repos,
+      accountType: extra.accountType ?? "Organization",
+      permissions: extra.permissions ?? { ...FULL_PERMISSIONS },
+      repositorySelection: extra.repositorySelection ?? "selected",
+    });
   }
 
   addPr(repo: string, pr: FakePr) {
     this.prs.set(`${repo}#${pr.pr.number}`, pr);
   }
 
-  async getInstallation(id: number) {
+  async getInstallation(id: number): Promise<RemoteInstallation> {
     const i = this.installations.get(id);
     if (!i) throw new Error(`no installation ${id}`);
-    return { id: i.id, accountLogin: i.accountLogin };
+    return {
+      id: i.id,
+      accountLogin: i.accountLogin,
+      accountType: i.accountType,
+      permissions: i.permissions ? { ...i.permissions } : undefined,
+      repositorySelection: i.repositorySelection,
+    };
   }
 
   async listInstallationRepos(id: number) {
@@ -91,6 +119,16 @@ export class FakeGitHost implements GitHost {
         throw new Error(`no comment ${commentId}`);
       },
       listReviewComments: async (repo, n) => this.reviewComments.get(key(repo, n)) ?? [],
+      replyToReviewComment: async (repo, n, commentId, body) => {
+        const list = this.reviewComments.get(key(repo, n)) ?? [];
+        const parent = list.find((c) => c.id === commentId);
+        // Mirrors GitHub: the thread must exist and replies attach to its top-level comment.
+        if (!parent) throw new Error(`no review comment ${commentId} on ${key(repo, n)}`);
+        if (parent.inReplyTo) throw new Error(`review comment ${commentId} is a reply; reply to ${parent.inReplyTo}`);
+        const reply = { id: id(), path: parent.path, line: parent.line, body, author: "openreview[bot]", inReplyTo: commentId };
+        this.reviewComments.set(key(repo, n), [...list, reply]);
+        return reply;
+      },
       listReviewCommentReactions: async (_repo, commentId) => this.reactions.get(commentId) ?? [],
       createReview: async (repo, n, review) => {
         this.reviews.push({ repo, number: n, ...review });
