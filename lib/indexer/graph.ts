@@ -109,7 +109,15 @@ async function resolveFileEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[],
     for (const r of await db
       .select({ from: edges.fromFileId, to: edges.toFileId })
       .from(edges)
-      .where(and(eq(edges.repoId, scope.repoId), eq(edges.kind, "import"), sql`${edges.fromFileId} = any(${intArray(fromIds)})`, sql`${edges.toFileId} is not null`))) {
+      .where(
+        and(
+          eq(edges.orgId, scope.orgId),
+          eq(edges.repoId, scope.repoId),
+          eq(edges.kind, "import"),
+          sql`${edges.fromFileId} = any(${intArray(fromIds)})`,
+          sql`${edges.toFileId} is not null`,
+        ),
+      )) {
       existing.add(`${r.from}:${r.to}`);
     }
 
@@ -195,7 +203,10 @@ async function resolveSymbolEdges(db: Db, scope: GraphScope, fileMeta: FileMeta[
     const heritageFrom = [...new Set(batch.filter((e) => (e.kind === "extends" || e.kind === "implements") && e.fromSymbolId !== null).map((e) => e.fromSymbolId!))];
     const fromKind = new Map<number, string>();
     if (heritageFrom.length) {
-      for (const s of await db.select({ id: symbols.id, kind: symbols.kind }).from(symbols).where(sql`${symbols.id} = any(${intArray(heritageFrom)})`)) {
+      for (const s of await db
+        .select({ id: symbols.id, kind: symbols.kind })
+        .from(symbols)
+        .where(and(eq(symbols.orgId, scope.orgId), eq(symbols.repoId, scope.repoId), sql`${symbols.id} = any(${intArray(heritageFrom)})`))) {
         fromKind.set(s.id, s.kind);
       }
     }

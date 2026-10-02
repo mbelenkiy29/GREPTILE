@@ -23,7 +23,7 @@ export async function writeFile(
 ): Promise<number> {
   const { orgId, repoId } = scope;
   return db.transaction(async (tx) => {
-    if (file.existingId !== null) await tx.delete(files).where(and(eq(files.repoId, repoId), eq(files.id, file.existingId)));
+    if (file.existingId !== null) await tx.delete(files).where(and(eq(files.orgId, orgId), eq(files.repoId, repoId), eq(files.id, file.existingId)));
     const [row] = await tx
       .insert(files)
       .values({

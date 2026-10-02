@@ -26,6 +26,14 @@ export interface FileAnalysis {
   edges: AnalyzedEdge[];
   chunks: Chunk[];
   dependencies: Dependency[];
+  /** Set when entity extraction failed; the file is still indexed for full-text search, without symbols. */
+  extractionError?: string;
+}
+
+interface Entities {
+  symbols: ParsedSymbol[];
+  edges: AnalyzedEdge[];
+  dependencies: Dependency[];
 }
 
 /** Upper bound on stored edges per kind per file, so one generated-looking file cannot flood the graph. */
@@ -40,21 +48,13 @@ function capEdges(edges: AnalyzedEdge[]): AnalyzedEdge[] {
   });
 }
 
-export async function analyzeFile(filePath: string, text: string, type: FileType, ctx: { repoName: string }): Promise<FileAnalysis> {
-  const lines = splitLines(text);
-  const lineCount = text.length === 0 ? 0 : lines.length;
-  const tags = new Set<FileTag>(classifyPath(filePath, type));
-  if (hasGeneratedHeader(text)) {
-    tags.add("generated");
-    tags.delete("source");
-  }
-
+async function extractEntities(filePath: string, text: string, lines: string[], type: FileType, isTest: boolean, repoName: string): Promise<Entities> {
   let symbols: ParsedSymbol[] = [];
   const edges: AnalyzedEdge[] = [];
   let dependencies: Dependency[] = [];
 
   if (type.treeSitter) {
-    const parsed = await parseSource(filePath, text, { isTest: tags.has("test") });
+    const parsed = await parseSource(filePath, text, { isTest });
     if (parsed) {
       symbols = parsed.symbols;
       for (const c of parsed.calls) edges.push({ kind: "call", from: c.from, target: c.name, line: c.line });
@@ -75,7 +75,7 @@ export async function analyzeFile(filePath: string, text: string, type: FileType
   if (type.ci) symbols = [...symbols, ...extractCiJobs(type.ci, filePath, text, lines).symbols];
 
   if (type.manifest) {
-    const mod = parseManifest(type.manifest, filePath, text, ctx.repoName);
+    const mod = parseManifest(type.manifest, filePath, text, repoName);
     if (mod) {
       const content = lines.slice(0, 200).join("\n").slice(0, 4000);
       const index = symbols.length;
@@ -85,7 +85,7 @@ export async function analyzeFile(filePath: string, text: string, type: FileType
           name: mod.name,
           kind: "module",
           startLine: 1,
-          endLine: Math.max(1, lineCount),
+          endLine: Math.max(1, lines.length),
           content,
           // e.g. `npm module @acme/shop (workspaces: packages/*)`
           signature: `${mod.ecosystem} module ${mod.name}${mod.workspaces.length ? ` (workspaces: ${mod.workspaces.join(", ")})` : ""}`.slice(0, 200),
@@ -99,6 +99,27 @@ export async function analyzeFile(filePath: string, text: string, type: FileType
       dependencies = mod.dependencies;
     }
   }
+  return { symbols, edges, dependencies };
+}
+
+export async function analyzeFile(filePath: string, text: string, type: FileType, ctx: { repoName: string }): Promise<FileAnalysis> {
+  const lines = splitLines(text);
+  const lineCount = text.length === 0 ? 0 : lines.length;
+  const tags = new Set<FileTag>(classifyPath(filePath, type));
+  if (hasGeneratedHeader(text)) {
+    tags.add("generated");
+    tags.delete("source");
+  }
+
+  // A file that defeats a parser must not fail the whole repository: it is still chunked for search.
+  let entities: Entities = { symbols: [], edges: [], dependencies: [] };
+  let extractionError: string | undefined;
+  try {
+    entities = await extractEntities(filePath, text, lines, type, tags.has("test"), ctx.repoName);
+  } catch (err) {
+    extractionError = err instanceof Error ? err.message : String(err);
+  }
+  const { symbols, edges, dependencies } = entities;
 
   if (symbols.some((s) => s.kind === "route")) tags.add("route");
   if (symbols.some((s) => s.kind === "table" || s.kind === "model")) tags.add("schema");
@@ -108,5 +129,14 @@ export async function analyzeFile(filePath: string, text: string, type: FileType
   else if (type.category === "config") chunks = chunkConfig(lines);
   else chunks = chunkCode(lines, symbols.filter((s) => s.parent === null && s.kind !== "route"));
 
-  return { language: type.language, tags: [...tags].sort(), lineCount, symbols, edges: capEdges(edges), chunks, dependencies };
+  return {
+    language: type.language,
+    tags: [...tags].sort(),
+    lineCount,
+    symbols,
+    edges: capEdges(edges),
+    chunks,
+    dependencies,
+    ...(extractionError ? { extractionError } : {}),
+  };
 }

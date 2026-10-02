@@ -288,6 +288,55 @@ describe("index jobs", () => {
     expect(full).toMatchObject({ kind: "full", filesParsed: 4, filesUnchanged: 0 });
   });
 
+  test("R6.3 a run after a failed one finishes embeddings and repairs the graph", async () => {
+    const { db, fixture, repoId, deps } = await setup({
+      "src/a.ts": `import { b } from "./b";\nexport function a() { return b(); }\n`,
+      "src/b.ts": "export function b() { return 1; }\n",
+    });
+    await indexRepo(deps, { orgId, repoId });
+    fixture.commit({ "src/b.ts": "export function b() { return 2; }\n" });
+    const outage = new (class extends FakeEmbeddings {
+      override async embed(): Promise<number[][]> {
+        throw new Error("embedding provider unavailable");
+      }
+    })();
+    await expect(indexRepo({ ...deps, embedder: outage }, { orgId, repoId })).rejects.toThrow(/unavailable/);
+    expect(await getRepo(db, orgId, repoId)).toMatchObject({ indexStatus: "failed", indexError: "embedding provider unavailable" });
+    const [dangling] = await db.select().from(edges).where(and(eq(edges.repoId, repoId), eq(edges.kind, "call")));
+    expect(dangling!.toSymbolId).toBeNull();
+
+    // The retry finds no changed files (they were written), but still embeds and re-links what the failed run left.
+    const res = await indexRepo(deps, { orgId, repoId });
+    expect(res).toMatchObject({ status: "completed", filesParsed: 0 });
+    const [call] = await db.select().from(edges).where(and(eq(edges.repoId, repoId), eq(edges.kind, "call")));
+    const [b] = await db.select().from(symbols).where(and(eq(symbols.repoId, repoId), eq(symbols.name, "b")));
+    expect(call!.toSymbolId).toBe(b!.id);
+    expect(b!.embedding).not.toBeNull();
+    expect(await getRepo(db, orgId, repoId)).toMatchObject({ indexStatus: "ready", indexError: null });
+  });
+
+  test("R6.3 a job cancelled while running stops at its next checkpoint", async () => {
+    const { db, fixture, repoId, deps } = await setup({ "src/a.ts": "export function a() {}\n" });
+    await indexRepo(deps, { orgId, repoId });
+    fixture.commit({ "src/a.ts": "export function a2() {}\n" });
+    const job = await createIndexJob(db, { orgId, repoId, kind: "incremental", trigger: "manual" });
+    const cancelling = new (class extends FakeEmbeddings {
+      override async embed(texts: string[]) {
+        await cancelIndexJob(db, orgId, repoId, job.id);
+        return super.embed(texts);
+      }
+    })();
+    const res = await indexRepo({ ...deps, embedder: cancelling }, { orgId, repoId, indexJobId: job.id });
+    expect(res.status).toBe("cancelled");
+    const [row] = await db.select().from(indexJobs).where(eq(indexJobs.id, job.id));
+    expect(row).toMatchObject({ status: "cancelled", attempts: 1 });
+    expect(row!.progress.phase).toBe("embed");
+    // The repo keeps its last good index; the next run completes the work.
+    expect(await getRepo(db, orgId, repoId)).toMatchObject({ indexStatus: "ready" });
+    expect(await indexRepo(deps, { orgId, repoId })).toMatchObject({ status: "completed" });
+    expect((await db.select().from(symbols).where(eq(symbols.repoId, repoId))).map((s) => [s.name, s.embedding !== null])).toEqual([["a2", true]]);
+  });
+
   test("R6.3 records the last 50 commits of the indexed ref with their changed paths", async () => {
     const { db, fixture, repoId, deps } = await setup({ "src/a.ts": "export const a = 0;\n" });
     // 54 commits in one shell, each touching one file.

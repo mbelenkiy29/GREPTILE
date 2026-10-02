@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { count, eq, inArray, sql } from "drizzle-orm";
 import { scoped } from "@/lib/data/tenant";
 import type { Db } from "@/lib/db";
 import { EMPTY_INDEX_PROGRESS, edges, files, installations, repoCommits, repos, symbols, type IndexProgress } from "@/lib/db/schema";
@@ -158,9 +158,12 @@ async function run(
   const scope = { orgId: repo.orgId, repoId: repo.id };
   const started = Date.now();
 
+  // A previous run that did not complete may have written files without resolving the graph; repair it fully.
+  const previous = repo.lastIndexJobId ? await getIndexJob(db, repo.orgId, repo.id, repo.lastIndexJobId) : null;
+  const recovering = kind === "incremental" && previous !== null && previous.status !== "completed";
   await markJobRunning(db, jobId, { kind, fromSha: repo.indexedSha });
   await db.update(repos).set({ indexStatus: "indexing", indexError: null, lastIndexJobId: jobId }).where(scoped(repos, repo.orgId, eq(repos.id, repo.id)));
-  ctx.log.info("index started", { kind, fromSha: repo.indexedSha });
+  ctx.log.info("index started", { kind, fromSha: repo.indexedSha, recovering });
 
   const progress: IndexProgress = { ...EMPTY_INDEX_PROGRESS, filesSkipped: {}, phase: "checkout" };
   const checkpoint = async (phase?: IndexProgress["phase"], extra: { toSha?: string } = {}) => {
@@ -204,13 +207,13 @@ async function run(
     const rows = await db
       .selectDistinct({ name: symbols.name })
       .from(symbols)
-      .where(and(eq(symbols.repoId, repo.id), inArray(symbols.fileId, ids)));
+      .where(scoped(symbols, repo.orgId, eq(symbols.repoId, repo.id), inArray(symbols.fileId, ids)));
     for (const r of rows) affectedNames.add(r.name);
   }
   const [maxEdge] = await db.select({ id: sql<number>`coalesce(max(${edges.id}), 0)` }).from(edges);
   const newEdgesAfterId = Number(maxEdge?.id ?? 0);
   for (const ids of chunked(removed.map((f) => f.id), 500)) {
-    await db.delete(files).where(and(eq(files.repoId, repo.id), inArray(files.id, ids)));
+    await db.delete(files).where(scoped(files, repo.orgId, eq(files.repoId, repo.id), inArray(files.id, ids)));
   }
   await checkpoint("parse");
 
@@ -225,7 +228,7 @@ async function run(
       skip("binary");
       progress.filesTotal--;
       if (existingId !== null) {
-        await db.delete(files).where(and(eq(files.repoId, repo.id), eq(files.id, existingId)));
+        await db.delete(files).where(scoped(files, repo.orgId, eq(files.repoId, repo.id), eq(files.id, existingId)));
         binaryRemoved++;
       }
     } else {
@@ -233,6 +236,7 @@ async function run(
       const findings = scanForSecrets(raw);
       progress.secretLinesRedacted += findings.length;
       const analysis = await analyzeFile(c.path, applyRedactions(raw, findings), c.type, { repoName });
+      if (analysis.extractionError) ctx.log.warn("entity extraction failed; file indexed for search only", { path: c.path, error: analysis.extractionError });
       await writeFile(db, scope, { path: c.path, contentHash: c.contentHash, sizeBytes: c.sizeBytes, existingId }, analysis);
       for (const s of analysis.symbols) affectedNames.add(s.name);
       parsed++;
@@ -246,8 +250,12 @@ async function run(
   await embedPending(db, deps.embedder, scope);
   await checkpoint("graph");
 
-  const anyChange = changed.length > 0 || removed.length > 0;
-  await resolveGraph(db, scope, { newEdgesAfterId, affectedNames: kind === "full" ? null : [...affectedNames], changed: anyChange });
+  const anyChange = changed.length > 0 || removed.length > 0 || recovering;
+  await resolveGraph(db, scope, {
+    newEdgesAfterId: recovering ? 0 : newEdgesAfterId,
+    affectedNames: kind === "full" || recovering ? null : [...affectedNames],
+    changed: anyChange,
+  });
   await checkpoint("finalize");
 
   // Oldest first, so row ids grow with recency (a stable tie-break for commits made in the same second).
