@@ -19,6 +19,9 @@
     "verify:parity": "tsx scripts/verify-parity.ts"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.10",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
+    "bullmq": "^6.3.11",
     "drizzle-orm": "^0.45.3",
     "ioredis": "^5.11.1",
     "next": "^16.3.8",
@@ -28,6 +31,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

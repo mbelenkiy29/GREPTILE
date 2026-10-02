@@ -1,0 +1,29 @@
+export interface JobPayloads {
+  "index-repo": { orgId: string; repoId: number; mode: "full" | "incremental"; afterSha?: string };
+  "review-pr": { orgId: string; repoId: number; prNumber: number; headSha: string };
+  "answer-mention": {
+    orgId: string;
+    repoId: number;
+    prNumber: number;
+    commentId: number;
+    body: string;
+    author: string;
+  };
+}
+
+export type JobName = keyof JobPayloads;
+
+export interface JobQueue {
+  /** `jobId` dedupes: adding a job whose id is already queued or running is a no-op. */
+  add<N extends JobName>(name: N, data: JobPayloads[N], opts: { jobId: string }): Promise<void>;
+}
+
+/** In-process queue used by tests and local scripts. */
+export class MemoryQueue implements JobQueue {
+  readonly jobs: { name: JobName; data: JobPayloads[JobName]; jobId: string }[] = [];
+
+  async add<N extends JobName>(name: N, data: JobPayloads[N], opts: { jobId: string }) {
+    if (this.jobs.some((j) => j.jobId === opts.jobId)) return;
+    this.jobs.push({ name, data, jobId: opts.jobId });
+  }
+}
