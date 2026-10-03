@@ -20,6 +20,7 @@ import { imageAllowed } from "./config";
 import { toResult } from "./results";
 import { DockerSandbox } from "./docker";
 import { parseFailingTests } from "./failures";
+import { sanitizeOutput } from "./output";
 import { httpDockerTransport } from "./transport";
 import type { SandboxRunner, SandboxSpec } from "./types";
 
@@ -153,9 +154,10 @@ export async function runRuntimeValidation(db: Db, deps: RuntimeValidationDeps, 
         failedStep: result.failedStep,
         exitCode: result.exitCode,
         durationMs: result.durationMs,
-        outputExcerpt: result.output,
+        // Sanitized again: a runner is not trusted to have redacted its output.
+        outputExcerpt: sanitizeOutput(result.output),
         outputTruncated: result.truncated,
-        failingTests: result.status === "failed" ? parseFailingTests(result.output) : [],
+        failingTests: result.status === "failed" ? parseFailingTests(sanitizeOutput(result.output)) : [],
         reason,
         finishedAt: clock(),
       }),
