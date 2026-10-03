@@ -71,7 +71,7 @@ jobs:
         run: CHROME_PATH="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" pnpm exec lhci autorun --collect.settings.preset=desktop
       - name: Upload screenshots and reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: site-reports
           path: |
