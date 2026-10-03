@@ -89,3 +89,17 @@ export function githubBlobUrl(repoFullName: string, sha: string, path: string, l
 export function githubCommentUrl(repoFullName: string, prNumber: number, commentId: number, webUrl?: string) {
   return `${base(webUrl)}/${repoFullName}/pull/${prNumber}#discussion_r${commentId}`;
 }
+
+/**
+ * Where an installation's repository access is managed on GitHub: the organization's installation settings for an
+ * organization account, the user's own settings otherwise.
+ */
+export function githubInstallationSettingsUrl(
+  installation: { accountLogin: string; accountType: string | null; externalId: number },
+  webUrl?: string,
+) {
+  const id = encodeURIComponent(String(installation.externalId));
+  return installation.accountType === "Organization"
+    ? `${base(webUrl)}/organizations/${encodeURIComponent(installation.accountLogin)}/settings/installations/${id}`
+    : `${base(webUrl)}/settings/installations/${id}`;
+}

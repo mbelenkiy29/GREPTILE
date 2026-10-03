@@ -1,4 +1,5 @@
 import type { Db } from "@/lib/db";
+import { needsOnboarding } from "@/lib/data/onboarding";
 import { defaultOrgForUser, ensurePersonalOrg } from "@/lib/data/orgs";
 import { errorMessage, log } from "@/lib/log";
 import { assertSameOrigin, CsrfError } from "@/lib/security/csrf";
@@ -17,7 +18,7 @@ import {
 import { exchangeOAuthCode, fetchGitHubProfile, GitHubSignInError } from "./github-user";
 import { plainError, redirectTo } from "./http";
 import { newOAuthState, openOAuthState, pkceChallenge, sealOAuthState, stateMatches } from "./oauth";
-import { safeNextPath, signInPath } from "./redirect";
+import { DEFAULT_AFTER_SIGN_IN, safeNextPath, signInPath } from "./redirect";
 import { createSession, deleteSessionByToken, requestMetadata, sessionFromRequest } from "./sessions";
 import { upsertDevUser, upsertGitHubUser } from "./users";
 
@@ -59,6 +60,16 @@ async function startSession(deps: AuthHandlerDeps, req: Request, userId: string,
   const activeOrgId = await defaultOrgForUser(deps.db, userId);
   const { token } = await createSession(deps.db, { userId, activeOrgId, ...sessionClock, ...requestMetadata(req) });
   return issueSessionCookies(deps.config, token);
+}
+
+/**
+ * Where to go after signing in: the requested page, or, without one, the onboarding wizard (R6.2) when the user's
+ * workspace has no GitHub installation yet and never finished onboarding, else the dashboard.
+ */
+async function afterSignInPath(db: Db, userId: string, next: unknown): Promise<string> {
+  const path = safeNextPath(next);
+  if (path !== DEFAULT_AFTER_SIGN_IN) return path;
+  return (await needsOnboarding(db, await defaultOrgForUser(db, userId))) ? "/onboarding" : path;
 }
 
 /** GET /api/auth/github?next=/path */
@@ -116,7 +127,7 @@ export function createGitHubSignInCallbackHandler(factory: Factory<AuthHandlerDe
       await ensurePersonalOrg(db, user);
       const cookies = await startSession(deps, req, user.id, now);
       log.info("signed in with GitHub", { userId: user.id, githubLogin: profile.login, newUser: created });
-      return redirectTo(appUrl(config, safeNextPath(saved.next)), [clearState, ...cookies]);
+      return redirectTo(appUrl(config, await afterSignInPath(db, user.id, saved.next)), [clearState, ...cookies]);
     } catch (err) {
       if (err instanceof GitHubSignInError) {
         log.warn("GitHub sign-in failed", { code: err.code, error: errorMessage(err) });
@@ -156,12 +167,11 @@ export function createDevLoginHandler(factory: Factory<AuthHandlerDeps>) {
       throw err;
     }
     const form = await req.formData().catch(() => null);
-    const next = safeNextPath(form?.get("next"));
     const now = clock(deps);
     const user = await upsertDevUser(db, now);
     await ensurePersonalOrg(db, user);
     const cookies = await startSession(deps, req, user.id, now);
     log.info("signed in with dev login", { userId: user.id });
-    return redirectTo(appUrl(config, next), cookies, 303);
+    return redirectTo(appUrl(config, await afterSignInPath(db, user.id, form?.get("next"))), cookies, 303);
   };
 }

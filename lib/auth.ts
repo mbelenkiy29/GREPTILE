@@ -53,6 +53,19 @@ export async function requireOrg(opts: { permission?: Action } = {}): Promise<Or
   return res.ctx;
 }
 
+/**
+ * The signed-in user and their active org, or `ctx: null` when they have none (instead of redirecting to `/orgs`).
+ * For pages, such as onboarding, that also serve users who have not picked an org yet.
+ */
+export async function requireUserOrg(): Promise<{ session: ActiveSession; ctx: OrgContext | null }> {
+  const res = await getOrgResolution();
+  if (res.status === "signed_out") return signInRedirect();
+  if (res.status === "no_org") return { session: res.session, ctx: null };
+  const session = await getSession();
+  if (!session) return signInRedirect();
+  return { session, ctx: res.ctx };
+}
+
 /** Route-handler variant of `requireOrg`: the org context, or a 401/403 JSON `Response` to return as is. */
 export function requireOrgForRoute(req: Request, opts: { permission?: Action } = {}) {
   return authorizeRequest({ db: db(), clock: sessionClock() }, req, opts);

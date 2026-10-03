@@ -6,7 +6,7 @@ import { requireOrg } from "@/lib/auth";
 import { saveRepoSettingsForm, type SettingsFormState } from "@/lib/config/settings-form";
 import { db } from "@/lib/db";
 import { getRepo, setRepoEnabled } from "@/lib/data/installations";
-import { cancelIndexJob, createIndexJob } from "@/lib/indexer/jobs";
+import { cancelIndexJob, queueManualIndex } from "@/lib/indexer/jobs";
 import { bullQueue } from "@/lib/jobs/queue";
 import { errorMessage, log } from "@/lib/log";
 import { safeReturnPath, withToast } from "@/lib/ui/toast";
@@ -40,20 +40,14 @@ export async function reindexRepo(formData: FormData) {
   const repo = repoId === null ? undefined : await getRepo(db(), orgId, repoId);
   if (!repo) redirect(withToast(back(formData), "repo.not_found"));
   const kind = formData.get("kind") === "incremental" ? "incremental" : "full";
-  const job = await createIndexJob(db(), { orgId, repoId: repo.id, kind, trigger: "manual" });
-  const queueJobId = `index-${repo.id}-manual-${job.id}`;
+  let job;
   try {
-    await bullQueue.add(
-      "index-repo",
-      { orgId, repoId: repo.id, mode: kind, trigger: "manual", indexJobId: job.id, meta: { requestedBy: userId } },
-      { jobId: queueJobId },
-    );
+    job = await queueManualIndex({ db: db(), queue: bullQueue }, { orgId, repoId: repo.id, kind, requestedBy: userId });
   } catch (err) {
-    // Never leave a tracked run queued that no worker will pick up.
-    await cancelIndexJob(db(), orgId, repo.id, job.id);
-    log.error("could not queue manual re-index", { orgId, repoId: repo.id, indexJobId: job.id, error: errorMessage(err) });
+    log.error("could not queue manual re-index", { orgId, repoId: repo.id, error: errorMessage(err) });
     throw err;
   }
+  if (!job) redirect(withToast(back(formData), "repo.not_found"));
   log.info("manual re-index queued", { orgId, repoId: repo.id, indexJobId: job.id, kind, requestedBy: userId });
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), "index.queued"));
