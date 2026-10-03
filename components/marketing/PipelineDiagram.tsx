@@ -26,7 +26,7 @@ function Stage({ x, n, title, sub }: { x: number; n: string; title: string; sub:
 export function PipelineDiagram() {
   const fanX = 362;
   return (
-    <svg className="pipeline-diagram" viewBox="0 0 1000 300" role="img" aria-labelledby="pd-title pd-desc">
+    <svg className="pipeline-diagram" viewBox="0 0 1000 312" role="img" aria-labelledby="pd-title pd-desc">
       <title id="pd-title">The OpenReview review pipeline</title>
       <desc id="pd-desc">
         A pull request flows through six stages: index the repository, understand the change with graph context, seven specialized reviewers in
@@ -38,7 +38,7 @@ export function PipelineDiagram() {
         </marker>
       </defs>
 
-      <Stage x={8} n="01" title="Index" sub="symbols · calls · imports" />
+      <Stage x={8} n="01" title="Index" sub="symbols & calls" />
       <path d="M144 142H178" className="pd-line" markerEnd="url(#pd-arrow)" />
       <Stage x={182} n="02" title="Understand" sub="graph context" />
 
@@ -70,7 +70,7 @@ export function PipelineDiagram() {
           Verify
         </text>
         <text x="16" y="76" className="pd-sub">
-          checked against code
+          against the code
         </text>
       </g>
       <path d="M684 142H718" className="pd-line" markerEnd="url(#pd-arrow)" />
@@ -79,7 +79,7 @@ export function PipelineDiagram() {
       {/* learning loop back into the reviewers */}
       <path d="M790 188V276Q790 286 780 286H440Q430 286 430 276V272" className="pd-line pd-loop" markerEnd="url(#pd-arrow)" />
       <g transform="translate(612 271)">
-        <rect x="-82" y="0" width="164" height="30" rx="15" className="pd-learn" />
+        <rect x="-96" y="0" width="192" height="30" rx="15" className="pd-learn" />
         <text x="0" y="20" textAnchor="middle" className="pd-learn-text">
           06 · Learn from feedback
         </text>

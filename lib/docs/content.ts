@@ -209,7 +209,8 @@ export function plainInline(text: string): string {
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]*)`/g, "$1")
-    .replace(/(\*\*|__|\*|_)(\S[^*_]*?)\1/g, "$2")
+    // Emphasis only at word boundaries, so identifiers like OUTBOUND_ALLOWLIST_ENFORCE keep their underscores.
+    .replace(/(^|[^\w])(\*\*|__|\*|_)(\S[^*_]*?)\2(?=\W|$)/g, "$1$3")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
@@ -237,7 +238,9 @@ export function headingsOf(page: DocPage): DocHeading[] {
 
 /** The text of a page for search: prose, headings, table cells, and code. */
 export function plainText(page: DocPage): string {
-  return page.segments
+  // The page's own prose first, then included and generated material, so the size-capped index keeps the prose.
+  const ordered = [...page.segments.filter((s) => s.format === "mdx"), ...page.segments.filter((s) => s.format !== "mdx")];
+  return ordered
     .map((s) =>
       s.source
         .split("\n")

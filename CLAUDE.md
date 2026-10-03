@@ -31,7 +31,8 @@ features by their ID (e.g. `R1.4`).
 pnpm install
 pnpm dev                          # Next.js dev server
 pnpm typecheck && pnpm lint && pnpm test
-pnpm verify:parity --phase 1      # H6 report for one phase (--phase all, --skip-build also supported)
+pnpm verify:parity --phase 1      # H6 report for one phase (--phase all, --skip-build, --skip-e2e also supported)
+pnpm e2e                          # Playwright e2e of the public site against the production build (R5.4)
 docker compose up -d              # postgres (pgvector) + redis + app; `docker compose ps` should show all healthy
 ```
 

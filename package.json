@@ -20,7 +20,9 @@
     "worker": "tsx worker/index.ts",
     "mcp:build": "pnpm --filter openreview-mcp build",
     "cli:build": "pnpm --filter openreview build",
-    "deps:audit": "pnpm audit --prod --audit-level=high"
+    "deps:audit": "pnpm audit --prod --audit-level=high",
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "lighthouse": "lhci autorun"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

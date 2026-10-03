@@ -10,6 +10,8 @@ next-env.d.ts
 coverage/
 playwright-report/
 test-results/
+# Lighthouse CI reports (R5.4)
+.lighthouseci/
 
 # Agent worktrees and local Claude Code state
 .claude/worktrees/

@@ -41,6 +41,44 @@ jobs:
           DATABASE_URL: postgres://openreview:openreview@localhost:5432/openreview
           REDIS_URL: redis://localhost:6379
 
+  # Public site (R5.4): Playwright e2e (responsive screenshots, axe, overflow) and Lighthouse CI on / and /pricing.
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The public pages need no database or Redis; these only satisfy env validation.
+      APP_SECRET: ci-site-secret-0123456789
+      DATABASE_URL: postgres://openreview:openreview@127.0.0.1:1/openreview
+      REDIS_URL: redis://127.0.0.1:1
+      RUN_MIGRATIONS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Playwright e2e
+        run: pnpm e2e
+      - name: Lighthouse (mobile)
+        run: CHROME_PATH="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" pnpm exec lhci autorun
+      - name: Lighthouse (desktop)
+        run: CHROME_PATH="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")" pnpm exec lhci autorun --collect.settings.preset=desktop
+      - name: Upload screenshots and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-reports
+          path: |
+            test-results/
+            .lighthouseci/
+          retention-days: 14
+
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10

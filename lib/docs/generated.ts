@@ -234,17 +234,22 @@ export function parseEnvExample(text: string): EnvVar[] {
   const out: EnvVar[] = [];
   let section = "General";
   let pending: string[] = [];
+  // Whether the pending comments start a blank-line separated block (where a group label can appear).
+  let blockStart = true;
   for (const raw of text.replace(/\r\n?/g, "\n").split("\n")) {
     const line = raw.trim();
     if (!line) {
       pending = [];
+      blockStart = true;
       continue;
     }
     const v = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
     if (v) {
       section = ENV_SECTION_STARTS[v[1]!] ?? section;
+      const fromBlockStart = blockStart;
+      blockStart = false;
       const description = pending
-        .filter((c, i) => !(i === 0 && isGroupLabel(c)))
+        .filter((c, i) => !(fromBlockStart && i === 0 && isGroupLabel(c)))
         // Comment lines that end a sentence without a period, followed by a new sentence, get one.
         .reduce((acc, c) => (!acc ? c : /[.:;,(—-]$/.test(acc) || !/^[A-Z]/.test(c) ? `${acc} ${c}` : `${acc}. ${c}`), "");
       out.push({ name: v[1]!, example: v[2]!.trim(), description, section });

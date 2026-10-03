@@ -6,9 +6,8 @@ import { loadDoc, navTitle } from "@/lib/docs/content";
 import { DOCS_NAV, DOC_SLUGS, docHref, neighbours, slugFromParams } from "@/lib/docs/nav";
 import { renderDoc } from "@/lib/docs/render";
 
-// Every page is generated at build time from content/docs (R5.3); unknown paths are 404s.
+// Every page is generated at build time from content/docs (R5.3); unknown slugs render the 404 page.
 export const dynamic = "force-static";
-export const dynamicParams = false;
 
 type Params = { slug?: string[] };
 

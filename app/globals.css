@@ -1444,15 +1444,17 @@ textarea {
 }
 .code tr.add .ln {
   background: var(--diff-add-gutter);
+  color: var(--text-muted);
 }
 .code tr.del {
   background: var(--diff-del-bg);
 }
 .code tr.del .ln {
   background: var(--diff-del-gutter);
+  color: var(--text-muted);
 }
 .code tr.hunk td {
-  color: var(--text-subtle);
+  color: var(--text-muted);
   background: var(--bg-sunken);
 }
 .code tr.hl {
@@ -2519,7 +2521,7 @@ pre.block {
 /* hero */
 .m-hero {
   position: relative;
-  padding: clamp(48px, 8vw, 104px) 0 clamp(56px, 9vw, 112px);
+  padding: clamp(40px, 7vw, 96px) 0 clamp(40px, 6vw, 80px);
   background-image: linear-gradient(var(--m-rule) 1px, transparent 1px);
   background-size: 100% 32px;
   overflow: hidden;
@@ -2834,9 +2836,9 @@ pre.block {
 /* example findings */
 .m-findings {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  max-width: 880px;
   font-size: var(--text-md);
 }
 .example-finding .finding-title {
@@ -2845,12 +2847,6 @@ pre.block {
 }
 .example-finding .prose {
   max-width: none;
-}
-@media (max-width: 1080px) {
-  .m-findings {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 760px;
-  }
 }
 
 /* personalization */
@@ -3500,6 +3496,12 @@ pre.block {
   background: var(--surface-2);
   font-weight: 650;
   white-space: nowrap;
+}
+@media (max-width: 640px) {
+  /* Narrow screens scroll the table sideways instead of squeezing the description column to a word per line. */
+  .doc-table table {
+    min-width: 36rem;
+  }
 }
 .doc-table tr:last-child td {
   border-bottom: 0;
