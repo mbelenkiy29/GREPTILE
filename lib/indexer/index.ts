@@ -7,11 +7,11 @@ import { EMPTY_INDEX_PROGRESS, edges, files, installations, repoCommits, repos, 
 import { indexerEnv } from "@/lib/env";
 import type { GitHost } from "@/lib/git/types";
 import type { EmbeddingProvider } from "@/lib/llm";
-import { errorMessage, log } from "@/lib/log";
+import { errorMessage, log, type Logger } from "@/lib/log";
 import { applyRedactions, redactSecrets, scanForSecrets } from "@/lib/security/secret-scan";
 import { analyzeFile } from "./analyze";
 import { detectFileType, looksBinary, skipReasonForPath, type FileType, type SkipReason } from "./filetypes";
-import { checkoutCommit, fetchRef, hasCommit, isAncestor, listTree, readCommits } from "./git";
+import { checkoutCommit, fetchRef, hasCommit, isAncestor, listTree, readCommits, type TreeEntry } from "./git";
 import { resolveGraph } from "./graph";
 import {
   createIndexJob,
@@ -195,9 +195,6 @@ async function run(
     if (phase) progress.phase = phase;
     if (!(await writeJobProgress(db, scope, jobId, progress, extra))) throw new IndexCancelledError();
   };
-  const skip = (reason: SkipReason) => {
-    progress.filesSkipped[reason] = (progress.filesSkipped[reason] ?? 0) + 1;
-  };
 
   // checkout
   const dir = path.join(deps.cacheDir, String(repo.id));
@@ -219,17 +216,129 @@ async function run(
   await checkpoint("scan", { toSha: sha });
 
   // scan: decide from paths, sizes, and blob ids alone which files need (re)analysis
-  const maxBytes = deps.maxFileBytes ?? indexerEnv().INDEX_MAX_FILE_BYTES;
+  const tree = await indexTree(
+    { db, embedder: deps.embedder, maxFileBytes: deps.maxFileBytes ?? indexerEnv().INDEX_MAX_FILE_BYTES, log: ctx.log },
+    { scope, repoName: repo.fullName.split("/").pop() ?? repo.fullName, dir, entries: await listTree(dir), kind, recovering, progress, checkpoint },
+  );
+  const { changed, removed, languages } = tree;
+
+  await db
+    .update(repos)
+    .set({
+      indexStatus: "ready",
+      indexError: null,
+      indexedSha: sha,
+      indexedAt: new Date(),
+      fileCount: tree.fileCount,
+      symbolCount: progress.symbols,
+      languages,
+      lastIndexJobId: jobId,
+    })
+    .where(scoped(repos, repo.orgId, eq(repos.id, repo.id)));
+  const changedFiles = [...changed, ...removed].sort();
+  await finishJob(db, scope, jobId, { status: "completed", progress, changedFiles, toSha: sha });
+  ctx.log.info("index completed", {
+    kind,
+    sha,
+    filesChanged: changed.length,
+    filesRemoved: progress.filesRemoved,
+    symbols: progress.symbols,
+    edges: progress.edges,
+    ms: Date.now() - started,
+  });
+
+  return {
+    indexJobId: jobId,
+    kind,
+    status: "completed",
+    sha,
+    filesParsed: tree.parsed,
+    filesRemoved: progress.filesRemoved,
+    filesUnchanged: tree.unchanged,
+    filesSkipped: { ...progress.filesSkipped },
+    symbols: progress.symbols,
+    edges: progress.edges,
+  };
+}
+
+/**
+ * Whether `sha` is the indexed commit or one of its ancestors. The indexed commit is fetched when the cache lacks it
+ * (e.g. a fresh cache directory); when it cannot be found, `sha` is treated as new.
+ */
+async function alreadyIndexed(url: string, dir: string, sha: string, indexedSha: string): Promise<boolean> {
+  if (sha === indexedSha) return true;
+  if (!(await hasCommit(dir, indexedSha))) await fetchRef(url, dir, indexedSha).catch(() => undefined);
+  return isAncestor(dir, sha, indexedSha);
+}
+
+/** What {@link indexTree} needs besides its input. */
+export interface TreeIndexDeps {
+  db: Db;
+  /** Embeds new symbols and doc chunks; without one, retrieval relies on the graph and full-text search. */
+  embedder?: EmbeddingProvider;
+  maxFileBytes: number;
+  log: Logger;
+}
+
+export interface TreeIndexInput {
+  scope: { orgId: string; repoId: number };
+  /** Repository name without its owner. */
+  repoName: string;
+  /** Directory holding the files of `entries` (a checkout or a working tree), inside a git repository. */
+  dir: string;
+  /** Reads a file's content (default: from `dir`), e.g. from a commit instead of the working tree. */
+  read?: (path: string) => Promise<Buffer>;
+  /** Files to index; `blob` is any content hash (a git blob id, or a hash of working-tree content). */
+  entries: TreeEntry[];
+  kind: IndexKind;
+  /** A previous run stopped half-way: resolve the whole graph again. */
+  recovering?: boolean;
+  progress?: IndexProgress;
+  /** Called between phases (and every 100 parsed files); may throw to stop the run. */
+  checkpoint?: (phase?: IndexProgress["phase"]) => Promise<void>;
+}
+
+export interface TreeIndexResult {
+  /** Paths (re)analyzed, and paths removed from the index. */
+  changed: string[];
+  removed: string[];
+  parsed: number;
+  unchanged: number;
+  fileCount: number;
+  languages: Record<string, number>;
+  progress: IndexProgress;
+}
+
+/**
+ * The checkout-independent core of the indexer (R6.3, R6.4): given a directory and its files with content hashes,
+ * (re)analyzes only files whose hash changed (all of them for a full run) — symbols, graph edges, chunks,
+ * dependencies, with secrets redacted first — removes files that disappeared, embeds new symbols and doc chunks,
+ * resolves the graph, and records the directory's recent commits. The server indexes git checkouts with it; the
+ * CLI's local mode (R3.5) indexes a working tree.
+ */
+export async function indexTree(deps: TreeIndexDeps, input: TreeIndexInput): Promise<TreeIndexResult> {
+  const { db } = deps;
+  const { scope, dir, kind } = input;
+  const recovering = input.recovering ?? false;
+  const progress: IndexProgress = input.progress ?? { ...EMPTY_INDEX_PROGRESS, filesSkipped: {}, phase: "scan" };
+  const checkpoint = async (phase?: IndexProgress["phase"]) => {
+    if (phase) progress.phase = phase;
+    await input.checkpoint?.(phase);
+  };
+  const skip = (reason: SkipReason) => {
+    progress.filesSkipped[reason] = (progress.filesSkipped[reason] ?? 0) + 1;
+  };
+
   const candidates: Candidate[] = [];
-  for (const entry of await listTree(dir)) {
-    const reason = entry.regular ? skipReasonForPath(entry.path, entry.sizeBytes, maxBytes) : "unsupported";
+  for (const entry of input.entries) {
+    const reason = entry.regular ? skipReasonForPath(entry.path, entry.sizeBytes, deps.maxFileBytes) : "unsupported";
     if (reason) skip(reason);
     else candidates.push({ path: entry.path, contentHash: `${INDEX_FORMAT_VERSION}:${entry.blob}`, sizeBytes: entry.sizeBytes, type: detectFileType(entry.path)! });
   }
   const existing = await db
     .select({ id: files.id, path: files.path, contentHash: files.contentHash })
     .from(files)
-    .where(scoped(files, repo.orgId, eq(files.repoId, repo.id)));
+    .where(scoped(files, scope.orgId, eq(files.repoId, scope.repoId)));
   const existingByPath = new Map(existing.map((f) => [f.path, f]));
   const current = new Set(candidates.map((c) => c.path));
   const changed = kind === "full" ? candidates : candidates.filter((c) => existingByPath.get(c.path)?.contentHash !== c.contentHash);
@@ -245,39 +354,38 @@ async function run(
     const rows = await db
       .selectDistinct({ name: symbols.name })
       .from(symbols)
-      .where(scoped(symbols, repo.orgId, eq(symbols.repoId, repo.id), inArray(symbols.fileId, ids)));
+      .where(scoped(symbols, scope.orgId, eq(symbols.repoId, scope.repoId), inArray(symbols.fileId, ids)));
     for (const r of rows) affectedNames.add(r.name);
   }
   const [maxEdge] = await db
     .select({ id: sql<number>`coalesce(max(${edges.id}), 0)` })
     .from(edges)
-    .where(scoped(edges, repo.orgId, eq(edges.repoId, repo.id)));
+    .where(scoped(edges, scope.orgId, eq(edges.repoId, scope.repoId)));
   const newEdgesAfterId = Number(maxEdge?.id ?? 0);
   for (const ids of chunked(removed.map((f) => f.id), 500)) {
-    await db.delete(files).where(scoped(files, repo.orgId, eq(files.repoId, repo.id), inArray(files.id, ids)));
+    await db.delete(files).where(scoped(files, scope.orgId, eq(files.repoId, scope.repoId), inArray(files.id, ids)));
   }
   await checkpoint("parse");
 
   // parse: one file at a time (never every file's content in memory)
-  const repoName = repo.fullName.split("/").pop() ?? repo.fullName;
   let parsed = 0;
   let binaryRemoved = 0;
   for (const [i, c] of changed.entries()) {
     const existingId = existingByPath.get(c.path)?.id ?? null;
-    const buf = await readFile(path.join(dir, c.path));
+    const buf = input.read ? await input.read(c.path) : await readFile(path.join(dir, c.path));
     if (looksBinary(buf.subarray(0, 8192))) {
       skip("binary");
       progress.filesTotal--;
       if (existingId !== null) {
-        await db.delete(files).where(scoped(files, repo.orgId, eq(files.repoId, repo.id), eq(files.id, existingId)));
+        await db.delete(files).where(scoped(files, scope.orgId, eq(files.repoId, scope.repoId), eq(files.id, existingId)));
         binaryRemoved++;
       }
     } else {
       const raw = buf.toString("utf8").replace(/\u0000/g, "");
       const findings = scanForSecrets(raw);
       progress.secretLinesRedacted += findings.length;
-      const analysis = await analyzeFile(c.path, applyRedactions(raw, findings), c.type, { repoName });
-      if (analysis.extractionError) ctx.log.warn("entity extraction failed; file indexed for search only", { path: c.path, error: analysis.extractionError });
+      const analysis = await analyzeFile(c.path, applyRedactions(raw, findings), c.type, { repoName: input.repoName });
+      if (analysis.extractionError) deps.log.warn("entity extraction failed; file indexed for search only", { path: c.path, error: analysis.extractionError });
       await writeFile(db, scope, { path: c.path, contentHash: c.contentHash, sizeBytes: c.sizeBytes, existingId }, analysis);
       for (const s of analysis.symbols) affectedNames.add(s.name);
       parsed++;
@@ -288,11 +396,13 @@ async function run(
   progress.filesRemoved += binaryRemoved;
   await checkpoint("embed");
 
-  progress.embedded = 0;
-  await embedPending(db, deps.embedder, scope, async (n) => {
-    progress.embedded = n;
-    await checkpoint();
-  });
+  if (deps.embedder) {
+    progress.embedded = 0;
+    await embedPending(db, deps.embedder, scope, async (n) => {
+      progress.embedded = n;
+      await checkpoint();
+    });
+  }
   await checkpoint("graph");
 
   const anyChange = changed.length > 0 || removed.length > 0 || recovering;
@@ -311,8 +421,8 @@ async function run(
       .insert(repoCommits)
       .values(
         batch.map((c) => ({
-          orgId: repo.orgId,
-          repoId: repo.id,
+          orgId: scope.orgId,
+          repoId: scope.repoId,
           sha: c.sha,
           parentSha: c.parentSha,
           message: redactSecrets(c.message).slice(0, 500),
@@ -325,65 +435,26 @@ async function run(
   }
 
   const [[fileCount], [symbolCount], [edgeCount], languageRows] = await Promise.all([
-    db.select({ n: count() }).from(files).where(scoped(files, repo.orgId, eq(files.repoId, repo.id))),
-    db.select({ n: count() }).from(symbols).where(scoped(symbols, repo.orgId, eq(symbols.repoId, repo.id))),
-    db.select({ n: count() }).from(edges).where(scoped(edges, repo.orgId, eq(edges.repoId, repo.id))),
+    db.select({ n: count() }).from(files).where(scoped(files, scope.orgId, eq(files.repoId, scope.repoId))),
+    db.select({ n: count() }).from(symbols).where(scoped(symbols, scope.orgId, eq(symbols.repoId, scope.repoId))),
+    db.select({ n: count() }).from(edges).where(scoped(edges, scope.orgId, eq(edges.repoId, scope.repoId))),
     db
       .select({ language: files.language, n: count() })
       .from(files)
-      .where(scoped(files, repo.orgId, eq(files.repoId, repo.id), sql`${files.tags} && array['source', 'test']::text[]`))
+      .where(scoped(files, scope.orgId, eq(files.repoId, scope.repoId), sql`${files.tags} && array['source', 'test']::text[]`))
       .groupBy(files.language),
   ]);
   progress.symbols = symbolCount?.n ?? 0;
   progress.edges = edgeCount?.n ?? 0;
   progress.phase = "done";
   const languages = Object.fromEntries(languageRows.sort((a, b) => b.n - a.n).map((r) => [r.language, r.n]));
-
-  await db
-    .update(repos)
-    .set({
-      indexStatus: "ready",
-      indexError: null,
-      indexedSha: sha,
-      indexedAt: new Date(),
-      fileCount: fileCount?.n ?? 0,
-      symbolCount: progress.symbols,
-      languages,
-      lastIndexJobId: jobId,
-    })
-    .where(scoped(repos, repo.orgId, eq(repos.id, repo.id)));
-  const changedFiles = [...changed.map((c) => c.path), ...removed.map((f) => f.path)].sort();
-  await finishJob(db, scope, jobId, { status: "completed", progress, changedFiles, toSha: sha });
-  ctx.log.info("index completed", {
-    kind,
-    sha,
-    filesChanged: changed.length,
-    filesRemoved: progress.filesRemoved,
-    symbols: progress.symbols,
-    edges: progress.edges,
-    ms: Date.now() - started,
-  });
-
   return {
-    indexJobId: jobId,
-    kind,
-    status: "completed",
-    sha,
-    filesParsed: parsed,
-    filesRemoved: progress.filesRemoved,
-    filesUnchanged: candidates.length - changed.length,
-    filesSkipped: { ...progress.filesSkipped },
-    symbols: progress.symbols,
-    edges: progress.edges,
+    changed: changed.map((c) => c.path),
+    removed: removed.map((f) => f.path),
+    parsed,
+    unchanged: candidates.length - changed.length,
+    fileCount: fileCount?.n ?? 0,
+    languages,
+    progress,
   };
-}
-
-/**
- * Whether `sha` is the indexed commit or one of its ancestors. The indexed commit is fetched when the cache lacks it
- * (e.g. a fresh cache directory); when it cannot be found, `sha` is treated as new.
- */
-async function alreadyIndexed(url: string, dir: string, sha: string, indexedSha: string): Promise<boolean> {
-  if (sha === indexedSha) return true;
-  if (!(await hasCommit(dir, indexedSha))) await fetchRef(url, dir, indexedSha).catch(() => undefined);
-  return isAncestor(dir, sha, indexedSha);
 }
