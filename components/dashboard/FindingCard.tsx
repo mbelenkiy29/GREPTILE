@@ -5,7 +5,7 @@ import { CodeBlock } from "@/components/ui/Code";
 import { Icon } from "@/components/ui/icons";
 import { Markdown } from "@/components/ui/Markdown";
 import type { FindingRow } from "@/lib/data/findings";
-import { githubBlobUrl, githubCommentUrl } from "@/lib/ui/format";
+import { blobUrl, commentUrl, PROVIDER_LABEL, repoWeb, type RepoWeb } from "@/lib/git/web-url";
 
 function location(f: Pick<FindingRow, "path" | "startLine" | "endLine">) {
   return f.endLine > f.startLine ? `${f.path}:${f.startLine}–${f.endLine}` : `${f.path}:${f.startLine}`;
@@ -24,13 +24,14 @@ export function verificationNote(v: unknown): { stage: string | null; reasons: s
 
 /**
  * One published finding (R6.9): severity, confidence, location, status, rule, description, evidence with code,
- * suggested fix, and the GitHub comment that posted it. Model-written text is rendered as safe Markdown.
+ * suggested fix, and the pull request comment that posted it (on the repository's git host). Model-written text is rendered as safe Markdown.
  */
 export function FindingCard({
   finding: f,
   repoFullName,
   prNumber,
   githubUrl,
+  web,
   footer,
   actions,
 }: {
@@ -38,12 +39,16 @@ export function FindingCard({
   repoFullName: string;
   prNumber: number;
   githubUrl?: string;
+  /** The repository's git host (R3.6); GitHub at `githubUrl` when absent. */
+  web?: RepoWeb;
   /** Controls under the finding (e.g. feedback, R6.10). */
   footer?: ReactNode;
   /** Controls shown at the end of the header row (e.g. "Fix with AI"). */
   actions?: ReactNode;
 }) {
   const note = verificationNote(f.verification);
+  const host = web ?? repoWeb("github", null, githubUrl);
+  const label = PROVIDER_LABEL[host.provider] ?? host.provider;
   return (
     <article className="finding" data-finding={f.id} data-severity={f.severity} aria-labelledby={`finding-${f.id}-title`}>
       <div className="row-tight">
@@ -62,14 +67,14 @@ export function FindingCard({
         {f.title}
       </h3>
       <div className="row-tight dim">
-        <a className="mono break" href={githubBlobUrl(repoFullName, f.commitSha, f.path, f.startLine, githubUrl)} target="_blank" rel="noreferrer">
+        <a className="mono break" href={blobUrl(host, repoFullName, f.commitSha, f.path, f.startLine)} target="_blank" rel="noreferrer">
           {location(f)}
         </a>
         {f.symbol && <span className="mono">· {f.symbol}</span>}
         <span>· raised by {f.agents.length ? f.agents.map(humanize).join(", ") : humanize(f.agent)}</span>
         {f.externalCommentId !== null && (
-          <a href={githubCommentUrl(repoFullName, prNumber, f.externalCommentId, githubUrl)} target="_blank" rel="noreferrer">
-            <Icon name="github" size={12} /> Comment on GitHub
+          <a href={commentUrl(host, repoFullName, prNumber, f.externalCommentId)} target="_blank" rel="noreferrer">
+            <Icon name={host.provider === "gitlab" ? "gitlab" : host.provider === "bitbucket" ? "bitbucket" : "github"} size={12} /> Comment on {label}
           </a>
         )}
       </div>

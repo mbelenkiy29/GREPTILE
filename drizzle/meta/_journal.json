@@ -176,6 +176,13 @@
       "when": 1791005760913,
       "tag": "0024_enterprise",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791007017941,
+      "tag": "0025_scm_providers",
+      "breakpoints": true
     }
   ]
 }

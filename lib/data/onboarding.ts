@@ -26,7 +26,7 @@ export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 export const ONBOARDING_STEP_LABEL: Record<OnboardingStep, string> = {
   workspace: "Workspace",
-  install: "Install GitHub App",
+  install: "Connect your git host",
   repos: "Select repositories",
   configure: "Review behavior",
   indexing: "Indexing",
@@ -212,17 +212,20 @@ export async function connectPendingInstallation(
 export async function setEnabledRepos(db: Db, orgId: string, enabledIds: number[]) {
   const ids = [...new Set(enabledIds.filter((n) => Number.isSafeInteger(n) && n > 0))];
   return db.transaction(async (tx) => {
+    const githubInstallations = tx.select({ id: installations.id }).from(installations).where(scoped(installations, orgId, eq(installations.provider, "github")));
     const turnedOn = ids.length
       ? await tx
           .update(repos)
           .set({ enabled: true })
-          .where(scoped(repos, orgId, inArray(repos.id, ids), eq(repos.archived, false), eq(repos.enabled, false)))
+          .where(scoped(repos, orgId, inArray(repos.id, ids), inArray(repos.installationId, githubInstallations), eq(repos.archived, false), eq(repos.enabled, false)))
           .returning()
       : [];
     const turnedOff = await tx
       .update(repos)
       .set({ enabled: false })
-      .where(scoped(repos, orgId, eq(repos.enabled, true), ids.length ? notInArray(repos.id, ids) : undefined))
+      // Only GitHub App repositories are chosen here; GitLab / Bitbucket repositories are enabled (with their webhooks) on
+      // Settings → Git providers and are left as they are.
+      .where(scoped(repos, orgId, eq(repos.enabled, true), inArray(repos.installationId, githubInstallations), ids.length ? notInArray(repos.id, ids) : undefined))
       .returning({ id: repos.id });
     const [on] = await tx.select({ n: count() }).from(repos).where(scoped(repos, orgId, eq(repos.enabled, true)));
     return { turnedOn, turnedOff: turnedOff.length, enabled: Number(on?.n ?? 0) };

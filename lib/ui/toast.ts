@@ -9,7 +9,7 @@ export const TOASTS = {
   "repo.enabled": { tone: "success", message: "Reviews resumed for this repository." },
   "repo.disabled": { tone: "info", message: "Reviews paused for this repository." },
   "repo.not_found": { tone: "error", message: "That repository isn't connected to this organization." },
-  "repo.archived": { tone: "warning", message: "Archived repositories are read-only on GitHub and can't be reviewed." },
+  "repo.archived": { tone: "warning", message: "Archived repositories are read-only on their git host and can't be reviewed." },
   "index.queued": { tone: "success", message: "Re-index queued. Progress appears below." },
   "index.cancelled": { tone: "info", message: "Index run cancelled." },
   "index.not_running": { tone: "warning", message: "That index run had already finished." },
@@ -82,6 +82,13 @@ export const TOASTS = {
   "sso.not_found": { tone: "error", message: "That connection isn't in this organization." },
   "llm.saved": { tone: "success", message: "Model provider saved. New model calls use it." },
   "llm.removed": { tone: "info", message: "Model provider removed. This organization uses the server's default model again." },
+  "scm.checked": { tone: "success", message: "Connection checked." },
+  "scm.check_failed": { tone: "error", message: "The connection check failed. See the error on the connection." },
+  "scm.disconnected": { tone: "info", message: "Provider disconnected. Its webhooks and stored token were removed." },
+  "scm.not_found": { tone: "error", message: "That connection or repository isn't in this organization." },
+  "scm.repo_enabled": { tone: "success", message: "Repository enabled. Its webhook was created and indexing is queued." },
+  "scm.repo_disabled": { tone: "info", message: "Reviews paused. The repository's webhook was removed." },
+  "scm.hook_failed": { tone: "error", message: "The webhook couldn't be changed on the git host. Check the connection's token and role." },
 } as const satisfies Record<string, { tone: ToastTone; message: string }>;
 
 export type ToastCode = keyof typeof TOASTS;

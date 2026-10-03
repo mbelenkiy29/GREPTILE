@@ -40,12 +40,17 @@ export default async function ReposPage({ searchParams }: { searchParams: Promis
     <>
       <PageHeader
         title="Repositories"
-        description="Repositories connected through the GitHub App, their index, and how they're reviewed."
+        description="Repositories connected through the GitHub App, GitLab, or Bitbucket, their index, and how they're reviewed."
         actions={
           manage && (
-            <ButtonLink href="/api/github/install" variant="primary" icon="github">
-              {page.total ? "Add repositories" : "Connect GitHub"}
-            </ButtonLink>
+            <>
+              <ButtonLink href="/dashboard/settings/git-providers" icon="gitlab">
+                GitLab / Bitbucket
+              </ButtonLink>
+              <ButtonLink href="/api/github/install" variant="primary" icon="github">
+                {page.total ? "Add repositories" : "Connect GitHub"}
+              </ButtonLink>
+            </>
           )
         }
       />
@@ -64,6 +69,9 @@ export default async function ReposPage({ searchParams }: { searchParams: Promis
               <>
                 <ButtonLink href="/api/github/install" variant="primary" icon="github">
                   Install the GitHub App
+                </ButtonLink>
+                <ButtonLink href="/dashboard/settings/git-providers" icon="gitlab">
+                  Connect GitLab or Bitbucket
                 </ButtonLink>
                 <ButtonLink href="/onboarding">Start onboarding</ButtonLink>
               </>

@@ -13,7 +13,8 @@ import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import type { CodeExcerpt, FixContext, FixFinding } from "./prompt";
 
 /** Reads a file at a commit through the git host; null when it does not exist there. */
-export type FixFileReader = (input: { installationExternalId: number; repoFullName: string; path: string; ref: string }) => Promise<string | null>;
+/** Reads a file at a ref through the repository's git host; `provider` is the installation's (R3.6). */
+export type FixFileReader = (input: { provider: string; installationExternalId: number; repoFullName: string; path: string; ref: string }) => Promise<string | null>;
 
 /** Lines of context shown around the flagged range. */
 const CONTEXT_LINES = 5;
@@ -112,6 +113,7 @@ export async function loadFindingFix(
       finding: findings,
       repoFullName: repos.fullName,
       installationExternalId: installations.externalId,
+      provider: installations.provider,
       headSha: reviews.headSha,
       pr: { url: pullRequests.url, headRef: pullRequests.headRef, baseRef: pullRequests.baseRef, headSha: pullRequests.headSha },
     })
@@ -128,7 +130,7 @@ export async function loadFindingFix(
   let currentCode: CodeExcerpt | null = null;
   if (opts.readFile) {
     try {
-      const content = await opts.readFile({ installationExternalId: row.installationExternalId, repoFullName: row.repoFullName, path: f.path, ref: headSha });
+      const content = await opts.readFile({ provider: row.provider, installationExternalId: row.installationExternalId, repoFullName: row.repoFullName, path: f.path, ref: headSha });
       if (content !== null) currentCode = { path: f.path, ...excerptOf(content, f.startLine, f.endLine), ref: headSha };
     } catch (err) {
       (opts.log ?? rootLog).warn("could not read the finding's file for its fix prompt; using stored evidence", {

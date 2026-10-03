@@ -5,7 +5,7 @@
  */
 import { db } from "@/lib/db";
 import { apiEnv, authEnv } from "@/lib/env";
-import { gitHost } from "@/lib/git/host";
+import { clientFor, gitHost } from "@/lib/git/host";
 import { bullQueue } from "@/lib/jobs/queue";
 import { embeddings, llm, type EmbeddingProvider } from "@/lib/llm";
 import { errorMessage, log } from "@/lib/log";
@@ -43,7 +43,8 @@ export function productionApiDeps(): ApiDeps {
     rateLimitPerMinute: e.API_RATE_LIMIT_PER_MINUTE,
     appUrl: e.APP_URL,
     sessionTtlDays: authEnv().SESSION_TTL_DAYS,
-    readFile: ({ installationExternalId, repoFullName, path, ref }) => gitHost().client(installationExternalId).getFileContent(repoFullName, path, ref),
+    readFile: ({ provider, installationExternalId, repoFullName, path, ref }) =>
+      clientFor(gitHost(), { provider, externalId: installationExternalId }).getFileContent(repoFullName, path, ref),
     ...(emb ? { embedder: emb } : {}),
     // The same model gateway and embedder the worker reviews pull requests with.
     reviewEngine: () => ({ llm: llm({ db: db() }), embedder: embeddings({ db: db() }) }),

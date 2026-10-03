@@ -96,12 +96,13 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
     ]);
     const installations: InstallationSummary[] = health.map((h) => ({
       id: h.id,
+      provider: h.provider,
       externalId: h.externalId,
       accountLogin: h.accountLogin,
       status: h.status,
       missingPermissions: h.missingPermissions,
       missingRecommended: h.missingRecommended,
-      manageUrl: githubInstallationSettingsUrl(h, web),
+      manageUrl: h.provider === "github" ? githubInstallationSettingsUrl(h, web) : `/dashboard/settings/git-providers/${h.scmCredentialId ?? ""}`,
     }));
     panel = (
       <InstallStep
@@ -115,13 +116,15 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
     );
   } else if (step === "repos") {
     const [health, repos] = await Promise.all([getInstallationHealth(db(), ctx.orgId), listRepos(db(), ctx.orgId)]);
-    const groups: RepoGroup[] = health.map((h) => ({
+    // GitLab / Bitbucket repositories are chosen (and their webhooks created) on Settings → Git providers.
+    const groups: RepoGroup[] = health.filter((h) => h.provider === "github").map((h) => ({
       installation: { id: h.id, accountLogin: h.accountLogin, repositorySelection: h.repositorySelection, manageUrl: githubInstallationSettingsUrl(h, web) },
       repos: repos
         .filter((r) => r.installationId === h.id)
         .map((r) => ({ id: r.id, fullName: r.fullName, enabled: r.enabled, archived: r.archived, private: r.private })),
     }));
-    panel = <RepoSelectStep canManage={can(ctx.role, "repos.manage")} role={ctx.role} groups={groups} action={saveRepoSelection} />;
+    const otherHosts = health.filter((h) => h.provider !== "github").length;
+    panel = <RepoSelectStep canManage={can(ctx.role, "repos.manage")} role={ctx.role} groups={groups} action={saveRepoSelection} otherHosts={otherHosts} />;
   } else if (step === "configure") {
     const org = await getOrgSettings(db(), ctx.orgId);
     const { settings } = resolveEffectiveSettings(org, undefined, undefined);

@@ -513,7 +513,7 @@ class GitHubClient implements GitClient {
     return toIssueComment(await this.req(`/repos/${repo}/issues/${number}/comments`, { method: "POST", body: { body } }));
   }
 
-  async updateIssueComment(repo: string, commentId: number, body: string) {
+  async updateIssueComment(repo: string, _number: number, commentId: number, body: string) {
     return toIssueComment(await this.req(`/repos/${repo}/issues/comments/${commentId}`, { method: "PATCH", body: { body } }));
   }
 
@@ -527,11 +527,11 @@ class GitHubClient implements GitClient {
     );
   }
 
-  async updateReviewComment(repo: string, commentId: number, body: string) {
+  async updateReviewComment(repo: string, _number: number, commentId: number, body: string) {
     return toReviewComment(await this.req(`/repos/${repo}/pulls/comments/${commentId}`, { method: "PATCH", body: { body } }));
   }
 
-  async listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]> {
+  async listReviewCommentReactions(repo: string, _number: number, commentId: number): Promise<Reaction[]> {
     return (await this.list(`/repos/${repo}/pulls/comments/${commentId}/reactions`)).map((raw) => {
       const r = parse(reactionSchema, raw, "reaction");
       return { id: r.id, content: r.content, user: r.user?.login ?? "" };

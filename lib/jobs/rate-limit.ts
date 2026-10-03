@@ -1,4 +1,5 @@
 import { GitHubError } from "@/lib/github/client";
+import { ScmHttpError } from "@/lib/scm/http";
 import { errorMessage, type Logger } from "@/lib/log";
 
 /** A job that hits a rate limit is put back at most this many times (counting every start), then fails normally. */
@@ -8,11 +9,11 @@ const RESET_MARGIN_MS = 1_000;
 
 /**
  * How long to wait before retrying after `err`, when it is (or wraps) a GitHub rate-limit failure whose reset is too far
- * away for the client to wait in-process. Undefined for every other error.
+ * away for the client to wait in-process (GitLab and Bitbucket rate limits too). Undefined for every other error.
  */
 export function rateLimitRetryMs(err: unknown): number | undefined {
   for (let e: unknown = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
-    if (e instanceof GitHubError && e.retryAfterMs !== undefined) return e.retryAfterMs;
+    if ((e instanceof GitHubError || e instanceof ScmHttpError) && e.retryAfterMs !== undefined) return e.retryAfterMs;
   }
   return undefined;
 }

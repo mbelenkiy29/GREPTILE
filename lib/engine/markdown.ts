@@ -1,5 +1,5 @@
 /**
- * GitHub-flavored markdown for engine output (S12): the summary comment and one inline comment per finding. The
+ * Markdown for engine output (S12), in the flavor of the pull request's host (R3.6): the summary comment and one inline comment per finding. The
  * summary carries `<!-- openreview:summary -->` so it can be found and updated in place; every finding carries its
  * fingerprint marker `<!-- openreview:fp=… -->` so it is never reposted.
  */
@@ -12,6 +12,15 @@ const FP_MARKER = /<!-- openreview:fp=([A-Za-z0-9:_-]{6,128}) -->/g;
 
 export function fingerprintMarker(fp: string): string {
   return `<!-- openreview:fp=${fp} -->`;
+}
+
+/**
+ * True for a comment OpenReview wrote: every one carries an `openreview:` marker (as an HTML comment, or as a markdown
+ * reference definition on Bitbucket). Hosts where OpenReview posts as an ordinary account (GitLab tokens, Bitbucket)
+ * rely on it to ignore OpenReview's own comments.
+ */
+export function hasOpenReviewMarker(body: string): boolean {
+  return /<!-- openreview:[\w:=.-]+ -->|^\[\/\/\]: # \(openreview:[\w:=.-]+\)$/m.test(body);
 }
 
 /** The fingerprint of a finding comment: the last marker (the engine always writes it last). */
@@ -28,8 +37,17 @@ export function safeText(s: string): string {
   return s.replace(/<!--/g, "&lt;!--").replace(/--!?>/g, "--&gt;");
 }
 
+/**
+ * Which host's markdown the text is for (R3.6). GitHub and GitLab render `<details>`, `<sub>`, and suggestion blocks
+ * (GitLab with its `suggestion:-N+0` range syntax). Bitbucket Cloud renders no HTML and has no suggestions, so its
+ * flavor uses plain markdown and shows an exact replacement as a fenced diff.
+ */
+export type MarkdownFlavor = "github" | "gitlab" | "bitbucket";
+
 export interface MarkdownOptions {
   commentStyle?: "concise" | "detailed";
+  /** Defaults to `github`. */
+  flavor?: MarkdownFlavor;
   /**
    * Pull request context for the collapsed "Fix with AI" prompt (R3.1). Inline comments the publisher posts always
    * carry it; without it no prompt is added.
@@ -57,6 +75,11 @@ const CATEGORY_LABEL: Record<string, string> = {
   rules: "Team rules",
 };
 
+/** Small print: `<sub>` where the host renders HTML, italics on Bitbucket. */
+function small(text: string, flavor: MarkdownFlavor): string {
+  return flavor === "bitbucket" ? `_${text}_` : `<sub>${text}</sub>`;
+}
+
 export function confidenceLabel(confidence: number): string {
   const pct = Math.round(confidence * 100);
   return `${confidence >= 0.85 ? "high" : confidence >= 0.6 ? "medium" : "low"} confidence (${pct}%)`;
@@ -81,9 +104,29 @@ function suggestionSafe(f: EngineFinding): boolean {
   return f.suggestion !== null && f.endLine >= f.startLine && f.endLine - f.startLine <= 50 && !f.suggestion.includes("[REDACTED SECRET]");
 }
 
+/**
+ * The finding's exact replacement in the host's syntax. Inline comments sit on the finding's last line, so a GitLab
+ * suggestion reaches `endLine - startLine` lines above it. Bitbucket gets a fenced diff: the original lines (when the
+ * engine's evidence holds exactly those lines) as `-`, the replacement as `+`.
+ */
+export function suggestionBlock(f: Pick<EngineFinding, "suggestion" | "startLine" | "endLine" | "path" | "evidence">, flavor: MarkdownFlavor = "github"): string {
+  const replacement = f.suggestion ?? "";
+  if (flavor === "gitlab") return fence(replacement, `suggestion:-${Math.max(0, f.endLine - f.startLine)}+0`);
+  if (flavor === "bitbucket") {
+    const span = f.endLine - f.startLine + 1;
+    const textLines = (s: string) => s.replace(/\n$/, "").split("\n");
+    const original = f.evidence.find((e) => e.path === f.path && e.startLine === f.startLine && e.endLine === f.endLine && textLines(e.snippet).length === span);
+    const minus = original ? textLines(original.snippet).map((l) => `-${l}`) : [];
+    const plus = replacement === "" ? [] : textLines(replacement).map((l) => `+${l}`);
+    return `Suggested change (lines ${lines(f.startLine, f.endLine)}):\n\n${fence([...minus, ...plus].join("\n"), "diff")}`;
+  }
+  return fence(replacement, "suggestion");
+}
+
 /** Inline comment for one finding. */
 export function renderFindingMarkdown(f: EngineFinding, opts: MarkdownOptions = {}): string {
   const detailed = (opts.commentStyle ?? "detailed") === "detailed";
+  const flavor = opts.flavor ?? "github";
   const parts = [
     `**${SEVERITY_LABEL[f.severity]} · ${CATEGORY_LABEL[f.category] ?? f.category}** · ${confidenceLabel(f.confidence)}`,
     `**${safeText(f.title.trim())}**`,
@@ -99,10 +142,10 @@ export function renderFindingMarkdown(f: EngineFinding, opts: MarkdownOptions = 
     parts.push(`**Evidence**\n${items.join("\n")}`);
   }
   if (f.suggestedFix.trim()) parts.push(`**Suggested fix:** ${safeText(f.suggestedFix.trim())}`);
-  if (suggestionSafe(f)) parts.push(fence(f.suggestion!, "suggestion"));
+  if (suggestionSafe(f)) parts.push(suggestionBlock(f, flavor));
   if (f.rule) parts.push(`**Rule** (\`${safeText(f.rule.id)}\`): ${safeText(oneLine(f.rule.text))}`);
-  if (f.agents.length > 1) parts.push(`<sub>Independently raised by: ${f.agents.map((a) => CATEGORY_LABEL[a] ?? a).join(", ")}</sub>`);
-  if (opts.fix) parts.push(fixWithAiBlock(f, opts.fix));
+  if (f.agents.length > 1) parts.push(small(`Independently raised by: ${f.agents.map((a) => CATEGORY_LABEL[a] ?? a).join(", ")}`, flavor));
+  if (opts.fix) parts.push(fixWithAiBlock(f, opts.fix, flavor));
   parts.push(fingerprintMarker(f.fingerprint));
   return parts.join("\n\n");
 }
@@ -111,8 +154,10 @@ export function renderFindingMarkdown(f: EngineFinding, opts: MarkdownOptions = 
  * A collapsed `<details>` block holding a ready-to-paste coding-agent prompt for the finding (R3.1), capped so the
  * comment stays readable. The prompt sits in a code block (GitHub shows a copy button on it).
  */
-export function fixWithAiBlock(f: EngineFinding, ctx: FixContext): string {
+export function fixWithAiBlock(f: EngineFinding, ctx: FixContext, flavor: MarkdownFlavor = "github"): string {
   const prompt = safeText(commentFixPrompt(f, ctx));
+  // Bitbucket renders no HTML, so the prompt is shown as a plain section instead of a collapsed block.
+  if (flavor === "bitbucket") return `**Fix with AI** (paste into your coding agent):\n\n${safeFence(prompt, "markdown")}`;
   return `<details>\n<summary>Fix with AI</summary>\n\n${safeFence(prompt, "markdown")}\n\n</details>`;
 }
 
@@ -161,6 +206,6 @@ export function renderSummaryMarkdown(output: ReviewOutput, opts: SummaryMarkdow
     metadata.incremental ? "incremental re-review of new commits" : null,
     output.resolvedPriorFindings.length ? `${output.resolvedPriorFindings.length} earlier finding${output.resolvedPriorFindings.length === 1 ? "" : "s"} resolved` : null,
   ].filter(Boolean);
-  out.push(`<sub>${status.join(" · ")}</sub>`);
+  out.push(small(status.join(" · "), opts.flavor ?? "github"));
   return out.join("\n\n");
 }

@@ -23,7 +23,9 @@ const STATUS = {
 /** Settings → GitHub: the org's GitHub App installations with their health and repositories (R1.1). */
 export default async function GitHubSettingsPage() {
   const { orgId, role } = await requireOrg();
-  const [installations, repos] = await Promise.all([getInstallationHealth(db(), orgId), listRepos(db(), orgId)]);
+  const [health, repos] = await Promise.all([getInstallationHealth(db(), orgId), listRepos(db(), orgId)]);
+  // GitLab and Bitbucket connections are managed on the Git providers tab.
+  const installations = health.filter((i) => i.provider === "github");
   const web = siteEnv().GITHUB_WEB_URL;
   const manage = can(role, "repos.manage");
   const required = Object.entries(REQUIRED_PERMISSIONS).map(([k, v]) => `${k}:${v}`);

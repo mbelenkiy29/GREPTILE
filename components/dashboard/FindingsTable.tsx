@@ -4,12 +4,13 @@ import { FixWithAiMenu } from "@/components/fix/FixWithAi";
 import { ConfidencePill, humanize, StatusPill } from "@/components/ui/Badge";
 import { SortHeader, Table } from "@/components/ui/Table";
 import type { FindingListItem } from "@/lib/data/findings";
-import { formatRelative, githubBlobUrl, githubCommentUrl } from "@/lib/ui/format";
+import { formatRelative } from "@/lib/ui/format";
+import { blobUrl, commentUrl, repoWeb } from "@/lib/git/web-url";
 import type { QueryState } from "@/lib/ui/url";
 
 /**
  * Findings across the org (R6.13): severity, confidence, title and location, repository and PR, status, agent, and
- * when it was found; sortable by date, severity, and confidence; each row links to its review and GitHub comment.
+ * when it was found; sortable by date, severity, and confidence; each row links to its review and its comment on the repository's git host.
  */
 export function FindingsTable({
   findings,
@@ -55,12 +56,12 @@ export function FindingsTable({
                 {f.title}
               </Link>
               <div className="cell-sub row-tight">
-                <a className="mono break" href={githubBlobUrl(f.repoFullName, f.commitSha, f.path, f.startLine, githubUrl)} target="_blank" rel="noreferrer">
+                <a className="mono break" href={blobUrl(repoWeb(f.provider, f.hostWebUrl, githubUrl), f.repoFullName, f.commitSha, f.path, f.startLine)} target="_blank" rel="noreferrer">
                   {f.path}:{f.startLine}
                 </a>
                 <span>· {humanize(f.category)}</span>
                 {f.externalCommentId !== null && (
-                  <a href={githubCommentUrl(f.repoFullName, f.prNumber, f.externalCommentId, githubUrl)} target="_blank" rel="noreferrer">
+                  <a href={commentUrl(repoWeb(f.provider, f.hostWebUrl, githubUrl), f.repoFullName, f.prNumber, f.externalCommentId)} target="_blank" rel="noreferrer">
                     · comment
                   </a>
                 )}

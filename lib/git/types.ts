@@ -1,7 +1,16 @@
 /**
- * Provider-neutral view of a git host. GitHub implements it today; GitLab and
- * Bitbucket (R3.6) plug in behind the same interface.
+ * Provider-neutral view of a git host (R3.6). GitHub (`lib/github`), GitLab (`lib/gitlab`), and Bitbucket Cloud
+ * (`lib/bitbucket`) implement it; the indexer, review engine, pipeline, and conversations only use these interfaces.
+ * A "pull request" is a GitLab merge request (`number` is its iid) or a Bitbucket pull request.
  */
+
+/** The git hosts OpenReview supports; `installations.provider` holds one of them. */
+export const GIT_PROVIDERS = ["github", "gitlab", "bitbucket"] as const;
+export type GitProvider = (typeof GIT_PROVIDERS)[number];
+
+export function isGitProvider(value: unknown): value is GitProvider {
+  return typeof value === "string" && (GIT_PROVIDERS as readonly string[]).includes(value);
+}
 
 export interface RemoteInstallation {
   id: number;
@@ -126,23 +135,28 @@ export interface GitClient {
   compareCommits(repo: string, base: string, head: string): Promise<ChangedFile[]>;
   listIssueComments(repo: string, number: number): Promise<IssueComment[]>;
   createIssueComment(repo: string, number: number, body: string): Promise<IssueComment>;
-  updateIssueComment(repo: string, commentId: number, body: string): Promise<IssueComment>;
+  /** Edits a pull-request comment (GitLab and Bitbucket address comments through their pull request). */
+  updateIssueComment(repo: string, number: number, commentId: number, body: string): Promise<IssueComment>;
   listReviewComments(repo: string, number: number): Promise<ReviewComment[]>;
   /**
    * Replies in an inline review thread. `commentId` must be the thread's top-level comment (GitHub does not
-   * support replies to replies).
+   * support replies to replies; GitLab replies in the comment's discussion; Bitbucket nests under the comment).
    */
   replyToReviewComment(repo: string, number: number, commentId: number, body: string): Promise<ReviewComment>;
   /** Edits an inline review comment in place (no new notification). */
-  updateReviewComment(repo: string, commentId: number, body: string): Promise<ReviewComment>;
-  listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]>;
+  updateReviewComment(repo: string, number: number, commentId: number, body: string): Promise<ReviewComment>;
+  /** Reactions on an inline comment, as GitHub reaction names (`+1`, `-1`, ...); empty where the host has none. */
+  listReviewCommentReactions(repo: string, number: number, commentId: number): Promise<Reaction[]>;
   /** Commits on the pull request, oldest first (GitHub returns at most 250). */
   listPullRequestCommits(repo: string, number: number): Promise<PullRequestCommit[]>;
   /** Reviews submitted on the pull request. */
   listReviews(repo: string, number: number): Promise<PullRequestReview[]>;
   /** CI check runs on a commit; empty when the app may not read checks. */
   listCheckRuns(repo: string, ref: string): Promise<CheckRun[]>;
-  /** Posts a review with inline comments on the RIGHT side of the diff at `commitId`. */
+  /**
+   * Posts a review with inline comments on the RIGHT side of the diff at `commitId` (GitHub: one review; GitLab: one
+   * positioned discussion per comment; Bitbucket: one inline comment each).
+   */
   createReview(
     repo: string,
     number: number,

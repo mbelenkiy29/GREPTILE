@@ -7,6 +7,11 @@ import { auditDashboard } from "@/lib/audit/dashboard";
 import { saveRepoSettingsForm, type SettingsFormState } from "@/lib/config/settings-form";
 import { db } from "@/lib/db";
 import { getRepo, setRepoEnabled } from "@/lib/data/installations";
+import { scoped } from "@/lib/data/tenant";
+import { installations } from "@/lib/db/schema";
+import { disableConnectionRepo, enableConnectionRepo } from "@/lib/scm/connections";
+import { productionScmDeps } from "@/lib/scm/deps";
+import { eq } from "drizzle-orm";
 import { cancelIndexJob, queueManualIndex } from "@/lib/indexer/jobs";
 import { bullQueue } from "@/lib/jobs/queue";
 import { errorMessage, log } from "@/lib/log";
@@ -29,7 +34,23 @@ export async function toggleRepo(formData: FormData) {
   if (!repo) redirect(withToast(back(formData), "repo.not_found"));
   const enable = formData.get("enabled") === "true";
   if (enable && repo.archived) redirect(withToast(back(formData), "repo.archived"));
-  await setRepoEnabled(db(), orgId, repo.id, enable);
+  const [installation] = await db()
+    .select({ provider: installations.provider, scmCredentialId: installations.scmCredentialId })
+    .from(installations)
+    .where(scoped(installations, orgId, eq(installations.id, repo.installationId)));
+  if (installation && installation.provider !== "github" && installation.scmCredentialId !== null) {
+    // GitLab / Bitbucket (R3.6): the repository's webhook is created or removed with it.
+    const deps = productionScmDeps();
+    try {
+      if (enable) await enableConnectionRepo(deps, orgId, installation.scmCredentialId, repo.externalId);
+      else await disableConnectionRepo(deps, orgId, repo.id);
+    } catch (err) {
+      log.warn("could not change a repository's webhook", { orgId, repoId: repo.id, error: errorMessage(err) });
+      redirect(withToast(back(formData), "scm.hook_failed"));
+    }
+  } else {
+    await setRepoEnabled(db(), orgId, repo.id, enable);
+  }
   await auditDashboard({ orgId, userId }, { action: enable ? "repository.enabled" : "repository.disabled", targetType: "repository", targetId: repo.id, metadata: { fullName: repo.fullName } });
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), enable ? "repo.enabled" : "repo.disabled"));

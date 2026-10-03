@@ -29,7 +29,7 @@ async function refused(p: Promise<unknown>): Promise<string> {
 
 describe("organization settings", () => {
   test("R6.14 settings are tabbed routes (General, Review defaults, GitHub) that other sections extend", () => {
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(["general", "review", "github", "api-keys", "usage", "model", "sso", "audit"]);
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(["general", "review", "github", "git-providers", "api-keys", "usage", "model", "sso", "audit"]);
     expect(activeSettingsTab("/dashboard/settings")).toBe("general");
     expect(activeSettingsTab("/dashboard/settings/review")).toBe("review");
     expect(activeSettingsTab("/dashboard/settings/github?x=1")).toBe("github");

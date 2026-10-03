@@ -107,7 +107,7 @@ describe("fix with AI prompts (R3.1)", () => {
       return FILE;
     };
     const loaded = await loadFindingFix(db, "org_a", f.fCritical.id, { readFile });
-    expect(reads).toEqual([{ installationExternalId: expect.any(Number), repoFullName: "acme/api", path: "src/search.ts", ref: HEAD }]);
+    expect(reads).toEqual([{ provider: "github", installationExternalId: expect.any(Number), repoFullName: "acme/api", path: "src/search.ts", ref: HEAD }]);
     const prompt = buildFixPrompts(loaded!.fix, loaded!.ctx).variants["claude-code"];
 
     for (const part of [

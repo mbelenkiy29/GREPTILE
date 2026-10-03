@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
-import { agentRuns, findings, pullRequests, repos, reviewComments, reviewRuns, reviews, reviewStatus, type StageTiming } from "@/lib/db/schema";
+import { agentRuns, findings, installations, pullRequests, repos, reviewComments, reviewRuns, reviews, reviewStatus, type StageTiming } from "@/lib/db/schema";
 import { SEVERITIES, type ReviewSummary, type Severity } from "@/lib/engine/types";
 import { listFindings, severityRank, type FindingRow } from "./findings";
 import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
@@ -10,6 +10,9 @@ import { scoped } from "./tenant";
 export interface ReviewListItem {
   id: number;
   repoFullName: string;
+  /** Git host of the repository and its web origin (null = the provider's default), for links (R3.6). */
+  provider: string;
+  hostWebUrl: string | null;
   prNumber: number;
   prTitle: string;
   prAuthor: string;
@@ -40,6 +43,8 @@ export async function listReviews(
     .select({
       id: reviews.id,
       repoFullName: repos.fullName,
+      provider: installations.provider,
+      hostWebUrl: installations.webUrl,
       prNumber: reviews.prNumber,
       prTitle: reviews.prTitle,
       prAuthor: reviews.prAuthor,
@@ -58,6 +63,7 @@ export async function listReviews(
     })
     .from(reviews)
     .innerJoin(repos, and(eq(reviews.repoId, repos.id), eq(repos.orgId, orgId)))
+    .innerJoin(installations, eq(installations.id, repos.installationId))
     .where(scoped(reviews, orgId, opts.repoId ? eq(reviews.repoId, opts.repoId) : undefined))
     .orderBy(desc(reviews.updatedAt), desc(reviews.id))
     .limit(Math.min(opts.limit ?? 100, 500))
@@ -243,6 +249,8 @@ export async function getReviewDetail(db: Db, orgId: string, reviewId: number, o
     .select({
       review: reviews,
       repoFullName: repos.fullName,
+      provider: installations.provider,
+      hostWebUrl: installations.webUrl,
       pr: {
         url: pullRequests.url,
         state: pullRequests.state,
@@ -254,6 +262,7 @@ export async function getReviewDetail(db: Db, orgId: string, reviewId: number, o
     })
     .from(reviews)
     .innerJoin(repos, and(eq(reviews.repoId, repos.id), eq(repos.orgId, orgId)))
+    .innerJoin(installations, eq(installations.id, repos.installationId))
     .leftJoin(pullRequests, and(eq(pullRequests.id, reviews.pullRequestId), eq(pullRequests.orgId, orgId)))
     .where(scoped(reviews, orgId, eq(reviews.id, reviewId)));
   if (!row) return undefined;
@@ -284,6 +293,8 @@ export async function getReviewDetail(db: Db, orgId: string, reviewId: number, o
   return {
     id: r.id,
     repoFullName: row.repoFullName,
+    provider: row.provider,
+    hostWebUrl: row.hostWebUrl,
     prNumber: r.prNumber,
     prTitle: r.prTitle,
     prAuthor: r.prAuthor,
@@ -333,6 +344,9 @@ export interface ReviewPageItem {
   id: number;
   repoId: number;
   repoFullName: string;
+  /** Git host of the repository and its web origin (null = the provider's default), for links (R3.6). */
+  provider: string;
+  hostWebUrl: string | null;
   prNumber: number;
   prTitle: string;
   prAuthor: string;
@@ -375,6 +389,8 @@ export async function listReviewPage(db: Db, orgId: string, filter: ReviewFilter
       .select({
         review: reviews,
         repoFullName: repos.fullName,
+        provider: installations.provider,
+        hostWebUrl: installations.webUrl,
         run: {
           id: reviewRuns.id,
           status: reviewRuns.status,
@@ -386,6 +402,7 @@ export async function listReviewPage(db: Db, orgId: string, filter: ReviewFilter
       })
       .from(reviews)
       .innerJoin(repos, and(eq(reviews.repoId, repos.id), eq(repos.orgId, orgId)))
+    .innerJoin(installations, eq(installations.id, repos.installationId))
       .leftJoin(reviewRuns, and(eq(reviewRuns.id, reviews.lastRunId), eq(reviewRuns.orgId, orgId)))
       .where(where)
       .orderBy(desc(reviews.updatedAt), desc(reviews.id))
@@ -398,10 +415,12 @@ export async function listReviewPage(db: Db, orgId: string, filter: ReviewFilter
     orgId,
     rows.map((r) => r.review.id),
   );
-  const items = rows.map(({ review: r, repoFullName, run }) => ({
+  const items = rows.map(({ review: r, repoFullName, provider, hostWebUrl, run }) => ({
     id: r.id,
     repoId: r.repoId,
     repoFullName,
+    provider,
+    hostWebUrl,
     prNumber: r.prNumber,
     prTitle: r.prTitle,
     prAuthor: r.prAuthor,

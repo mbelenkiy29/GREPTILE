@@ -399,7 +399,7 @@ describe("review job state machine", () => {
     expect(await client.listCheckRuns("acme/shop", "c2")).toEqual([]);
     // A 403 that is a rate limit is not a missing permission: it is rethrown so the job is deferred.
     await expect(client.listCheckRuns("acme/shop", "c3")).rejects.toMatchObject({ status: 403, retryAfterMs: expect.any(Number) });
-    expect(await client.updateReviewComment("acme/shop", 55, "✅ Resolved in abc1234")).toMatchObject({ id: 55, body: "✅ Resolved in abc1234" });
+    expect(await client.updateReviewComment("acme/shop", 7, 55, "✅ Resolved in abc1234")).toMatchObject({ id: 55, body: "✅ Resolved in abc1234" });
     expect(http.requests.find((r) => r.method === "PATCH")?.body).toEqual({ body: "✅ Resolved in abc1234" });
   });
 });
