@@ -1,0 +1,42 @@
+{
+  "name": "openreview",
+  "version": "0.1.0",
+  "description": "OpenReview CLI: AI code review of your local changes, against your OpenReview server or fully local.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "openreview": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "code-review",
+    "ai",
+    "cli",
+    "pull-request"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "tsup"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-pgvector": "^0.0.9",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
+    "commander": "^14.0.0",
+    "drizzle-orm": "^0.45.3",
+    "picomatch": "^4.0.7",
+    "smol-toml": "^1.9.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1"
+  }
+}

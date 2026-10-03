@@ -13,3 +13,7 @@ test-results/
 
 # Agent worktrees and local Claude Code state
 .claude/worktrees/
+
+# CLI build output and its local review index (R3.5)
+packages/cli/dist/
+.openreview/

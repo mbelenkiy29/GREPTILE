@@ -8,7 +8,8 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     npm install -g pnpm@10.28.0
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/cli/package.json ./packages/cli/
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
     pnpm install --frozen-lockfile
@@ -16,6 +17,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 FROM base AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/cli/node_modules ./packages/cli/node_modules
 COPY . .
 RUN pnpm build
 
@@ -24,6 +26,7 @@ FROM base AS worker
 RUN apk add --no-cache git
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/cli/node_modules ./packages/cli/node_modules
 COPY . .
 RUN addgroup -S app && adduser -S app -G app && mkdir -p /data/repos && chown app:app /data/repos
 USER app
