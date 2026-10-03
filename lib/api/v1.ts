@@ -425,7 +425,6 @@ const localReview = defineRoute({
     if (running >= LOCAL_REVIEWS_PER_ORG) {
       throw new ApiError(429, "rate_limited", `Your organization already has ${running} CLI reviews running. Wait for one to finish.`);
     }
-    const engine = deps.reviewEngine();
     const controller = new AbortController();
     const timeoutMs = deps.localReviewTimeoutMs ?? LOCAL_REVIEW_TIMEOUT_MS;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -433,6 +432,8 @@ const localReview = defineRoute({
     req.signal.addEventListener("abort", onClientGone, { once: true });
     localReviewsRunning.set(principal.orgId, running + 1);
     try {
+      // The org's own model provider when it configured one (R4.6); throws LlmError when its settings are unreadable.
+      const engine = await deps.reviewEngine(principal.orgId);
       const review = await runServerLocalReview(
         { db: deps.db, llm: engine.llm, ...(engine.embedder ? { embedder: engine.embedder } : {}), ...(engine.runReview ? { runReview: engine.runReview } : {}), log, signal: controller.signal },
         { orgId: principal.orgId, body, author },

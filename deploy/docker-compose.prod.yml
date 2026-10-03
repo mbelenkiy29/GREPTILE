@@ -1,0 +1,58 @@
+# Production override for a single server (see docs/self-hosting.md). Use it with the base file:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+#
+# It adds Caddy as the only public entry point (automatic HTTPS for OPENREVIEW_DOMAIN via Let's Encrypt), publishes
+# the app on 127.0.0.1 only (Docker-published ports bypass host firewalls such as ufw), restarts every service unless
+# it was stopped on purpose, and rotates container logs. Paths are relative to the project directory (the repository
+# root, where docker-compose.yml lives).
+#
+# Required in .env: OPENREVIEW_DOMAIN (e.g. review.example.com) and APP_URL=https://<that domain>.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      OPENREVIEW_DOMAIN: ${OPENREVIEW_DOMAIN:?set OPENREVIEW_DOMAIN in .env to the public domain name}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging: *logging
+
+  app:
+    restart: unless-stopped
+    # Only Caddy (and the host itself) reach the app.
+    ports: !override
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    logging: *logging
+
+  worker:
+    restart: unless-stopped
+    logging: *logging
+
+  postgres:
+    restart: unless-stopped
+    logging: *logging
+
+  redis:
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  caddydata:
+  caddyconfig:

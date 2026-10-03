@@ -551,6 +551,23 @@ function newContext(deps: RouteDeps, deliveryId: string, event: string, payload:
   };
 }
 
+/**
+ * Every GitHub event `routeGitHubEvent` handles (R1.2); anything else is recorded as ignored. The GitHub App manifest
+ * (`github-app-manifest.json`, R6.25) subscribes to these, except `ping` and the installation events, which GitHub
+ * always delivers to an App.
+ */
+export const GITHUB_WEBHOOK_EVENTS = [
+  "ping",
+  "pull_request",
+  "pull_request_review_comment",
+  "pull_request_review",
+  "issue_comment",
+  "push",
+  "installation",
+  "installation_repositories",
+  "repository",
+] as const;
+
 /** Routes one verified GitHub event to jobs (R1.2). Job ids are deterministic so re-enqueueing is a no-op. */
 export async function routeGitHubEvent(
   deps: RouteDeps,

@@ -7,10 +7,11 @@ import { db } from "@/lib/db";
 import { apiEnv, authEnv } from "@/lib/env";
 import { clientFor, gitHost } from "@/lib/git/host";
 import { bullQueue } from "@/lib/jobs/queue";
-import { embeddings, llm, type EmbeddingProvider } from "@/lib/llm";
+import { embeddings, type EmbeddingProvider } from "@/lib/llm";
 import { errorMessage, log } from "@/lib/log";
 import { redis } from "@/lib/redis";
 import { RedisRateLimiter } from "./rate-limit";
+import { orgReviewEngine } from "./review-engine";
 import { executeRoute, routeId, type ApiDeps } from "./router";
 import { V1_ROUTES } from "./v1";
 
@@ -46,8 +47,8 @@ export function productionApiDeps(): ApiDeps {
     readFile: ({ provider, installationExternalId, repoFullName, path, ref }) =>
       clientFor(gitHost(), { provider, externalId: installationExternalId }).getFileContent(repoFullName, path, ref),
     ...(emb ? { embedder: emb } : {}),
-    // The same model gateway and embedder the worker reviews pull requests with.
-    reviewEngine: () => ({ llm: llm({ db: db() }), embedder: embeddings({ db: db() }) }),
+    // The same per-org model gateway (R4.6) and embedder the worker reviews pull requests with.
+    reviewEngine: orgReviewEngine({ db: db(), embedder: () => embeddings({ db: db() }) }),
     localReviewTimeoutMs: e.LOCAL_REVIEW_TIMEOUT_MS,
     log: apiLog,
   };

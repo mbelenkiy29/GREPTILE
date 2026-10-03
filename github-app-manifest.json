@@ -1,0 +1,30 @@
+{
+  "name": "OpenReview",
+  "url": "{{APP_URL}}",
+  "description": "AI pull request reviews from a self-hosted OpenReview server.",
+  "hook_attributes": {
+    "url": "{{APP_URL}}/api/webhooks/github",
+    "active": true
+  },
+  "redirect_url": "{{APP_URL}}/setup/github-app/callback",
+  "callback_urls": ["{{APP_URL}}/api/auth/github/callback"],
+  "setup_url": "{{APP_URL}}/api/github/callback",
+  "setup_on_update": false,
+  "request_oauth_on_install": false,
+  "public": false,
+  "default_permissions": {
+    "metadata": "read",
+    "contents": "read",
+    "pull_requests": "write",
+    "issues": "write",
+    "checks": "read"
+  },
+  "default_events": [
+    "pull_request",
+    "pull_request_review",
+    "pull_request_review_comment",
+    "issue_comment",
+    "push",
+    "repository"
+  ]
+}

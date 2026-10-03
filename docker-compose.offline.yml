@@ -21,7 +21,8 @@ services:
     environment:
       NEXT_TELEMETRY_DISABLED: "1"
       OUTBOUND_ALLOWLIST_ENFORCE: "true"
-    networks: [backend, egress]
+    # `default` lets the TLS proxy of deploy/docker-compose.prod.yml reach the app when both overrides are used.
+    networks: [default, backend, egress]
 
   worker:
     environment:
