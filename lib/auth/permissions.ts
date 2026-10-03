@@ -5,7 +5,7 @@
  * - member: trigger re-reviews and give finding feedback.
  * - admin: also manage repositories, rules, review settings, API keys, invitations, and non-owner members, rename
  *   the org, and read the audit log.
- * - owner: everything, including billing, deleting the org, and managing other owners.
+ * - owner: everything, including billing, single sign-on, deleting the org, and managing other owners.
  */
 
 export const ROLES = ["owner", "admin", "member"] as const;
@@ -29,6 +29,7 @@ export const ACTIONS = [
   "reviews.trigger",
   "findings.feedback",
   "audit.read",
+  "sso.manage",
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -48,6 +49,7 @@ const MATRIX: Record<Action, readonly Role[]> = {
   "settings.manage": ADMINS,
   "apikeys.manage": ADMINS,
   "audit.read": ADMINS,
+  "sso.manage": OWNERS,
   "reviews.trigger": ALL,
   "findings.feedback": ALL,
 };

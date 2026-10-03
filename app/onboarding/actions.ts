@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOrg, requireUser } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { authConfig } from "@/lib/auth/config";
 import { setActiveOrg } from "@/lib/auth/sessions";
 import { saveOrgSettingsForm } from "@/lib/config/settings-form";
@@ -94,7 +95,10 @@ export async function connectInstallation(formData: FormData) {
     Number(formData.get("installationId")),
   );
   if (outcome.status === "reauthorize") redirect(`/api/auth/github?next=${encodeURIComponent("/onboarding?step=install")}`);
-  if (outcome.status === "connected") go("repos", "onboarding.connected");
+  if (outcome.status === "connected") {
+    await auditDashboard(ctx, { action: "installation.linked", targetType: "installation", targetId: Number(formData.get("installationId")), metadata: { repositories: outcome.repos } });
+    go("repos", "onboarding.connected");
+  }
   if (outcome.status === "forbidden") go("install");
   go("install", `onboarding.${outcome.status}`);
 }
@@ -107,15 +111,17 @@ export async function saveRepoSelection(formData: FormData) {
   const result = await setEnabledRepos(db(), orgId, ids);
   await enqueueIndexForNewRepos(result.turnedOn, bullQueue, { requestedBy: userId });
   log.info("onboarding repository selection saved", { orgId, userId, enabled: result.enabled, turnedOff: result.turnedOff });
+  await auditDashboard({ orgId, userId }, { action: "repository.selection_saved", targetType: "org", targetId: orgId, metadata: { enabled: result.enabled, turnedOff: result.turnedOff } });
   revalidatePath("/dashboard/repos");
   go(result.enabled > 0 ? "configure" : "repos", result.enabled > 0 ? "onboarding.repos_saved" : "onboarding.no_repos");
 }
 
 /** Step 4: org-wide review defaults (merged into `orgs.settings`). */
 export async function saveOnboardingDefaults(formData: FormData) {
-  const { orgId, role } = await requireOrg({ permission: "settings.manage" });
+  const { orgId, role, userId } = await requireOrg({ permission: "settings.manage" });
   const state = await saveOrgSettingsForm(db(), { orgId, role }, formData, { merge: true });
   if (state.status !== "saved") go("configure", "onboarding.defaults_invalid");
+  await auditDashboard({ orgId, userId }, { action: "settings.org_updated", targetType: "org", targetId: orgId, metadata: { via: "onboarding" } });
   revalidatePath("/dashboard/settings");
   go("indexing", "onboarding.defaults_saved");
 }
@@ -140,6 +146,7 @@ export async function reviewExistingPullRequest(formData: FormData) {
   const ctx = await requireOrg({ permission: "reviews.trigger" });
   const outcome = await requestManualReview({ db: db(), queue: bullQueue }, ctx, { repoId: formData.get("repoId"), prNumber: formData.get("prNumber") });
   if (outcome.status !== "queued") redirect(`/onboarding?step=ready&review=${outcome.status}`);
+  await auditDashboard(ctx, { action: "review.requested", targetType: "review", targetId: outcome.reviewId, metadata: { via: "onboarding" } });
   redirect(withToast(`/dashboard/reviews/${outcome.reviewId}`, "onboarding.review_queued"));
 }
 

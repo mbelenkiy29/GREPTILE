@@ -1,4 +1,5 @@
 import type { Db } from "@/lib/db";
+import { auditUserAction } from "@/lib/data/audit";
 import { completeInstallation, InstallationOwnershipError } from "@/lib/data/installations";
 import type { repos } from "@/lib/db/schema";
 import type { GitHost } from "@/lib/git/types";
@@ -10,7 +11,7 @@ import { pathWithQuery, redirectTo } from "./http";
 import { can } from "./permissions";
 import { signInPath } from "./redirect";
 import { resolveOrgContext, ssoStartPath, type OrgContext } from "./request";
-import { sessionFromRequest } from "./sessions";
+import { requestMetadata, sessionFromRequest } from "./sessions";
 
 /**
  * GitHub App install flow (R1.1), as handler factories over injected dependencies.
@@ -109,6 +110,12 @@ export function createInstallCallbackHandler(factory: () => InstallDeps) {
       const { repos } = await completeInstallation(db, deps.host, { orgId: ctx.orgId, orgName: ctx.orgName, installationId });
       await deps.enqueue(repos);
       logger.info("GitHub App installation connected", { installationId, repos: repos.length });
+      await auditUserAction(db, { orgId: ctx.orgId, userId: ctx.userId, ip: requestMetadata(req).ip, now }, {
+        action: "installation.linked",
+        targetType: "installation",
+        targetId: installationId,
+        metadata: { repositories: repos.length },
+      });
       return back("ok");
     } catch (err) {
       if (err instanceof InstallationOwnershipError) return back("owned_elsewhere");

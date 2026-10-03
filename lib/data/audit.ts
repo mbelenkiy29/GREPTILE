@@ -121,6 +121,7 @@ export const AUDIT_CATEGORIES: readonly { value: string; label: string }[] = [
   { value: "finding.*", label: "Findings" },
   { value: "installation.*", label: "Installations" },
   { value: "delivery.*", label: "Webhook deliveries" },
+  { value: "audit.*", label: "Audit exports" },
 ];
 
 function filterSql(f: AuditFilter): (SQL | undefined)[] {
@@ -260,4 +261,26 @@ export async function pruneAudit(db: Db, before: Date, batch = 5_000): Promise<n
     removed += rows.length;
     if (rows.length < batch) return removed;
   }
+}
+
+/**
+ * Audit filters from untrusted query parameters: `actor` (an actor id), `action` (an action or `category.*`), and
+ * `from` / `to` as `YYYY-MM-DD` (UTC days, `to` inclusive).
+ */
+export function auditFilterFromQuery(get: (key: string) => string | null | undefined): AuditFilter {
+  const day = (v: string | null | undefined) => {
+    if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+    const d = new Date(`${v}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  };
+  const actor = get("actor")?.trim();
+  const action = get("action")?.trim();
+  const from = day(get("from"));
+  const to = day(get("to"));
+  return {
+    ...(actor && actor.length <= 128 ? { actorId: actor } : {}),
+    ...(action && action.length <= 80 && /^[a-z_]+(\.[a-z_*]+)?$/.test(action) ? { action } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to: new Date(to.getTime() + 86_400_000) } : {}),
+  };
 }

@@ -61,6 +61,7 @@ describe("roles and permissions", () => {
       "settings.manage": ["owner", "admin"],
       "apikeys.manage": ["owner", "admin"],
       "audit.read": ["owner", "admin"],
+      "sso.manage": ["owner"],
       "reviews.trigger": ["owner", "admin", "member"],
       "findings.feedback": ["owner", "admin", "member"],
     };

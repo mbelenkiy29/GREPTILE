@@ -481,7 +481,7 @@ const feedbackOnFinding = defineRoute({
     ...ERRORS,
     ...NOT_FOUND,
   },
-  async handler({ deps, principal, params, body }) {
+  async handler({ deps, req, principal, params, body }) {
     const orgId = principal.orgId;
     const finding = await findingOr404(deps, orgId, params.id);
     if (principal.actor.type === "api_key") {
@@ -521,6 +521,9 @@ const feedbackOnFinding = defineRoute({
         note: body.note ?? null,
         now: deps.now(),
       });
+      if (!result.duplicate) {
+        await audit(deps, req, principal, { action: "finding.feedback_given", targetType: "finding", targetId: params.id, metadata: { kind: body.kind, source: body.source } });
+      }
       return apiJson(result, result.duplicate ? 200 : 201);
     } catch (err) {
       if (err instanceof FeedbackError) throw notFound("Finding");

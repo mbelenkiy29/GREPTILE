@@ -5,6 +5,7 @@ import type { Db } from "@/lib/db";
 import { humanReviewComments, installations, orgs, repos, reviewComments, type RepoSettings } from "@/lib/db/schema";
 import { loadEffectiveConfig } from "@/lib/config/repo-config";
 import { resolveEffectiveSettings, type EffectiveSettings } from "@/lib/config/settings";
+import { auditSystemAction } from "@/lib/data/audit";
 import { claimDelivery, failDelivery, finishDelivery, getDelivery } from "@/lib/data/deliveries";
 import {
   deleteInstallation,
@@ -425,13 +426,17 @@ async function onInstallation(deps: RouteDeps, payload: unknown, ctx: DeliveryCo
     }
     case "deleted": {
       await deletePendingInstallation(db, host.provider, inst.id);
-      if (linked) await deleteInstallation(db, linked);
+      if (linked) {
+        await auditSystemAction(db, linked.orgId, "github", { action: "installation.removed", targetType: "installation", targetId: inst.id, metadata: { sender: p.sender?.login ?? null } });
+        await deleteInstallation(db, linked);
+      }
       return accepted();
     }
     case "suspend":
     case "unsuspend": {
       if (!linked) return ignored("installation not linked to an org");
       await setInstallationSuspended(db, linked, p.action === "suspend");
+      await auditSystemAction(db, linked.orgId, "github", { action: p.action === "suspend" ? "installation.suspended" : "installation.unsuspended", targetType: "installation", targetId: inst.id });
       return accepted();
     }
     case "new_permissions_accepted": {

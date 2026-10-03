@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { setActiveOrg } from "@/lib/auth/sessions";
 import { db } from "@/lib/db";
 import { acceptInvitation } from "@/lib/data/members";
@@ -30,6 +31,7 @@ export async function acceptInviteAction(formData: FormData) {
     result = { error: err.code };
   }
   if ("error" in result) redirect(`/invite/${encodeURIComponent(token)}?error=${result.error}`);
+  await auditDashboard({ orgId: result.orgId, userId: session.userId }, { action: "member.joined", targetType: "user", targetId: session.userId, metadata: { via: "invitation_link" } });
   await setActiveOrg(db(), { sessionId: session.id, userId: session.userId, orgId: result.orgId });
   revalidatePath("/", "layout");
   redirect("/dashboard");
