@@ -83,6 +83,8 @@ const llmShape = {
 const apiShape = {
   /** Requests one API key (or signed-in user) may make per minute; over it the API answers 429 with retry-after. */
   API_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(100_000).default(120)),
+  /** How long a CLI review (`POST /api/v1/reviews/local`, R3.5) may run inside its request before it is aborted. */
+  LOCAL_REVIEW_TIMEOUT_MS: optionalNumber(z.number().int().min(10_000).max(900_000).default(300_000)),
 };
 
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
@@ -238,5 +240,9 @@ export type ApiEnv = z.infer<typeof apiSchema>;
 
 /** REST API settings (R6.18); parsed on their own so the API does not require the GitHub App or LLM variables. */
 export function apiEnv(source: Record<string, string | undefined> = process.env): ApiEnv {
-  return apiSchema.parse({ APP_URL: source.APP_URL || undefined, API_RATE_LIMIT_PER_MINUTE: source.API_RATE_LIMIT_PER_MINUTE });
+  return apiSchema.parse({
+    APP_URL: source.APP_URL || undefined,
+    API_RATE_LIMIT_PER_MINUTE: source.API_RATE_LIMIT_PER_MINUTE,
+    LOCAL_REVIEW_TIMEOUT_MS: source.LOCAL_REVIEW_TIMEOUT_MS,
+  });
 }

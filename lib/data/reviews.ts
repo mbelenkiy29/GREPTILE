@@ -321,6 +321,11 @@ export interface ReviewFilter extends PageOptions {
   status?: ReviewStatus;
   /** Review mode of the latest run: fast | standard | deep. */
   mode?: string;
+  /** Repository by `owner/name` (R3.5: the CLI knows the name from the git remote, not the id). */
+  repoFullName?: string;
+  prNumber?: number;
+  /** The pull request's head branch (R3.5: the review of the current branch). */
+  headRef?: string;
 }
 
 export interface ReviewPageItem {
@@ -356,6 +361,13 @@ export async function listReviewPage(db: Db, orgId: string, filter: ReviewFilter
     filter.repoId !== undefined ? eq(reviews.repoId, filter.repoId) : undefined,
     filter.status ? eq(reviews.status, filter.status) : undefined,
     filter.mode ? eq(reviews.mode, filter.mode) : undefined,
+    filter.prNumber !== undefined ? eq(reviews.prNumber, filter.prNumber) : undefined,
+    filter.repoFullName !== undefined
+      ? inArray(reviews.repoId, db.select({ id: repos.id }).from(repos).where(scoped(repos, orgId, eq(repos.fullName, filter.repoFullName))))
+      : undefined,
+    filter.headRef !== undefined
+      ? inArray(reviews.pullRequestId, db.select({ id: pullRequests.id }).from(pullRequests).where(scoped(pullRequests, orgId, eq(pullRequests.headRef, filter.headRef))))
+      : undefined,
   );
   const [rows, [total]] = await Promise.all([
     db
