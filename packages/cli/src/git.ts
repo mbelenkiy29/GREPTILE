@@ -8,6 +8,7 @@ import type { LocalReviewFile } from "@/lib/review/local";
 import { CliError } from "./errors";
 
 const MAX_BUFFER = 256 * 1024 * 1024;
+const MAX_UNTRACKED_PATCH_BYTES = 1024 * 1024;
 
 export class GitError extends Error {
   constructor(
@@ -175,6 +176,10 @@ function patchField(patch: string | undefined): { patch?: string } {
 
 /** The diff of an untracked file (everything added), as `git diff` would print it. */
 async function untrackedPatch(root: string, p: string): Promise<string> {
+  const st = await lstat(path.join(root, p)).catch(() => null);
+  if (!st?.isFile()) return "";
+  // Too large to send as a diff: treat like a binary file (reviewed by name only).
+  if (st.size > MAX_UNTRACKED_PATCH_BYTES) return "Binary files /dev/null and b differ";
   const buf = await readFile(path.join(root, p)).catch(() => null);
   if (!buf) return "";
   if (buf.subarray(0, 8192).includes(0)) return "Binary files /dev/null and b differ";

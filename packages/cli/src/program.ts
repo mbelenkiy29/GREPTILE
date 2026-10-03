@@ -227,6 +227,10 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
     if (err instanceof CliError) {
       io.stderr(`error: ${scrubSecrets(err.message)}\n`);
       if (err.hint) io.stderr(`${scrubSecrets(err.hint)}\n`);
+      // Programs reading --json get the error on stdout too.
+      if (argv.includes("--json")) {
+        io.stdout(`${JSON.stringify({ version: 1, error: { message: scrubSecrets(err.message), hint: err.hint ? scrubSecrets(err.hint) : null }, exitCode: err.exitCode }, null, 2)}\n`);
+      }
       return err.exitCode;
     }
     io.stderr(`error: ${scrubSecrets(err instanceof Error ? err.message : String(err))}\n`);

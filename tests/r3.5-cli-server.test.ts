@@ -4,7 +4,9 @@ import type { ApiScope } from "@/lib/api/keys";
 import { listAudit } from "@/lib/data/audit";
 import { findings, orgs, pullRequests, repos, reviewRuns, reviews, usageEvents } from "@/lib/db/schema";
 import { cliReviewJsonSchema } from "@/packages/cli/src/render";
+import { createApiKey } from "@/lib/api/keys";
 import { apiDeps, call, json, makeKey } from "./helpers/api";
+import { makeUser } from "./helpers/auth";
 import { CLI_SERVER, cli, testIo } from "./helpers/cli";
 import { callerBug, engineLlm, reviewCalls } from "./helpers/engine";
 import { reviewFixture } from "./helpers/review-fixture";
@@ -17,9 +19,11 @@ async function setup(scopes: ApiScope[] = WRITE) {
   fx.fixture.git("remote", "add", "origin", "https://github.com/acme/shop.git");
   const llm = engineLlm({ review: (agent) => ({ findings: agent === "correctness" ? [callerBug()] : [] }) });
   const deps = apiDeps(fx.db, { reviewEngine: () => ({ llm, embedder: fx.embedder }) });
-  const { token, key } = await makeKey(fx.db, "org_a", scopes);
+  // A key made by `openreview login` belongs to the approving member; usage is attributed to their GitHub login.
+  const dana = await makeUser(fx.db, "dana");
+  const { token } = await createApiKey(fx.db, { orgId: "org_a", createdBy: dana.id, name: "CLI on dev-laptop", scopes, expiresInDays: null });
   const env = { OPENREVIEW_URL: CLI_SERVER, OPENREVIEW_TOKEN: token };
-  return { ...fx, llm, deps, token, key, env, io: () => testIo({ cwd: fx.fixture.dir, deps: { api: deps }, env }) };
+  return { ...fx, llm, deps, token, env, io: () => testIo({ cwd: fx.fixture.dir, deps: { api: deps }, env }) };
 }
 
 /** PR #7 (head branch `feature`) with a completed review and findings, as the GitHub pipeline would leave it. */
@@ -72,7 +76,7 @@ describe("openreview CLI against a server (R3.5)", () => {
     expect(prompt).toContain("handleCheckout");
 
     const usage = await s.db.select().from(usageEvents).where(eq(usageEvents.orgId, "org_a"));
-    expect(usage).toEqual([expect.objectContaining({ repoId: s.repo.id, kind: "review", trigger: "cli", credits: 2, reviewRunId: null, author: `api_key:${s.key.id}` })]);
+    expect(usage).toEqual([expect.objectContaining({ repoId: s.repo.id, kind: "review", trigger: "cli", credits: 2, reviewRunId: null, author: "dana" })]);
     expect(usage[0]!.inputTokens).toBeGreaterThan(0);
     expect((await listAudit(s.db, "org_a")).map((a) => a.action)).toEqual(["review.local_completed"]);
     // No pull request review was created or published.

@@ -6,12 +6,12 @@ import path from "node:path";
 import { z } from "zod";
 import type { Severity } from "@/lib/engine/types";
 import type { ReviewFocus, ReviewMode } from "@/lib/engine/types";
-import { LOCAL_REVIEW_LIMITS, localReviewResultSchema, type LocalReviewBody, type LocalReviewResult } from "@/lib/review/local";
+import { LOCAL_REVIEW_LIMITS, LOCAL_REVIEW_MAX_BODY_BYTES, localReviewResultSchema, type LocalReviewBody, type LocalReviewResult } from "@/lib/review/local";
 import { ApiClient, ApiResponseError } from "../api";
 import { resolveAuth } from "../config";
 import { findRepository, type Ctx } from "../context";
 import { CliError, EXIT } from "../errors";
-import { collectChanges, currentBranch, headSha, remoteRepo, repoRoot, resolveBase, showFile, worktreeFile, type ChangeSet } from "../git";
+import { collectChanges, currentBranch, git, headSha, remoteRepo, repoRoot, resolveBase, showFile, worktreeFile, type ChangeSet } from "../git";
 import { runLocalReview } from "../local/review";
 import { agentHeader, failsOn, findingsForAgent, renderAgent, renderHuman, sortFindings, type CliReviewJson } from "../render";
 
@@ -98,6 +98,10 @@ async function serverReview(ctx: Ctx, api: ApiClient, repositoryId: number, targ
     ...(opts.mode ? { mode: opts.mode } : {}),
     ...(opts.security ? { focus: "security" as const } : {}),
   };
+  const size = Buffer.byteLength(JSON.stringify(body));
+  if (size > LOCAL_REVIEW_MAX_BODY_BYTES) {
+    throw new CliError(`The change is too large to send for review (${(size / (1024 * 1024)).toFixed(1)} MB; the limit is ${LOCAL_REVIEW_MAX_BODY_BYTES / (1024 * 1024)} MB).`, "Review a narrower range with --base, or use --local.");
+  }
   ctx.note(`Reviewing ${target.change.files.length} changed file${target.change.files.length === 1 ? "" : "s"} on ${api.server}…`);
   try {
     const res = await api.json("POST", "/api/v1/reviews/local", serverResponseSchema, { body, timeoutMs: SERVER_REVIEW_TIMEOUT_MS });
@@ -145,11 +149,10 @@ export async function review(ctx: Ctx, opts: ReviewOptions): Promise<number> {
 
   let result: LocalReviewResult;
   let source: "server" | "local" = "local";
+  if (!opts.includeUncommitted && (await git(root, ["status", "--porcelain"])).trim()) {
+    ctx.note("Uncommitted changes are not included; add --include-uncommitted to review them too.");
+  }
   if (!change.files.length) {
-    if (!opts.includeUncommitted) {
-      const dirty = (await collectChanges(root, "HEAD", true)).files.length > 0;
-      if (dirty) ctx.note("Your uncommitted changes are not included; add --include-uncommitted to review them.");
-    }
     ctx.note(`No changes between ${branch ?? "HEAD"} and ${base.ref}.`);
     result = emptyResult(fullName, base.sha, head, opts.mode ?? "standard", focus);
   } else {

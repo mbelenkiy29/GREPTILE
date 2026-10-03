@@ -186,6 +186,12 @@ If no model is configured, local mode stops with: *set ANTHROPIC_API_KEY or LLM_
 }
 ```
 
+When a command run with `--json` fails, stdout carries the error instead (stderr has it too):
+
+```json
+{ "version": 1, "error": { "message": "No model is configured for local reviews (…).", "hint": "Set ANTHROPIC_API_KEY …" }, "exitCode": 2 }
+```
+
 ## Agent mode
 
 `--agent` prints one block per finding, starting with `path:line`, and a checklist at the end. Point your coding

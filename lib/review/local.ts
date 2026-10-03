@@ -15,7 +15,7 @@ import { loadHistoricalFindings } from "@/lib/data/findings";
 import { activeRulesForRepo } from "@/lib/data/rules";
 import { scoped } from "@/lib/data/tenant";
 import type { Db } from "@/lib/db";
-import { orgs, repos, usageEvents } from "@/lib/db/schema";
+import { apiKeys, orgs, repos, usageEvents, users } from "@/lib/db/schema";
 import { creditsFor, runReview } from "@/lib/engine";
 import {
   SEVERITIES,
@@ -315,6 +315,23 @@ export interface ServerLocalReviewDeps {
   signal?: AbortSignal;
 }
 
+/**
+ * Who a CLI review's usage is attributed to: the GitHub login of the signed-in user, or of the member who created
+ * the API key (a `openreview login` key is created for the approving member) — the identity pull request reviews
+ * are attributed to. Null for keys nobody owns.
+ */
+export async function usageAuthor(db: Db, orgId: string, actor: { type: "api_key"; keyId: number } | { type: "user"; userId: string }): Promise<string | null> {
+  const [row] =
+    actor.type === "api_key"
+      ? await db
+          .select({ login: users.githubLogin })
+          .from(apiKeys)
+          .innerJoin(users, eq(users.id, apiKeys.createdBy))
+          .where(scoped(apiKeys, orgId, eq(apiKeys.id, actor.keyId)))
+      : await db.select({ login: users.githubLogin }).from(users).where(eq(users.id, actor.userId));
+  return row?.login ?? null;
+}
+
 export class LocalReviewError extends Error {
   constructor(
     readonly code: "not_found" | "not_indexed" | "archived",
@@ -331,7 +348,7 @@ export class LocalReviewError extends Error {
  */
 export async function runServerLocalReview(
   deps: ServerLocalReviewDeps,
-  input: { orgId: string; body: LocalReviewBody; requestedBy: string },
+  input: { orgId: string; body: LocalReviewBody; author: string | null },
 ): Promise<LocalReviewResult> {
   const { db } = deps;
   const { orgId, body } = input;
@@ -382,7 +399,7 @@ export async function runServerLocalReview(
   await db.insert(usageEvents).values({
     orgId,
     repoId: repo.id,
-    author: input.requestedBy,
+    author: input.author,
     kind: "review",
     trigger: "cli",
     inputTokens: output.usage.inputTokens,

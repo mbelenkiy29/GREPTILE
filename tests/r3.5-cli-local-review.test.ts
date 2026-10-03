@@ -137,7 +137,8 @@ describe("openreview review --local (R3.5)", () => {
     });
     const down = await cli(testIo({ cwd: fixture.dir, local: { llm: failing, embedder: null } }), "review", "--local", "--json");
     expect(down.code).toBe(2);
-    expect(down.out).toBe("");
+    // --json callers get the error as JSON on stdout as well.
+    expect(JSON.parse(down.out)).toMatchObject({ version: 1, exitCode: 2, error: { message: expect.stringContaining("Every review model call failed"), hint: expect.stringContaining("Check your model settings") } });
     expect(down.err).toContain("error: The review model failed: Every review model call failed");
     expect(down.err).toContain("Check your model settings");
 

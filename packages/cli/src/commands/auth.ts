@@ -77,6 +77,10 @@ async function readToken(ctx: Ctx, raw: string): Promise<string> {
 
 export async function login(ctx: Ctx, opts: LoginOptions): Promise<void> {
   const server = await serverFor(ctx, opts.server);
+  const host = new URL(server).hostname;
+  if (server.startsWith("http://") && !["localhost", "127.0.0.1", "[::1]"].includes(host)) {
+    ctx.warn(`${server} is not HTTPS: your API key will travel unencrypted.`);
+  }
   const token = opts.token !== undefined ? await readToken(ctx, opts.token) : await deviceLogin(ctx, new ApiClient(ctx.io, server, null), opts);
   // Confirm the key works (and learn its org) before saving it.
   const me = await new ApiClient(ctx.io, server, token).json("GET", "/api/v1/me", meSchema);
