@@ -245,7 +245,8 @@ export class BitbucketApi {
     for (let pages = 0; url && pages < 500; pages++) {
       const page: { values: unknown[]; next?: string | null } = parse(
         z.object({ values: z.array(z.unknown()).default([]), next: z.string().nullish() }),
-        await this.http.json(url, { headers: this.headers() }),
+        // Pull request diffstats redirect to the repository's diffstat endpoint (same origin; credentials are kept).
+        await this.http.json(url, { headers: this.headers(), redirect: "follow" }),
         "page",
       );
       out.push(...page.values);

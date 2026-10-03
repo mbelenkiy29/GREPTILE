@@ -34,8 +34,7 @@ function idOf(formData: FormData, key: string): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-async function connect(provider: "gitlab" | "bitbucket", formData: FormData): Promise<ConnectState> {
-  const { orgId, userId } = await requireOrg({ permission: "repos.manage" });
+async function connect(provider: "gitlab" | "bitbucket", { orgId, userId }: { orgId: string; userId: string }, formData: FormData): Promise<ConnectState> {
   const deps = productionScmDeps();
   try {
     const created =
@@ -54,12 +53,14 @@ async function connect(provider: "gitlab" | "bitbucket", formData: FormData): Pr
 
 /** Connects GitLab with an access token (R3.6). Admins only. */
 export async function connectGitLabAction(_prev: ConnectState, formData: FormData): Promise<ConnectState> {
-  return connect("gitlab", formData);
+  const { orgId, userId } = await requireOrg({ permission: "repos.manage" });
+  return connect("gitlab", { orgId, userId }, formData);
 }
 
 /** Connects a Bitbucket Cloud workspace (R3.6). Admins only. */
 export async function connectBitbucketAction(_prev: ConnectState, formData: FormData): Promise<ConnectState> {
-  return connect("bitbucket", formData);
+  const { orgId, userId } = await requireOrg({ permission: "repos.manage" });
+  return connect("bitbucket", { orgId, userId }, formData);
 }
 
 /** Re-checks a connection's token (validity, scopes, expiry). */

@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { decryptSecret, hashToken, safeEqual } from "@/lib/crypto";
+import { hashToken, safeEqual } from "@/lib/crypto";
 import { hostFor } from "@/lib/git/hosts";
 import { GITLAB_DEVELOPER, GitLabHost } from "@/lib/gitlab/client";
 import { addressesBot } from "@/lib/learning/commands";
@@ -28,7 +28,8 @@ import {
   replayScmDelivery,
   repoHook,
   reviewPullRequest,
-  SCM_DELIVERY_ID,
+  deliveryIdFrom,
+  hookSecret,
   type DeliveryResult,
   type RouteOutcome,
   type ScmContext,
@@ -207,7 +208,8 @@ export function createGitLabWebhookHandler(getDeps: () => ScmWebhookDeps) {
     const token = req.headers.get("x-gitlab-token");
     if (!token || token.length > 512) return unauthorized();
     const hook = await repoHook(deps.db, "gitlab", { secretHash: hashToken(token) });
-    if (!hook || !safeEqual(decryptSecret(hook.secretEnc), token)) {
+    const secret = hook ? hookSecret(hook) : null;
+    if (!hook || secret === null || !safeEqual(secret, token)) {
       logger.warn("webhook token rejected");
       return unauthorized();
     }
@@ -226,8 +228,7 @@ export function createGitLabWebhookHandler(getDeps: () => ScmWebhookDeps) {
       return unauthorized();
     }
     const payloadSha256 = createHash("sha256").update(raw).digest("hex");
-    const deliveryId = req.headers.get("idempotency-key") ?? req.headers.get("x-gitlab-event-uuid") ?? payloadSha256;
-    if (!SCM_DELIVERY_ID.test(deliveryId)) return Response.json({ error: "invalid delivery id" }, { status: 400 });
+    const deliveryId = deliveryIdFrom(req.headers.get("idempotency-key") ?? req.headers.get("x-gitlab-event-uuid"), payloadSha256);
     const action =
       typeof payload === "object" && payload !== null && "object_attributes" in payload
         ? (payload as { object_attributes?: { action?: unknown } }).object_attributes?.action

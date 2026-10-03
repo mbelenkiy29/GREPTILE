@@ -12,7 +12,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { BitbucketHost, bitbucketRepoId, normalizeUuid } from "@/lib/bitbucket/client";
-import { decryptSecret } from "@/lib/crypto";
 import { hostFor } from "@/lib/git/hosts";
 import { addressesBot } from "@/lib/learning/commands";
 import { errorMessage, log as rootLog } from "@/lib/log";
@@ -28,7 +27,8 @@ import {
   replayScmDelivery,
   repoHook,
   reviewPullRequest,
-  SCM_DELIVERY_ID,
+  deliveryIdFrom,
+  hookSecret,
   type DeliveryResult,
   type RouteOutcome,
   type ScmContext,
@@ -189,7 +189,8 @@ export function createBitbucketWebhookHandler(getDeps: () => ScmWebhookDeps) {
     const raw = await req.text();
     if (!hookUuid || hookUuid.length > 64) return unauthorized();
     const hook = await repoHook(deps.db, "bitbucket", { externalHookId: normalizeUuid(hookUuid) });
-    if (!hook || !verifyBitbucketSignature(decryptSecret(hook.secretEnc), raw, req.headers.get("x-hub-signature"))) {
+    const secret = hook ? hookSecret(hook) : null;
+    if (!hook || secret === null || !verifyBitbucketSignature(secret, raw, req.headers.get("x-hub-signature"))) {
       logger.warn("webhook signature rejected");
       return unauthorized();
     }
@@ -215,8 +216,7 @@ export function createBitbucketWebhookHandler(getDeps: () => ScmWebhookDeps) {
     const event = req.headers.get("x-event-key") ?? "";
     if (!/^[a-z_]{1,32}:[a-z_]{1,32}$/.test(event)) return Response.json({ error: "invalid event header" }, { status: 400 });
     const payloadSha256 = createHash("sha256").update(raw).digest("hex");
-    const deliveryId = req.headers.get("x-request-uuid") ?? payloadSha256;
-    if (!SCM_DELIVERY_ID.test(deliveryId)) return Response.json({ error: "invalid delivery id" }, { status: 400 });
+    const deliveryId = deliveryIdFrom(req.headers.get("x-request-uuid"), payloadSha256);
     let result: DeliveryResult;
     try {
       result = await processScmDelivery(deps, routeBitbucketEvent, { provider: "bitbucket", deliveryId, event, payload, payloadSha256, target });

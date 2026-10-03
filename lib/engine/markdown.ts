@@ -14,6 +14,15 @@ export function fingerprintMarker(fp: string): string {
   return `<!-- openreview:fp=${fp} -->`;
 }
 
+/**
+ * True for a comment OpenReview wrote: every one carries an `openreview:` marker (as an HTML comment, or as a markdown
+ * reference definition on Bitbucket). Hosts where OpenReview posts as an ordinary account (GitLab tokens, Bitbucket)
+ * rely on it to ignore OpenReview's own comments.
+ */
+export function hasOpenReviewMarker(body: string): boolean {
+  return /<!-- openreview:[\w:=.-]+ -->|^\[\/\/\]: # \(openreview:[\w:=.-]+\)$/m.test(body);
+}
+
 /** The fingerprint of a finding comment: the last marker (the engine always writes it last). */
 export function fingerprintFromMarkdown(body: string): string | null {
   const all = [...body.matchAll(FP_MARKER)];

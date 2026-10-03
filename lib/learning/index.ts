@@ -4,6 +4,7 @@
  * published a finding, recorded as finding feedback (`lib/data/feedback.ts`), which updates the finding and the
  * learned preferences (`./preferences.ts`). Comments posted before findings existed teach the patterns directly.
  */
+import { hasOpenReviewMarker } from "@/lib/engine/markdown";
 import { clientFor } from "@/lib/git/hosts";
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db } from "@/lib/db";
@@ -117,7 +118,8 @@ export async function syncFeedback(deps: SyncFeedbackDeps, job: { orgId: string;
 
   for (const c of await client.listReviewComments(repo, job.prNumber)) {
     const parent = c.inReplyTo ? byExternal.get(c.inReplyTo) : undefined;
-    if (!parent || isBot(c.author)) continue;
+    // OpenReview's own replies (on GitLab and Bitbucket it posts as an ordinary account) are not feedback.
+    if (!parent || isBot(c.author) || hasOpenReviewMarker(c.body)) continue;
     // "/openreview resolved" and the like are commands, handled (with an access check) by the conversation job.
     if (deps.botMention && parseFeedbackCommand(c.body, deps.botMention)) continue;
     const sentiment = replySentiment(c.body);

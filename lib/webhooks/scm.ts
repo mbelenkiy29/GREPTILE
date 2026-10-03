@@ -13,6 +13,8 @@ import { claimDelivery, failDelivery, finishDelivery, getDelivery } from "@/lib/
 import type { Db } from "@/lib/db";
 import { humanReviewComments, installations, orgs, repos, reviewComments, reviews, scmCredentials, scmWebhooks } from "@/lib/db/schema";
 import { scoped } from "@/lib/data/tenant";
+import { hasOpenReviewMarker } from "@/lib/engine/markdown";
+import { decryptSecret } from "@/lib/crypto";
 import { clientFor } from "@/lib/git/hosts";
 import type { GitClient, GitHost } from "@/lib/git/types";
 import type { JobMeta, JobQueue, MentionKind, ReviewTrigger } from "@/lib/jobs/types";
@@ -58,10 +60,22 @@ export type ScmRouter = (deps: ScmWebhookDeps, event: string, payload: unknown, 
 /** Delivery ids the hosts send (UUIDs, idempotency keys) or a body hash; anything else is refused. */
 export const SCM_DELIVERY_ID = /^[\w.-]{1,128}$/;
 
-/** True when a comment is OpenReview's own (every comment it writes carries an `openreview:` marker). */
-export function isOwnComment(body: string): boolean {
-  return /<!-- openreview:[\w:=.-]+ -->|^\[\/\/\]: # \(openreview:[\w:=.-]+\)$/m.test(body);
+/** A hook's secret, or null when it cannot be decrypted (e.g. the encryption key changed): the delivery is refused. */
+export function hookSecret(hook: { secretEnc: string }): string | null {
+  try {
+    return decryptSecret(hook.secretEnc);
+  } catch {
+    return null;
+  }
 }
+
+/** The host's delivery id when it is well formed, otherwise the body hash (still stable across the host's retries). */
+export function deliveryIdFrom(header: string | null, payloadSha256: string): string {
+  return header && SCM_DELIVERY_ID.test(header) ? header : payloadSha256;
+}
+
+/** True when a comment is OpenReview's own (every comment it writes carries an `openreview:` marker). */
+export const isOwnComment = hasOpenReviewMarker;
 
 /** Finds the verified hook's repository, installation, and connection. */
 export async function hookTarget(db: Db, hook: { orgId: string; repoId: number; credentialId: number }): Promise<ScmTarget | undefined> {
