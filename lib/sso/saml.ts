@@ -169,6 +169,8 @@ export async function validateSamlResponse(
     throw new SsoError("sso_invalid_response", `the SAML response was rejected: ${errorMessage(err)}`, { cause: err });
   }
   if (!profile || !cache.found) throw new SsoError("sso_invalid_response", "the SAML response did not answer a pending sign-in request");
+  // node-saml checks `idpIssuer` only on logout messages: the assertion's issuer is checked here.
+  if (profile.issuer !== connection.issuer) throw new SsoError("sso_invalid_response", "the SAML assertion comes from another issuer");
   // Single use, even if the library kept the id (e.g. a response without a SubjectConfirmation InResponseTo).
   if (typeof profile.inResponseTo === "string") await cache.removeAsync(profile.inResponseTo);
   return { ...samlProfileIdentity(profile, connection.issuer), ...cache.found };
