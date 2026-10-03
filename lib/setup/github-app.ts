@@ -59,6 +59,17 @@ export const setupFormSchema = z.object({
 });
 export type SetupForm = z.infer<typeof setupFormSchema>;
 
+/** Messages for an invalid setup form, by field (the page shows these, never text from the URL). */
+export const SETUP_FIELD_ERRORS = {
+  owner: "Enter a GitHub organization login (letters, digits, and hyphens), or leave it empty.",
+  name: `Enter a name for the App, at most ${APP_NAME_MAX} characters.`,
+} as const;
+export type SetupField = keyof typeof SETUP_FIELD_ERRORS;
+
+export function isSetupField(v: unknown): v is SetupField {
+  return typeof v === "string" && Object.hasOwn(SETUP_FIELD_ERRORS, v);
+}
+
 /** Where the browser posts the manifest: the account's or the organization's "new App" page on GitHub. */
 export function manifestFormAction(githubWebUrl: string, owner: string, state: string): string {
   const base = githubWebUrl.replace(/\/+$/, "");

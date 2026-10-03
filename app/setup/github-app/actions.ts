@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { randomToken } from "@/lib/crypto";
-import { SETUP_COOKIE, SETUP_COOKIE_PATH, SETUP_MAX_AGE_S, setupFormSchema } from "@/lib/setup/github-app";
+import { isSetupField, SETUP_COOKIE, SETUP_COOKIE_PATH, SETUP_MAX_AGE_S, setupFormSchema } from "@/lib/setup/github-app";
 import { setupContext, setupCookieSecure } from "@/lib/setup/next";
 
 /**
@@ -13,14 +13,11 @@ import { setupContext, setupCookieSecure } from "@/lib/setup/next";
 export async function startGitHubAppSetup(formData: FormData) {
   const { env, access } = await setupContext();
   if (!access.allowed) notFound();
-  const parsed = setupFormSchema.safeParse({
-    owner: String(formData.get("owner") ?? ""),
-    name: String(formData.get("name") ?? ""),
-    public: formData.get("public") === "on",
-  });
+  const input = { owner: String(formData.get("owner") ?? ""), name: String(formData.get("name") ?? ""), public: formData.get("public") === "on" };
+  const parsed = setupFormSchema.safeParse(input);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    redirect(`/setup/github-app?${new URLSearchParams({ error: issue?.message ?? "Check the form.", field: String(issue?.path[0] ?? "") })}`);
+    const field = parsed.error.issues[0]?.path[0];
+    redirect(`/setup/github-app?${new URLSearchParams({ invalid: isSetupField(field) ? field : "name", owner: input.owner.slice(0, 100), name: input.name.slice(0, 100) })}`);
   }
   (await cookies()).set(SETUP_COOKIE, randomToken(24), {
     httpOnly: true,

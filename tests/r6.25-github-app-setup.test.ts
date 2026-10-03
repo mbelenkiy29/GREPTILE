@@ -14,6 +14,7 @@ import {
   defaultAppName,
   envLines,
   isGitHubAppConfigured,
+  isSetupField,
   manifestFormAction,
   setupAccess,
   setupFormSchema,
@@ -92,6 +93,9 @@ describe("GitHub App manifest and setup (R6.25)", () => {
     expect(setupFormSchema.safeParse({ owner: "acme-inc", name: "OpenReview" }).success).toBe(true);
     expect(setupFormSchema.safeParse({ owner: "../evil", name: "OpenReview" }).success).toBe(false);
     expect(setupFormSchema.safeParse({ owner: "", name: "x".repeat(35) }).success).toBe(false);
+    // Form errors are shown from a fixed list by field name, never as text taken from the URL.
+    expect(isSetupField("owner") && isSetupField("name")).toBe(true);
+    for (const v of ["__proto__", "toString", "<script>", undefined]) expect(isSetupField(v)).toBe(false);
   });
 
   test("R6.25 the setup callback exchanges the one-time code and returns the App credentials for .env without storing them", async () => {

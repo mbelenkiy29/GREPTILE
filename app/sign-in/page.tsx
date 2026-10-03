@@ -45,7 +45,8 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           </a>
         ) : (
           <Alert tone="info" title="GitHub sign-in isn't configured yet">
-            Set <code>GITHUB_APP_CLIENT_ID</code> and <code>GITHUB_APP_CLIENT_SECRET</code> to the GitHub App&apos;s OAuth credentials.
+            Set <code>GITHUB_APP_CLIENT_ID</code> and <code>GITHUB_APP_CLIENT_SECRET</code> to the GitHub App&apos;s OAuth credentials. To create the
+            App, an instance administrator can use <a href="/setup/github-app">GitHub App setup</a>.
           </Alert>
         )}
         <form method="post" action="/api/auth/sso" className="stack-sm" data-testid="sso-sign-in">

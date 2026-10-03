@@ -139,7 +139,10 @@ describe("roles and permissions", () => {
         const name = chunk.slice(0, chunk.indexOf("("));
         const body = chunk.slice(0, chunk.indexOf("\n}\n") + 1 || undefined);
         const permission = /requireOrg\(\{ permission: "([\w.]+)" \}\)/.exec(body)?.[1];
-        if (selfService.has(name)) {
+        if (name === "startGitHubAppSetup") {
+          // Instance-level, not org-level (R6.25): the setup access rule (fresh install or instance admin).
+          expect(body).toMatch(/const \{ env, access \} = await setupContext\(\);\n\s+if \(!access\.allowed\) notFound\(\);/);
+        } else if (selfService.has(name)) {
           expect(body, `${name} must require a signed-in user`).toMatch(/require(User|Org)\(/);
         } else {
           expect(permission, `${path.relative(root, file)} ${name} must call requireOrg({ permission })`).toBeDefined();

@@ -10,8 +10,10 @@ import {
   buildManifest,
   defaultAppName,
   isGitHubAppConfigured,
+  isSetupField,
   manifestFormAction,
   SETUP_COOKIE,
+  SETUP_FIELD_ERRORS,
   setupFormSchema,
   signSetupState,
 } from "@/lib/setup/github-app";
@@ -97,8 +99,8 @@ export default async function GitHubAppSetupPage({ searchParams }: { searchParam
     );
   }
 
-  const error = one(sp.error);
-  const field = one(sp.field);
+  const invalid = one(sp.invalid);
+  const field = isSetupField(invalid) ? invalid : null;
   return (
     <SetupFrame title="Set up the GitHub App">
       {notices}
@@ -106,7 +108,6 @@ export default async function GitHubAppSetupPage({ searchParams }: { searchParam
         OpenReview talks to GitHub through a GitHub App that you own. This page creates it with the right permissions, events, webhook URL, and
         sign-in callback, then shows its credentials once so you can put them in <code>.env</code>. Nothing is stored on this server.
       </p>
-      {error && !field && <Alert tone="error">{error}</Alert>}
       <form action={startGitHubAppSetup} className="stack-sm">
         <Input
           name="owner"
@@ -115,7 +116,7 @@ export default async function GitHubAppSetupPage({ searchParams }: { searchParam
           autoComplete="off"
           spellCheck={false}
           defaultValue={one(sp.owner) ?? ""}
-          error={field === "owner" ? (error ?? null) : null}
+          error={field === "owner" ? SETUP_FIELD_ERRORS.owner : null}
           help="Leave empty to create the App under your personal GitHub account. You need to be an owner of the organization."
         />
         <Input
@@ -124,7 +125,7 @@ export default async function GitHubAppSetupPage({ searchParams }: { searchParam
           required
           maxLength={APP_NAME_MAX}
           defaultValue={one(sp.name) ?? defaultAppName(env.APP_URL)}
-          error={field === "name" ? (error ?? null) : null}
+          error={field === "name" ? SETUP_FIELD_ERRORS.name : null}
           help="Must be unique on GitHub. Shown on pull request comments."
         />
         <Checkbox id="f-public" name="public" defaultChecked={one(sp.public) === "1"} label="Let other GitHub accounts install it (public App)" />
