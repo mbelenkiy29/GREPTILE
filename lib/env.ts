@@ -79,6 +79,14 @@ const llmShape = {
   EMBEDDING_CACHE_TTL_DAYS: optionalNumber(z.number().positive().default(90)),
 };
 
+/** GitLab and Bitbucket Cloud (R3.6); also parsed on their own by `scmEnv()`. */
+const scmShape = {
+  /** GitLab instance origin: gitlab.com or a self-managed instance (`https://gitlab.example.com`). */
+  GITLAB_URL: z.string().url().default("https://gitlab.com"),
+  /** Bitbucket Cloud REST API base. */
+  BITBUCKET_API_URL: z.string().url().default("https://api.bitbucket.org/2.0"),
+};
+
 /** REST API settings (R6.18); also parsed on their own by `apiEnv()`. */
 const apiShape = {
   /** Requests one API key (or signed-in user) may make per minute; over it the API answers 429 with retry-after. */
@@ -156,6 +164,7 @@ const fields = z.object({
   ...knowledgeShape,
   ...apiShape,
   ...billingShape,
+  ...scmShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -270,4 +279,16 @@ export type BillingEnv = z.infer<typeof billingSchema>;
 /** Plan, usage-limit, and Stripe settings (R4.2, R4.3); parsed on their own so billing needs no GitHub or LLM variables. */
 export function billingEnv(source: Record<string, string | undefined> = process.env): BillingEnv {
   return billingSchema.parse({ ...source, APP_URL: source.APP_URL || undefined });
+}
+
+const scmSchema = z.object({ APP_URL: z.string().url().default("http://localhost:3000"), ...scmShape });
+export type ScmEnv = z.infer<typeof scmSchema>;
+
+/** GitLab / Bitbucket settings (R3.6); parsed on their own so connecting a provider needs no GitHub App or LLM variables. */
+export function scmEnv(source: Record<string, string | undefined> = process.env): ScmEnv {
+  return scmSchema.parse({
+    APP_URL: source.APP_URL || undefined,
+    GITLAB_URL: source.GITLAB_URL || undefined,
+    BITBUCKET_API_URL: source.BITBUCKET_API_URL || undefined,
+  });
 }

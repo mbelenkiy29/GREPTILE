@@ -129,6 +129,13 @@ export const installations = pgTable(
     permissions: jsonb("permissions").$type<Record<string, string>>().notNull().default({}),
     /** Required permissions the installation lacks (`pull_requests:write`, ...); empty when healthy. */
     missingPermissions: text("missing_permissions").array().notNull().default([]),
+    /**
+     * GitLab / Bitbucket (R3.6): the connection (`scm_credentials`) this installation stands for; `external_id` is the
+     * same id. Null for GitHub App installations.
+     */
+    scmCredentialId: integer("scm_credential_id").references((): AnyPgColumn => scmCredentials.id, { onDelete: "cascade" }),
+    /** Web origin of the host for links (self-managed GitLab); null means the provider's default. */
+    webUrl: text("web_url"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -183,6 +190,8 @@ export const webhookDeliveries = pgTable(
   "webhook_deliveries",
   {
     deliveryId: text("delivery_id").primaryKey(),
+    /** Host that sent it (R3.6): `github`, `gitlab`, or `bitbucket`. */
+    provider: text("provider").notNull().default("github"),
     event: text("event").notNull(),
     action: text("action"),
     /** The git host's installation id (not `installations.id`). */
@@ -1588,4 +1597,83 @@ export const billingUsageReports = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.periodStart] })],
+);
+
+// ---- scm (R3.6) ----
+
+/**
+ * A GitLab or Bitbucket Cloud connection an org admin entered (R3.6): the token (or app password) is encrypted with
+ * `encryptSecret` and never returned by any API or page. `base_url` is the GitLab instance origin or the Bitbucket API
+ * URL. One `installations` row (provider + `external_id` = this id) stands for it, so repositories, reviews, and the
+ * pipeline work exactly as for GitHub. Health (`last_checked_at`, `last_error`, `missing_scopes`, `expires_at`) is
+ * refreshed when the connection is checked.
+ */
+export const scmCredentials = pgTable(
+  "scm_credentials",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    /** `gitlab` or `bitbucket`. */
+    provider: text("provider").notNull(),
+    baseUrl: text("base_url").notNull(),
+    /** Bitbucket workspace slug; null for GitLab. */
+    workspace: text("workspace"),
+    /** `token` (bearer / private token) or `app_password` (Bitbucket basic auth with `username`). */
+    authKind: text("auth_kind").notNull().default("token"),
+    username: text("username"),
+    tokenEnc: text("token_enc").notNull(),
+    /** Token name as the host reports it (display only). */
+    tokenName: text("token_name"),
+    scopes: text("scopes").array().notNull().default([]),
+    /** Required scopes the token lacks; empty when healthy (or unknown, see `scopes_verified`). */
+    missingScopes: text("missing_scopes").array().notNull().default([]),
+    /** False when the host does not report the credential's scopes (e.g. Bitbucket app passwords). */
+    scopesVerified: boolean("scopes_verified").notNull().default(true),
+    /** Account the token acts as (a bot user for GitLab group/project tokens); its comments are ignored by webhooks. */
+    accountLogin: text("account_login").notNull().default(""),
+    accountId: text("account_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    /** Why the last check failed (invalid or revoked token, unreachable host); null when it passed. */
+    lastError: text("last_error"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.orgId)],
+);
+
+/**
+ * The webhook OpenReview created on a GitLab project or Bitbucket repository when it was enabled (R3.6). The secret
+ * is random per hook: stored encrypted (Bitbucket HMAC verification needs it) and hashed (GitLab sends it back
+ * verbatim in `X-Gitlab-Token`, so the hash finds the hook in one indexed lookup before the constant-time compare).
+ */
+export const scmWebhooks = pgTable(
+  "scm_webhooks",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    credentialId: integer("credential_id")
+      .notNull()
+      .references(() => scmCredentials.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    /** GitLab hook id or Bitbucket hook UUID. */
+    externalHookId: text("external_hook_id").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    secretEnc: text("secret_enc").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("scm_webhooks_repo_uq").on(t.repoId),
+    uniqueIndex("scm_webhooks_secret_uq").on(t.secretHash),
+    index().on(t.provider, t.externalHookId),
+    index().on(t.orgId),
+  ],
 );

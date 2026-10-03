@@ -121,7 +121,7 @@ export class FakeGitHost implements GitHost {
         this.issueComments.set(key(repo, n), [...(this.issueComments.get(key(repo, n)) ?? []), c]);
         return c;
       },
-      updateIssueComment: async (repo, commentId, body) => {
+      updateIssueComment: async (_repo, _n, commentId, body) => {
         for (const list of this.issueComments.values()) {
           const c = list.find((x) => x.id === commentId);
           if (c) {
@@ -142,7 +142,7 @@ export class FakeGitHost implements GitHost {
         this.reviewComments.set(key(repo, n), [...list, reply]);
         return reply;
       },
-      updateReviewComment: async (_repo, commentId, body) => {
+      updateReviewComment: async (_repo, _n, commentId, body) => {
         for (const list of this.reviewComments.values()) {
           const c = list.find((x) => x.id === commentId);
           if (c) {
@@ -153,7 +153,7 @@ export class FakeGitHost implements GitHost {
         }
         throw new Error(`no review comment ${commentId}`);
       },
-      listReviewCommentReactions: async (_repo, commentId) => this.reactions.get(commentId) ?? [],
+      listReviewCommentReactions: async (_repo, _n, commentId) => this.reactions.get(commentId) ?? [],
       createReview: async (repo, n, review) => {
         const reviewId = id();
         this.reviews.push({ repo, number: n, ...review });

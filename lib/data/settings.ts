@@ -1,3 +1,4 @@
+import { clientFor } from "@/lib/git/hosts";
 import { and, eq } from "drizzle-orm";
 import { CONFIG_FILE, parseRepoConfig, resolveConfig } from "@/lib/config/repo-config";
 import type { ReviewRule } from "@/lib/rules";
@@ -71,6 +72,7 @@ export async function getRepoSettingsView(
       fullName: repos.fullName,
       defaultBranch: repos.defaultBranch,
       installationExternalId: installations.externalId,
+      provider: installations.provider,
     })
     .from(repos)
     .innerJoin(orgs, eq(repos.orgId, orgs.id))
@@ -96,7 +98,7 @@ export async function getRepoConfigRules(
   opts: { host: GitHost; timeoutMs?: number },
 ): Promise<{ status: ConfigFileStatus; message: string | null; rules: ReviewRule[]; fullName: string } | undefined> {
   const [row] = await db
-    .select({ fullName: repos.fullName, defaultBranch: repos.defaultBranch, installationExternalId: installations.externalId })
+    .select({ fullName: repos.fullName, defaultBranch: repos.defaultBranch, installationExternalId: installations.externalId, provider: installations.provider })
     .from(repos)
     .innerJoin(installations, and(eq(installations.id, repos.installationId), eq(installations.orgId, orgId)))
     .where(scoped(repos, orgId, eq(repos.id, repoId)));
@@ -104,7 +106,7 @@ export async function getRepoConfigRules(
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const text = await Promise.race([
-      opts.host.client(row.installationExternalId).getFileContent(row.fullName, CONFIG_FILE, row.defaultBranch),
+      clientFor(opts.host, { provider: row.provider, externalId: row.installationExternalId }).getFileContent(row.fullName, CONFIG_FILE, row.defaultBranch),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("timed out")), opts.timeoutMs ?? 3_000);
       }),
@@ -122,13 +124,13 @@ export async function getRepoConfigRules(
 
 async function readConfigFile(
   host: GitHost,
-  repo: { installationExternalId: number; fullName: string; defaultBranch: string },
+  repo: { installationExternalId: number; provider: string; fullName: string; defaultBranch: string },
   timeoutMs: number,
 ): Promise<RepoSettingsView["file"]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const text = await Promise.race([
-      host.client(repo.installationExternalId).getFileContent(repo.fullName, CONFIG_FILE, repo.defaultBranch),
+      clientFor(host, { provider: repo.provider, externalId: repo.installationExternalId }).getFileContent(repo.fullName, CONFIG_FILE, repo.defaultBranch),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("timed out")), timeoutMs);
       }),

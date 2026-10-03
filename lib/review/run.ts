@@ -19,6 +19,7 @@
  * committed index. The indexer writes each file in its own transaction, so the review sees every file either
  * before or after its re-index, never half-written; it does not wait for the index run.
  */
+import { clientFor } from "@/lib/git/hosts";
 import { count, eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { loadEffectiveConfig } from "@/lib/config/repo-config";
@@ -345,7 +346,7 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
   if (row.installation.suspended) throw new RunSkipped("installation suspended");
   const { repo } = row;
 
-  const client = deps.host.client(row.installation.externalId);
+  const client = clientFor(deps.host, row.installation);
   const pr = await client.getPullRequest(repo.fullName, run.prNumber);
   if (pr.state !== "open") throw new RunSkipped(`pull request is ${prState(pr)}`);
   if (run.headSha && run.headSha !== pr.headSha) throw new RunStopped("superseded", `head moved to ${pr.headSha.slice(0, 7)}`);
@@ -573,6 +574,7 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
       notices: [...config.notices, ...context.notices],
       maxComments: settings.maxComments,
       commentStyle: settings.commentStyle,
+      flavor: row.installation.provider === "gitlab" || row.installation.provider === "bitbucket" ? row.installation.provider : "github",
       existingReviewComments: inlineComments,
     },
   );

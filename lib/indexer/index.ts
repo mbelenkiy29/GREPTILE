@@ -1,3 +1,4 @@
+import { clientFor } from "@/lib/git/hosts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { count, eq, inArray, sql } from "drizzle-orm";
@@ -129,7 +130,7 @@ export async function indexRepo(deps: IndexDeps, request: IndexRequest): Promise
   const scope = { orgId: repo.orgId, repoId: repo.id };
 
   try {
-    return await withRepoIndexLock(db, repo.id, () => run(deps, { repo, externalInstallationId: row.installation.externalId, jobId, kind, afterSha: request.afterSha, log: jlog }), deps.lock);
+    return await withRepoIndexLock(db, repo.id, () => run(deps, { repo, installation: row.installation, jobId, kind, afterSha: request.afterSha, log: jlog }), deps.lock);
   } catch (err) {
     if (err instanceof IndexCancelledError) {
       jlog.info("index job cancelled");
@@ -161,7 +162,7 @@ async function run(
   deps: IndexDeps,
   ctx: {
     repo: typeof repos.$inferSelect;
-    externalInstallationId: number;
+    installation: { provider: string; externalId: number };
     jobId: number;
     kind: IndexKind;
     afterSha?: string;
@@ -201,7 +202,7 @@ async function run(
 
   // checkout
   const dir = path.join(deps.cacheDir, String(repo.id));
-  const client = deps.host.client(ctx.externalInstallationId);
+  const client = clientFor(deps.host, ctx.installation);
   const url = await client.cloneUrl(repo.fullName);
   const fetched = await fetchRef(url, dir, ctx.afterSha ?? repo.defaultBranch);
   if (ctx.afterSha && repo.indexedSha && (await alreadyIndexed(url, dir, fetched, repo.indexedSha))) {

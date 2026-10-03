@@ -32,7 +32,7 @@ import {
   type RunScope,
 } from "@/lib/data/findings";
 import { scoped } from "@/lib/data/tenant";
-import { fingerprintFromMarkdown, renderFindingMarkdown, renderSummaryMarkdown, SUMMARY_MARKER } from "@/lib/engine/markdown";
+import { fingerprintFromMarkdown, renderFindingMarkdown, renderSummaryMarkdown, SUMMARY_MARKER, type MarkdownFlavor } from "@/lib/engine/markdown";
 import type { EngineFinding, RejectedCandidate, ReviewOutput } from "@/lib/engine/types";
 import type { FixContext } from "@/lib/fix/prompt";
 import type { GitClient, NewInlineComment, ReviewComment } from "@/lib/git/types";
@@ -44,8 +44,8 @@ export const RESOLVED_PREFIX = "✅ Resolved in";
 /** The fingerprint an OpenReview comment carries in its marker, or null for other comments. */
 export const fingerprintFromBody = fingerprintFromMarkdown;
 
-export function inlineCommentFor(f: EngineFinding, commentStyle: "concise" | "detailed" = "detailed", fix?: FixContext): NewInlineComment {
-  const body = renderFindingMarkdown(f, { commentStyle, ...(fix ? { fix } : {}) });
+export function inlineCommentFor(f: EngineFinding, commentStyle: "concise" | "detailed" = "detailed", fix?: FixContext, flavor: MarkdownFlavor = "github"): NewInlineComment {
+  const body = renderFindingMarkdown(f, { commentStyle, flavor, ...(fix ? { fix } : {}) });
   return f.endLine > f.startLine ? { path: f.path, startLine: f.startLine, line: f.endLine, body } : { path: f.path, line: f.startLine, body };
 }
 
@@ -60,6 +60,8 @@ export interface PublishInput {
   notices: string[];
   maxComments: number;
   commentStyle?: "concise" | "detailed";
+  /** Markdown flavor of the pull request's host (R3.6); defaults to `github`. */
+  flavor?: MarkdownFlavor;
   /** Review comments already on the PR (fetched during ingestion); listed again when absent. */
   existingReviewComments?: ReviewComment[];
 }
@@ -144,7 +146,8 @@ export async function publishReview(deps: { db: Db; client: GitClient; log?: Log
     fresh.push(f);
   }
 
-  const summaryBody = renderSummaryMarkdown(output, { notices: input.notices, headSha: scope.headSha, commentStyle, reviewNumber: input.reviewNumber });
+  const flavor = input.flavor ?? "github";
+  const summaryBody = renderSummaryMarkdown(output, { notices: input.notices, headSha: scope.headSha, commentStyle, reviewNumber: input.reviewNumber, flavor });
   let summaryCommentId = input.summaryCommentId;
   if (summaryCommentId === null) {
     const existing = (await client.listIssueComments(repoFullName, prNumber)).find((c) => c.body.startsWith(SUMMARY_MARKER));
@@ -152,7 +155,7 @@ export async function publishReview(deps: { db: Db; client: GitClient; log?: Log
   }
   if (summaryCommentId !== null) {
     try {
-      await client.updateIssueComment(repoFullName, summaryCommentId, summaryBody);
+      await client.updateIssueComment(repoFullName, prNumber, summaryCommentId, summaryBody);
     } catch (err) {
       log.info("summary comment could not be updated; posting a new one", { commentId: summaryCommentId, error: errorMessage(err) });
       summaryCommentId = null;
@@ -164,7 +167,7 @@ export async function publishReview(deps: { db: Db; client: GitClient; log?: Log
   const idByFp = new Map<string, number>();
   if (fresh.length) {
     const fix: FixContext = { repoFullName, prNumber, headSha: scope.headSha };
-    const comments = fresh.map((f) => inlineCommentFor(f, commentStyle, fix));
+    const comments = fresh.map((f) => inlineCommentFor(f, commentStyle, fix, flavor));
     const posted = await client.createReview(repoFullName, prNumber, { commitId: scope.headSha, body: "", comments });
     githubReviewId = posted.id;
     for (const c of posted.comments) {
@@ -183,7 +186,7 @@ export async function publishReview(deps: { db: Db; client: GitClient; log?: Log
       const body = bodies.get(r.externalCommentId);
       if (body === undefined || body.startsWith(RESOLVED_PREFIX)) return;
       try {
-        await client.updateReviewComment(repoFullName, r.externalCommentId, `${RESOLVED_PREFIX} ${sha7}\n\n${body}`);
+        await client.updateReviewComment(repoFullName, prNumber, r.externalCommentId, `${RESOLVED_PREFIX} ${sha7}\n\n${body}`);
       } catch (err) {
         log.warn("could not mark a resolved finding's comment", { commentId: r.externalCommentId, error: errorMessage(err) });
       }

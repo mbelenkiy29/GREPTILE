@@ -4,6 +4,7 @@
  * published a finding, recorded as finding feedback (`lib/data/feedback.ts`), which updates the finding and the
  * learned preferences (`./preferences.ts`). Comments posted before findings existed teach the patterns directly.
  */
+import { clientFor } from "@/lib/git/hosts";
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { commentFeedback, installations, learnedPatterns, repos, reviewComments, reviews } from "@/lib/db/schema";
@@ -110,7 +111,7 @@ export async function syncFeedback(deps: SyncFeedbackDeps, job: { orgId: string;
   if (!ours.length) return { recorded: 0 };
   const byExternal = new Map(ours.map((c) => [c.externalId!, c]));
 
-  const client = deps.host.client(row.installation.externalId);
+  const client = clientFor(deps.host, row.installation);
   const repo = row.repo.fullName;
   const incoming: Incoming[] = [];
 
@@ -134,7 +135,7 @@ export async function syncFeedback(deps: SyncFeedbackDeps, job: { orgId: string;
   // Reaction ids currently on each finding's comments (to retract feedback for removed reactions).
   const liveReactions = new Map<number, Set<number>>();
   for (const c of ours) {
-    const reactions = await client.listReviewCommentReactions(repo, c.externalId!);
+    const reactions = await client.listReviewCommentReactions(repo, job.prNumber, c.externalId!);
     if (c.findingId !== null) {
       const live = liveReactions.get(c.findingId) ?? new Set<number>();
       for (const r of reactions) live.add(r.id);
