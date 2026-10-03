@@ -1,0 +1,81 @@
+---
+title: Self-hosting
+description: Run OpenReview on your own server with Docker Compose — configuration, offline operation, upgrades, and backups.
+---
+
+OpenReview is built to run on one server you control. The Docker Compose file starts four services:
+
+| Service | What it does |
+| --- | --- |
+| `postgres` | PostgreSQL 16 with pgvector: organizations, reviews, the code index, embeddings |
+| `redis` | Job queues (BullMQ), rate limits, worker heartbeats |
+| `app` | The web app, API, and webhook receivers (Next.js) on port 3000 |
+| `worker` | Indexing, reviews, conversations, knowledge base, and scheduled clean-up |
+
+No hosted service is required besides your model provider and your git host. There is no telemetry.
+
+## Requirements
+
+- Linux with Docker Engine and the Compose plugin. A virtual machine with 4 vCPUs and 8 GB of memory is a comfortable start for a team; large repositories and many concurrent reviews need more memory for the worker.
+- A domain and a TLS-terminating reverse proxy (Caddy, nginx, Traefik) forwarding to port 3000. Put exactly one trusted proxy in front of the app: rate limits use the last `X-Forwarded-For` hop.
+- Outbound access to your model provider and git host — nothing else.
+
+## Install
+
+```sh
+git clone <your OpenReview repository URL> openreview
+cd openreview
+cp .env.example .env      # then edit it, see below
+docker compose up -d
+docker compose ps         # every service should report healthy
+```
+
+`app` applies database migrations when it starts (set `RUN_MIGRATIONS=false` to manage them yourself with `pnpm db:migrate`). `GET /api/health` checks Postgres and Redis and backs the container health check.
+
+## Environment variables
+
+Every variable the server reads is listed in `.env.example`; this table is generated from that file when the docs are built. Variables with an empty example are either secrets you must provide or optional features that stay off until set.
+
+{/* @generated env-reference */}
+
+## Offline and air-gapped operation
+
+The only outbound connections are the model and embedding endpoints, the git host, and — only when configured — Stripe, your SSO identity providers, and organizations' own model endpoints. Every server-side request goes through one allowlisted client; set `OUTBOUND_ALLOWLIST_ENFORCE=true` to refuse anything else. The offline override puts Postgres and Redis on an internal network and turns enforcement on:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+```
+
+For a fully local model, point `LLM_BASE_URL` and `EMBEDDING_BASE_URL` at an OpenAI-compatible server on your network (vLLM, Ollama, LM Studio, TGI) with `LLM_PROVIDER=openai-compatible` and `EMBEDDING_PROVIDER=openai-compatible`. The repository's `docs/self-hosting.md` has the full list of destinations and how the allowlist is checked.
+
+## Upgrades
+
+```sh
+git pull
+docker compose build
+docker compose up -d
+```
+
+Migrations run automatically when the new `app` container starts, before it serves traffic. The worker finishes in-flight jobs on shutdown (it has a five-minute grace period), so upgrades do not lose reviews. Read the release notes before upgrading across several versions, and take a backup first.
+
+## Backups
+
+All state lives in Postgres; Redis holds queues and counters that rebuild themselves, and the worker's repository checkouts are a cache. Back up the database regularly:
+
+```sh
+docker compose exec -T postgres pg_dump -U openreview -Fc openreview > openreview-$(date +%F).dump
+```
+
+Restore into a fresh volume with `pg_restore`:
+
+```sh
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U openreview -d openreview --clean --if-exists < openreview-2026-01-31.dump
+docker compose up -d
+```
+
+Keep `.env` (especially `APP_SECRET` and `ENCRYPTION_KEY`) with your backups: secrets stored in the database are encrypted with a key derived from them and cannot be read without it.
+
+## Source code obligations
+
+OpenReview is licensed under the AGPL-3.0. If you modify it and let people use it over a network, offer them the corresponding source: set `SOURCE_CODE_URL` to where your modified source is published. The site and dashboard footers link to it.

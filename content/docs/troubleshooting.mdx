@@ -1,0 +1,39 @@
+---
+title: Troubleshooting
+description: What to check when reviews do not appear, the index is stuck, sign-in fails, or the model is unreachable.
+---
+
+Most problems show up in the dashboard first: **Activity** lists every webhook delivery with its outcome, and each review run records why it was skipped or failed. Server logs are structured JSON with correlation ids (`docker compose logs app worker`), and secrets are redacted from them.
+
+## No review on a pull request
+
+1. **Was the webhook delivered?** Check **Activity** in OpenReview and the app's **Advanced → Recent deliveries** on GitHub. A `401` means the webhook secret does not match `GITHUB_WEBHOOK_SECRET`. A delivery that never arrived means GitHub cannot reach `APP_URL/api/webhooks/github`.
+2. **Was it skipped on purpose?** The review list shows skipped runs with the reason: drafts (unless `reviewDrafts`), branches excluded by `targetBranches` or `ignoredBranches`, `autoReview` turned off, or a usage cap reached.
+3. **Is the repository indexed?** Reviews wait for the first index. The **Repositories** page shows its status and any error.
+4. **Is the worker running?** `docker compose ps` should show `worker` healthy. Reviews stay queued without it.
+
+## The index is stuck or failed
+
+- The worker needs to clone the repository: check that the app still has **Contents: Read-only** access and that the worker can reach the git host.
+- Very large files are skipped (`INDEX_MAX_FILE_BYTES`), and that is reported, not an error.
+- Re-index a repository from its page in the dashboard, or with `POST /api/v1/repositories/{id}/reindex`.
+
+## Model errors
+
+- `no base URL` or authentication errors: check `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` (required for every provider except Anthropic).
+- Timeouts on deep reviews: raise `LLM_TIMEOUT_MS`, or lower `LLM_MIN_OUTPUT_TOKENS_PER_SEC` for a slow self-hosted model.
+- Organizations with their own provider can use **Test connection** under **Settings → Model provider**.
+- With `OUTBOUND_ALLOWLIST_ENFORCE=true`, a refused call is logged as `outbound request blocked by the allowlist`; add the host to `OUTBOUND_ALLOWLIST`.
+
+## Sign-in problems
+
+- **"GitHub sign-in isn't configured yet"**: set `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`.
+- **Redirect URI mismatch** on GitHub: the app's callback URL must be exactly `APP_URL/api/auth/github/callback`, and `APP_URL` must be the URL people use.
+- **SSO refuses an identity provider URL**: issuers on a private network need `SSO_ALLOW_PRIVATE_ISSUERS=true`.
+- **Too many requests**: sign-in endpoints are rate-limited per client address (`PUBLIC_RATE_LIMIT_PER_MINUTE`). Behind a proxy, make sure it appends the real client address to `X-Forwarded-For`.
+
+## Comments look wrong on the pull request
+
+- **Too many or too few comments**: tune `strictness`, `minConfidence`, `minSeverity`, and `maxComments` ([reference](/docs/configuration)). Held-back findings are still listed on the review page in the dashboard.
+- **The same kind of comment keeps coming back**: reply `@openreview ignore this pattern`, or react with 👎 — see [Learning & feedback](/docs/learning).
+- **Settings in `openreview.json` are ignored**: the file is read from the base branch, so changes apply after they are merged. An invalid file is reported in the review summary.

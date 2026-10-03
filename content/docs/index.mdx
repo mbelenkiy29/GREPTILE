@@ -1,0 +1,27 @@
+---
+title: Introduction
+description: What OpenReview is, how a review works, and where to go next.
+---
+
+OpenReview is an open-source AI reviewer for pull requests. It reads the change together with the code around it — callers, callees, importers, tests, and your team's documents — and posts a summary and inline comments on the pull request. It is licensed under the AGPL-3.0 and runs on a single server with Docker Compose, using the model provider you choose.
+
+## How a review works
+
+1. **Index the repository.** When you connect a repository, OpenReview clones it, parses it with tree-sitter, and stores a graph of files, symbols, calls, and imports in PostgreSQL, with pgvector embeddings for code search. Pushes to the default branch update the index incrementally.
+2. **Understand the change.** For each pull request it classifies the change and retrieves context beyond the diff: definitions of changed symbols, their callers and dependents, related tests, and the documents you marked as context.
+3. **Review in parallel.** Specialized reviewers — correctness, security, data and migrations, API compatibility, testing, performance, and your team's rules — each look at the change with that context.
+4. **Verify every finding.** Candidate findings are checked against the actual code before anything is posted. Duplicates are merged and findings below your thresholds are held back.
+5. **Publish to the pull request.** One summary comment (what changed, risk level, a 1–5 confidence score) and one inline comment per finding, with a suggested change when there is an exact fix. New commits are reviewed incrementally and the summary is updated in place.
+6. **Learn from feedback.** Reactions, replies, and commands on OpenReview's comments become learned preferences you can inspect and edit, and your teammates' own review comments can be mined into candidate rules.
+
+## Where to go next
+
+- [Quickstart](/docs/quickstart) — run OpenReview yourself or sign in to a hosted instance.
+- [Installing the GitHub App](/docs/github-app) — create the app and connect repositories.
+- [`openreview.json` reference](/docs/configuration) — every setting a repository can declare.
+- [CLI](/docs/cli) and [MCP & coding agents](/docs/mcp) — review before you push, and let your coding agent fix findings.
+- [Self-hosting](/docs/self-hosting) — Docker Compose, every environment variable, upgrades, and backups.
+
+<Callout tone="note" title="Source code">
+OpenReview is free software under the GNU Affero General Public License v3.0. If you run a modified version for others over a network, the license asks you to offer them its source; set `SOURCE_CODE_URL` so the footer links to it.
+</Callout>

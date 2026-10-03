@@ -1,0 +1,21 @@
+---
+title: Knowledge base
+description: Short, editable notes about each part of a repository that reviews and answers draw on.
+---
+
+After a repository is indexed, OpenReview groups its files into subsystems (for example an architecture overview, authentication, the database and data model, API routes, background jobs) and writes a note for each: how it works, its key files and their roles, the conventions a reviewer should enforce, and its known risks. Reviews and answers to questions include the notes for the files they touch, so reviewers know what a module is for, not only what it contains.
+
+## Keeping notes current
+
+- The first index generates every note (spread over several runs on large repositories).
+- When an incremental index changes a subsystem's files, its note is marked stale and regenerated.
+- Each run regenerates at most `KNOWLEDGE_MAX_ENTRIES_PER_RUN` notes; the rest are picked up by a follow-up run.
+- Generation uses the organization's model and counts toward usage like any other model call.
+
+## Editing
+
+Open **Knowledge** in the dashboard to read every note with its files. Notes are yours to edit: once you change a note, OpenReview keeps your text. When the code changes later, a regenerated description is offered as a proposal you can accept or reject, instead of overwriting your edit.
+
+## Turning it off
+
+Set `KNOWLEDGE_ENABLED=false` on the server. Reviews then rely on the code graph, search, and your context files only.

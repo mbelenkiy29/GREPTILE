@@ -1,0 +1,50 @@
+---
+title: Rules
+description: Write your team's conventions in plain English and have every review enforce them.
+---
+
+A rule is a sentence a reviewer can check, such as "API handlers validate their input before touching the database." Rules are given to the reviewers on every pull request they apply to, and a comment raised because of a rule cites it, so the author can see where the expectation comes from.
+
+## Where rules come from
+
+| Source | Scope | Managed in |
+| --- | --- | --- |
+| Dashboard rules | The whole organization, or one repository | **Rules** in the dashboard |
+| `openreview.json` | The repository it is in | The repository (read from the base branch) |
+| Mined rules | Suggested from your teammates' review comments | **Rules**, as candidates to approve or dismiss |
+
+### In the dashboard
+
+**Rules → New rule** takes the rule text plus:
+
+- **Scope** — organization-wide or a single repository,
+- **Paths** — globs the rule is limited to (`app/api/**`, `**/*.sql`); empty means every file,
+- **Category** — correctness, security, data & migrations, API compatibility, testing, performance, team convention, or style,
+- **Severity** — critical, high, medium, or low; a finding that cites the rule is posted at least at this severity,
+- **Instructions** — optional context and examples for the reviewers: what counts as a violation and what does not.
+
+Starter templates on the Rules page add common rules in one click; edit them to fit your code afterwards.
+
+### In openreview.json
+
+```json
+{
+  "rules": [
+    "Use the shared logger instead of console.log in server code.",
+    { "rule": "Every query filters by org_id.", "paths": ["lib/data/**"] }
+  ]
+}
+```
+
+Rules in the file apply in addition to dashboard rules. Because the file is read from the base commit, a pull request that edits its rules is reviewed with the old ones.
+
+## Writing good rules
+
+- **One expectation per rule.** "Validate input and log errors" is two rules.
+- **Say what to look for.** Name the function, module, or pattern when you can.
+- **Limit by path.** A rule about SQL migrations should not be considered on React components.
+- **Use instructions for the edge cases.** "Taking the id from the session counts as a check" saves a false positive.
+
+## Mined rules
+
+When teammates leave review comments on pull requests, OpenReview collects them and periodically proposes rules from conventions that recur ("please use the date helpers instead of `new Date()` arithmetic"). Each candidate links the comments it came from. Nothing is enforced until someone approves it on the **Rules** page. Comment text is treated as data: a comment cannot instruct the reviewer, only serve as evidence for a candidate.

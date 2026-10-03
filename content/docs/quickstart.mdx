@@ -1,0 +1,52 @@
+---
+title: Quickstart
+description: Get OpenReview reviewing pull requests, on an instance someone already runs or on your own server.
+---
+
+There are two ways to use OpenReview. Both run the same code; the difference is who operates the server.
+
+| | Hosted instance | Self-hosted |
+| --- | --- | --- |
+| Who runs it | The instance's operator | You, on your own server |
+| Model provider | The operator's, or your organization's own key | Any supported provider, including a model on your network |
+| Billing | Plans shown on the instance's Pricing page, if it has billing turned on | None — free under the AGPL-3.0 |
+| Data | Stored by the operator | Never leaves your server except for model and git host calls |
+
+## Use an instance someone already runs
+
+1. Open the instance and choose **Get started**. Sign in with GitHub, or with your organization's single sign-on.
+2. The onboarding wizard creates your organization and asks you to install the GitHub App on the repositories you want reviewed. GitLab and Bitbucket Cloud are connected with an access token instead, under **Settings → Git providers**.
+3. Wait for the first index to finish (the **Repositories** page shows its progress), then open a pull request. The review appears as a summary comment and inline comments.
+4. Optional: add an `openreview.json` to the repository root to tune the review ([reference](/docs/configuration)), and write a few [rules](/docs/rules).
+
+## Run it yourself
+
+You need a Linux server with Docker and Docker Compose (a single small virtual machine is enough for a team), a domain name with HTTPS in front of port 3000, and an API key for a model provider (or an OpenAI-compatible model server on your network).
+
+```sh
+git clone <your OpenReview repository URL> openreview
+cd openreview
+cp .env.example .env
+```
+
+Fill in `.env`. The minimum is:
+
+- `APP_URL` — the public https URL of the server,
+- `APP_SECRET` — a random string of at least 16 characters (`openssl rand -hex 32`),
+- `POSTGRES_PASSWORD` — a database password,
+- the GitHub App variables from [Installing the GitHub App](/docs/github-app),
+- `LLM_PROVIDER` and its key, e.g. `LLM_PROVIDER=anthropic` with `LLM_API_KEY`, or `LLM_PROVIDER=openai-compatible` with `LLM_BASE_URL` and `LLM_MODEL`,
+- an embedding provider for code search (`EMBEDDING_PROVIDER` with `EMBEDDING_API_KEY`, or an OpenAI-compatible embedding server via `EMBEDDING_BASE_URL` and `EMBEDDING_MODEL`).
+
+Then start everything:
+
+```sh
+docker compose up -d
+docker compose ps        # postgres, redis, app, and worker should all become healthy
+```
+
+The app applies database migrations when it starts. Open `APP_URL`, sign in with GitHub, and follow the onboarding wizard. Every variable is described in [Self-hosting](/docs/self-hosting#environment-variables).
+
+<Callout tone="tip" title="Try it before you install">
+If the instance has the public demo turned on (`DEMO_ENABLED`), **Try it on a PR** reviews any public GitHub pull request in fast mode without an account. Nothing is posted to the pull request.
+</Callout>

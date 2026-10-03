@@ -1,0 +1,16 @@
+---
+title: Security
+description: How OpenReview protects your code and accounts, its trust boundaries, and how to report a vulnerability.
+---
+
+OpenReview reads your source code, so it is built to keep it on infrastructure you choose and to treat everything in a repository as untrusted. This page is the repository's security policy (`SECURITY.md`).
+
+## In short
+
+- **Your infrastructure.** Self-hosted, code and review data stay on your server; the only outbound calls are your model provider and git host (plus Stripe and SSO when you configure them).
+- **Your model.** Use Anthropic, OpenAI, OpenRouter, or an OpenAI-compatible model you run yourself; organizations can bring their own key, encrypted at rest.
+- **Tenant isolation.** Every organization's data carries its id and every query is scoped by it.
+- **Repository content is data, not instructions.** Code, pull request text, and comments are passed to models as delimited data and cannot change instructions, rules, or settings.
+- **Auditable.** Administrative actions are logged and exportable; the source is open under the AGPL-3.0.
+
+{/* @include SECURITY.md */}

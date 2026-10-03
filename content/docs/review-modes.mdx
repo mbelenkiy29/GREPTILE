@@ -1,0 +1,36 @@
+---
+title: Review modes & cost
+navTitle: Review modes & cost
+description: Fast, Standard, and Deep reviews, the security focus, and how credits and model cost are counted.
+---
+
+Every review runs in one of three modes. **Standard** is the default. Pick a mode per repository (`"mode"` in [`openreview.json`](/docs/configuration) or the repository's settings), per organization (**Settings → Review defaults**), or for a single run from the dashboard's **Re-review** options, the CLI (`--mode`), or the API.
+
+## What changes between modes
+
+{/* @generated modes-reference */}
+
+Modes also choose the model and reasoning effort for the review and verification steps. With the default Anthropic routing, Fast uses a smaller model at low effort and Standard and Deep use the largest model at increasing effort. Operators can pin other models per mode with `LLM_MODEL_FAST` and `LLM_MODEL_DEEP`.
+
+| Mode | Good for |
+| --- | --- |
+| Fast | Small or routine changes, drafts, quick feedback before a full review |
+| Standard | Everyday pull requests |
+| Deep | Risky changes: migrations, auth, payment paths, wide refactors |
+
+## Security focus
+
+A security-focused review runs a dedicated profile that looks for injection, authorization gaps, leaked secrets, unsafe deserialization, and risky dependency changes. Ask for one with:
+
+- a comment on the pull request: `@openreview security review` or `/openreview security`,
+- the dashboard: **Re-review → Security focus** on a review,
+- the CLI: `openreview review --security`,
+- the API: `POST /reviews` with `"focus": "security"`.
+
+## Credits
+
+A review consumes credits by mode. The defaults are in the table above; operators change them with `CREDITS_FAST`, `CREDITS_STANDARD`, and `CREDITS_DEEP`. On a self-hosted server credits are a way to see and cap usage; nothing is billed unless the operator turns on billing. See [Pricing](/pricing) for the plans an instance offers.
+
+## Model cost
+
+Every model call is recorded with its token counts and, when the model has a known price, an estimated cost in USD. **Usage** in the dashboard breaks credits, tokens, and estimated cost down per repository, author, and day. Owners can set a hard cap and alert thresholds under **Settings → Usage & billing**; a review that would exceed the cap is refused with a clear message instead of running. Prices for models outside the built-in table can be added with `LLM_PRICING_JSON`.

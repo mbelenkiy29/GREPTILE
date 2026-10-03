@@ -1,0 +1,44 @@
+---
+title: FAQ
+description: Common questions about OpenReview, its license, models, data, and cost.
+---
+
+## Is OpenReview really free?
+
+The software is free and open source under the GNU Affero General Public License v3.0. Running it yourself costs what your server and your model provider charge. An operator who runs an instance for others may charge for it; such instances show their plans on their Pricing page.
+
+## What does the AGPL mean for my company?
+
+The AGPL's obligations concern OpenReview's own source code, not the code it reviews, which is never combined with it. In short: if you modify OpenReview and let people use it over a network, you must offer them the modified source. Set `SOURCE_CODE_URL` to where it is published. This is a summary, not legal advice; the license text is in the repository's `LICENSE` file.
+
+## Which models can I use?
+
+Anthropic (the default), OpenAI, OpenRouter, and any OpenAI-compatible endpoint, including models you serve yourself with vLLM, Ollama, LM Studio, or TGI. Models can be set per task (review, verification, summaries, chat, …) and per review mode, and each organization can bring its own provider and key.
+
+## Does my code leave my server?
+
+When self-hosted, code is sent only to the model endpoints you configure, as part of review prompts. With a model on your own network, nothing leaves it at all. OpenReview has no telemetry, analytics, or update checks.
+
+## Is my code used to train models?
+
+OpenReview does not train models. Whether your provider retains or trains on API traffic is governed by your agreement with that provider — choose one whose terms you accept, or run a model yourself.
+
+## How is this different from a linter?
+
+Linters check syntax and fixed patterns in one file. OpenReview reads the change with its context — callers, dependents, tests, your rules and documents — and reports problems like a caller that no longer passes a required argument, a missing authorization check, or a migration that breaks existing rows. It complements linters; it does not replace them.
+
+## Will it flood my pull requests with comments?
+
+Every candidate finding is verified against the code before it is posted, duplicates are merged, and `maxComments`, `minConfidence`, and `minSeverity` cap what is posted. Feedback you give suppresses patterns your team does not want.
+
+## Can a pull request trick the reviewer?
+
+Pull request text, code, and comments are always passed to the model as delimited data and cannot change instructions, settings, or rules. `openreview.json` is read from the base branch, so a pull request cannot loosen its own review, and commands are accepted only from people with write access.
+
+## Which git hosts are supported?
+
+GitHub (github.com and GitHub Enterprise Server), GitLab (gitlab.com and self-managed), and Bitbucket Cloud.
+
+## Can I try it without installing anything?
+
+If an instance has the public demo turned on, **Try it on a PR** reviews a public GitHub pull request without an account. You can also run the [CLI](/docs/cli) in local mode with your own model key.
