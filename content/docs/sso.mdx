@@ -1,0 +1,45 @@
+---
+title: Single sign-on
+navTitle: SSO
+description: Sign in with your identity provider over OIDC or SAML 2.0, restrict email domains, and require SSO.
+---
+
+Organization owners configure single sign-on in **Settings → Single sign-on**. OpenReview supports OpenID Connect and SAML 2.0, so it works with identity providers that implement either standard.
+
+## OIDC
+
+1. In your identity provider, create a web application with the redirect URI shown in OpenReview: `APP_URL/api/auth/sso/<connection id>/callback`.
+2. In OpenReview, enter the issuer URL, client ID, and client secret. The secret is encrypted at rest and never shown again.
+
+OpenReview uses the authorization code flow with PKCE and verifies the ID token's signature (against the issuer's published keys), issuer, audience, nonce, and expiry. The email must be verified by the provider.
+
+## SAML 2.0
+
+1. In your identity provider, create a SAML application with:
+   - ACS URL: `APP_URL/api/auth/saml/<connection id>/acs`
+   - SP entity ID and metadata: `APP_URL/api/auth/saml/<connection id>/metadata`
+2. In OpenReview, paste the identity provider's metadata XML, or its entity ID, SSO URL (HTTP-Redirect binding), and signing certificate.
+
+Assertions must be signed, addressed to OpenReview's entity ID, issued by the configured provider, within their validity window, and answer a request OpenReview made. Sign-in started from the identity provider's dashboard is not accepted.
+
+## Who can sign in
+
+Each connection lists **allowed email domains**; only those emails may sign in through it. People signing in for the first time join the organization with the connection's default role (member or admin). On the sign-in page they choose **Sign in with SSO** and enter their work email or the organization's slug.
+
+## Requiring SSO
+
+After you have signed in through the connection yourself, you can require it. Members who signed in with GitHub are then sent through the identity provider before they can use the organization, and their SSO identity is linked to their account. Disabling the connection also lifts the requirement.
+
+If the identity provider breaks while SSO is required, the server operator can lift the requirement directly in the database:
+
+```sql
+UPDATE sso_connections SET enforce = false WHERE org_id = '<org id>';
+```
+
+## Identity providers on a private network
+
+Issuer and identity provider URLs must be public HTTPS addresses; private, loopback, and link-local addresses are refused to protect the server. For an identity provider on your internal network, set `SSO_ALLOW_PRIVATE_ISSUERS=true`.
+
+## Audit log
+
+SSO configuration changes and other administrative actions are recorded in the audit log (**Settings → Audit log**), which owners and admins can filter and export as CSV. Entries are kept for `AUDIT_RETENTION_DAYS` (default 365).

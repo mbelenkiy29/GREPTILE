@@ -1,0 +1,23 @@
+---
+title: openreview.json reference
+navTitle: openreview.json
+description: Every key a repository can set in openreview.json, generated from the schema the server validates it with.
+---
+
+Review settings come in layers, and each key is resolved on its own: built-in defaults, then the organization's **Review defaults**, then the repository's settings in the dashboard, then `openreview.json` in the repository root. The file wins.
+
+```json
+{
+  "mode": "deep",
+  "ignore": ["**/__generated__/**"],
+  "rules": ["Public API handlers validate their input with zod."]
+}
+```
+
+The tables below are generated from the server's own schema when the docs are built, so they always match what the server accepts.
+
+{/* @generated config-reference */}
+
+## Where settings show up
+
+The review summary on the pull request reports an invalid `openreview.json`. In the dashboard, each repository's settings page shows every effective value and which layer it came from (default, organization, repository, or file).

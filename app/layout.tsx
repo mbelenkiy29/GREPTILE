@@ -1,12 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import type { ReactNode } from "react";
+import { siteOrigin } from "@/lib/site";
 import { parseTheme, THEME_COOKIE, themeAttribute } from "@/lib/ui/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteOrigin()),
   title: { default: "OpenReview", template: "%s · OpenReview" },
   description: "AI pull request reviews with full-codebase context.",
+  applicationName: "OpenReview",
+  openGraph: { siteName: "OpenReview", type: "website", locale: "en_US" },
+  twitter: { card: "summary_large_image" },
 };
 
 export const viewport: Viewport = {
@@ -21,7 +26,8 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
   return (
-    <html lang="en" data-theme={themeAttribute(theme)}>
+    // The marketing layout may set data-theme from the cookie on statically generated pages before hydration.
+    <html lang="en" data-theme={themeAttribute(theme)} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

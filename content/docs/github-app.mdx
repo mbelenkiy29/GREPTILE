@@ -1,0 +1,70 @@
+---
+title: Installing the GitHub App
+navTitle: GitHub App
+description: Register a GitHub App for your OpenReview server, by hand or from a manifest, and install it on repositories.
+---
+
+OpenReview talks to GitHub as a GitHub App: it receives webhooks, reads code, and posts reviews as the app's bot account. Each self-hosted server registers its own app (on github.com or on GitHub Enterprise Server). If you use an instance someone else runs, skip to [Install it on repositories](#install-it-on-repositories).
+
+## What the app needs
+
+**Repository permissions**
+
+| Permission | Access | Used for |
+| --- | --- | --- |
+| Metadata | Read-only | Required by GitHub for every app |
+| Contents | Read-only | Cloning and indexing the repository, reading `openreview.json` |
+| Pull requests | Read and write | Reading diffs, posting reviews and inline comments |
+| Issues | Read and write | Summary comments and answers to `@openreview` mentions |
+| Checks | Read-only | Recommended: lets reviews see CI results. Reviews work without it. |
+
+**Events to subscribe to:** Pull request, Pull request review, Pull request review comment, Issue comment, Push, and Repository. Installation events are always sent to GitHub Apps.
+
+**URLs** (replace `APP_URL` with your server's public URL):
+
+| Setting | Value |
+| --- | --- |
+| Homepage URL | `APP_URL` |
+| Webhook URL | `APP_URL/api/webhooks/github` |
+| Callback URL (user authorization) | `APP_URL/api/auth/github/callback` |
+| Setup URL (post installation) | `APP_URL/api/github/callback` |
+
+Leave **Request user authorization (OAuth) during installation** off. The app's OAuth credentials are used for **Sign in with GitHub**.
+
+## Register the app by hand
+
+1. On GitHub, open **Settings → Developer settings → GitHub Apps → New GitHub App** (for an organization: the organization's settings).
+2. Enter a name and the URLs above. Set a **Webhook secret** (a long random string) and keep it.
+3. Choose the permissions and events above.
+4. Under **Where can this GitHub App be installed?** choose **Only on this account** for a single organization, or **Any account** if several organizations will use your server.
+5. Create the app, then generate a **private key** (a `.pem` file) and a **client secret**.
+
+Copy the values into `.env`:
+
+| Variable | Where to find it |
+| --- | --- |
+| `GITHUB_APP_ID` | App ID on the app's settings page |
+| `GITHUB_APP_SLUG` | The app's URL name, as in `github.com/apps/<slug>` |
+| `GITHUB_APP_PRIVATE_KEY` | Contents of the `.pem` file (literal `\n` escapes are accepted) |
+| `GITHUB_WEBHOOK_SECRET` | The webhook secret you chose |
+| `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | Client ID and the client secret you generated |
+
+For GitHub Enterprise Server also set `GITHUB_API_URL` (`https://ghe.example.com/api/v3`) and `GITHUB_WEB_URL` (`https://ghe.example.com`). Restart the app and the worker after changing `.env`.
+
+## Register the app from a manifest
+
+The quickest way: open `APP_URL/setup/github-app` on your server. It fills `github-app-manifest.json` (in the repository root) with your `APP_URL` and the permissions and events above, and sends it to GitHub's app-manifest flow (for your personal account or an organization). After you confirm on GitHub, you return to `APP_URL/setup/github-app/callback`, which exchanges GitHub's one-time code and shows `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_CLIENT_ID`, and `GITHUB_APP_CLIENT_SECRET` **once**. OpenReview does not store them: copy them into `.env` and restart the app and the worker.
+
+The setup page is open on a fresh server until a GitHub App is configured or someone signs in. After that only instance administrators can use it: the emails in `INSTANCE_ADMIN_EMAILS`, or the first user who signed in when that is empty.
+
+## Install it on repositories
+
+1. Sign in to OpenReview. The onboarding wizard (or **Install the GitHub App** on the **Repositories** page) sends you to GitHub to install the app.
+2. Pick **All repositories** or the repositories you want reviewed, and confirm.
+3. GitHub returns you to OpenReview, which links the installation to your organization and starts indexing. One installation belongs to exactly one OpenReview organization.
+
+The **Repositories** page shows each repository's index status. If the app is missing a permission, the dashboard says which one; accept the new permissions on GitHub and the warning clears.
+
+<Callout tone="warning" title="Webhook deliveries must reach the server">
+GitHub has to reach `APP_URL/api/webhooks/github` over HTTPS. Every delivery is checked against the webhook secret before anything is read, and repeated deliveries are recognized and processed once. Failed deliveries appear under **Activity**, where they can be replayed.
+</Callout>

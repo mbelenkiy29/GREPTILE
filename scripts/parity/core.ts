@@ -70,6 +70,37 @@ export function judge(feature: Feature, checks: CheckResult[], tests: TestCase[]
   return { id: feature.id, pass: true };
 }
 
+interface PlaywrightSpec {
+  title: string;
+  tests?: { status?: string }[];
+}
+
+interface PlaywrightSuite {
+  specs?: PlaywrightSpec[];
+  suites?: PlaywrightSuite[];
+}
+
+/**
+ * Test cases from Playwright's JSON reporter (`--reporter=json`), so e2e test titles count toward feature coverage.
+ * A spec runs once per project; it passes only if every run was expected (or flaky, i.e. passed on retry), fails if
+ * any run was unexpected, and is skipped when every run was skipped.
+ */
+export function parsePlaywrightJson(json: unknown): TestCase[] {
+  const out: TestCase[] = [];
+  const walk = (suite: PlaywrightSuite) => {
+    for (const spec of suite.specs ?? []) {
+      const statuses = (spec.tests ?? []).map((t) => t.status ?? "skipped");
+      const status: TestCase["status"] =
+        statuses.length === 0 || statuses.every((s) => s === "skipped") ? "skipped" : statuses.some((s) => s === "unexpected") ? "failed" : "passed";
+      out.push({ title: spec.title, status });
+    }
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  const root = (json ?? {}) as { suites?: PlaywrightSuite[] };
+  for (const s of root.suites ?? []) walk(s);
+  return out;
+}
+
 export function formatVerdict(v: Verdict): string {
   return v.pass ? `PASS ${v.id}` : `FAIL ${v.id} ${v.reason}`;
 }

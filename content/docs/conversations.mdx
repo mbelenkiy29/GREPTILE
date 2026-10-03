@@ -1,0 +1,33 @@
+---
+title: Conversations
+description: Ask OpenReview about a pull request with @mentions, and run commands from a comment.
+---
+
+Mention `@openreview` in any comment on a pull request — a general comment, a review comment, or a reply under one of OpenReview's own comments — and it answers in the same thread, with context from the whole codebase. Comments that start with `/openreview` work too. (Operators can change the name with `BOT_MENTION`.)
+
+## Questions
+
+Anything that is not a command is answered as a question, for example:
+
+- `@openreview what else calls computeTotal?`
+- `@openreview why is this a bug?` (under one of its findings)
+- `@openreview how should I fix this?`
+- `@openreview what would break if we drop the legacy flag?`
+
+OpenReview recognizes a few kinds of questions and gathers the right context for each: explaining a finding, why something is a bug, suggesting a fix, and what depends on a piece of code (callers, importers, and dependents from the code graph).
+
+## Commands
+
+| Command | Shortcut | Does |
+| --- | --- | --- |
+| `@openreview review again` | `/openreview review` | Re-reviews the pull request at its current head |
+| `@openreview security review` | `/openreview security` | Runs a [security-focused review](/docs/review-modes#security-focus) |
+| `@openreview ignore this pattern` | `/openreview ignore` | Stops reporting this kind of finding in the repository |
+| `@openreview resolved` · `won't fix` · `false positive` | | Records feedback on the finding (reply under it) |
+| | `/openreview explain`, `why`, `fix`, `dependents` | Asks that kind of question explicitly |
+
+Commands that change state (re-review, security review, ignore, feedback) are accepted only from people with write access to the repository, and only when the comment opens with the request and is short. A long comment that mentions "re-review" somewhere in the middle is answered as a question instead. Quoted text and code blocks in a comment are never read as commands.
+
+## What OpenReview will not do
+
+Comment text is untrusted. It is passed to the model as data, separate from OpenReview's instructions, so a comment cannot change review settings, rules, or what the reviewer is allowed to do. Settings come only from the dashboard and from `openreview.json` on the base branch.

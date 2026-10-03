@@ -48,7 +48,7 @@ export function CodeBlock({
           {copy && <CopyButton value={code} compact label="Copy code" />}
         </span>
       </figcaption>
-      <div className="code-scroll">
+      <div className="code-scroll" tabIndex={0}>
         <table>
           <tbody>
             {lines.map((line, i) => {
@@ -112,7 +112,7 @@ export function DiffView({ diff, title, id }: { diff: string; title?: string; id
           <CopyButton value={diff} compact label="Copy diff" />
         </span>
       </figcaption>
-      <div className="code-scroll">
+      <div className="code-scroll" tabIndex={0}>
         <table>
           <tbody>
             {lines.map((l, i) =>

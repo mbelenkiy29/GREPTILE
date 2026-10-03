@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatVerdict, judge, parseSpec, summaryLine, titleMatchesId } from "./core";
+import { formatVerdict, judge, parsePlaywrightJson, parseSpec, summaryLine, titleMatchesId } from "./core";
 
 const spec = `# Spec
 ## Hard rules
@@ -54,5 +54,32 @@ describe("parity verifier", () => {
     expect(summaryLine("1", [{ id: "R1.1", pass: true }, { id: "R1.2", pass: false, reason: "x" }])).toBe(
       "PARITY 1: 1/2 PASS",
     );
+  });
+
+  test("reads Playwright JSON results, nested suites included", () => {
+    const report = {
+      suites: [
+        {
+          title: "site.spec.ts",
+          specs: [
+            { title: "R5.4 passes", tests: [{ status: "expected" }] },
+            { title: "R5.4 flaky but passed on retry", tests: [{ status: "flaky" }] },
+            { title: "R5.4 fails in one project", tests: [{ status: "expected" }, { status: "unexpected" }] },
+            { title: "R5.4 skipped", tests: [{ status: "skipped" }] },
+          ],
+          suites: [{ title: "nested", specs: [{ title: "R5.3 nested", tests: [{ status: "expected" }] }] }],
+        },
+      ],
+    };
+    expect(parsePlaywrightJson(report)).toEqual([
+      { title: "R5.4 passes", status: "passed" },
+      { title: "R5.4 flaky but passed on retry", status: "passed" },
+      { title: "R5.4 fails in one project", status: "failed" },
+      { title: "R5.4 skipped", status: "skipped" },
+      { title: "R5.3 nested", status: "passed" },
+    ]);
+    expect(parsePlaywrightJson(null)).toEqual([]);
+    const feature54 = { id: "R5.4", phase: 5, description: "" };
+    expect(formatVerdict(judge(feature54, [], parsePlaywrightJson(report)))).toBe("FAIL R5.4 1/3 tests failed: R5.4 fails in one project");
   });
 });

@@ -1,0 +1,24 @@
+---
+title: REST API
+description: Every endpoint of REST API v1, generated from the OpenAPI document the server serves.
+---
+
+The REST API lets scripts and other tools list repositories, request reviews, read findings, and manage rules. Base URL: `APP_URL/api/v1`.
+
+## Authentication
+
+Create an API key under **Settings → API keys** and send it as a bearer token:
+
+```sh
+curl -H "Authorization: Bearer $OPENREVIEW_TOKEN" https://openreview.example.com/api/v1/me
+```
+
+Keys belong to an organization and carry scopes; an endpoint that needs a scope the key lacks answers `403`. Keys can expire and can be revoked at any time. Requests are rate-limited per key (`API_RATE_LIMIT_PER_MINUTE`, default 120 per minute); over the limit the API answers `429` with a `Retry-After` header.
+
+## Conventions
+
+- Errors are JSON: `{ "error": { "code": "...", "message": "..." } }`.
+- Lists are paginated with `page` and `pageSize`.
+- The machine-readable OpenAPI 3.1 document is served by every instance at `APP_URL/api/v1/openapi.json`; point a client generator at it.
+
+{/* @generated api-reference */}

@@ -12,3 +12,4 @@ test-results
 packages/*/dist
 .openreview
 backups
+.lighthouseci

@@ -52,7 +52,7 @@ Alternatively, run the whole stack in containers with `docker compose up -d --bu
 | `pnpm test` | The whole Vitest suite. Database tests run on PGlite (in-process Postgres with pgvector), so no server is needed. On a small machine: `pnpm test -- --maxWorkers=2` |
 | `pnpm vitest run tests/r6.25-github-app-setup.test.ts` | One test file |
 | `pnpm build` | Production build (`next build`) |
-| `pnpm verify:parity --phase 1` | Runs typecheck, lint, tests, and the build, then prints `PASS <ID>` / `FAIL <ID> <reason>` per spec feature and `PARITY <phase>: <passed>/<total> PASS`; exits 0 only if every ID of the phase passes. `--phase all` and `--skip-build` are supported. |
+| `pnpm verify:parity --phase 1` | Runs typecheck, lint, tests, and the build, then prints `PASS <ID>` / `FAIL <ID> <reason>` per spec feature and `PARITY <phase>: <passed>/<total> PASS`; exits 0 only if every ID of the phase passes. `--phase all`, `--skip-build`, and `--skip-e2e` are supported. |
 | `pnpm db:generate` | Generate a migration from `lib/db/schema.ts` |
 | `pnpm db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `pnpm cli:build` | Build the `openreview` CLI into `packages/cli/dist` |
@@ -60,6 +60,7 @@ Alternatively, run the whole stack in containers with `docker compose up -d --bu
 | `pnpm deps:audit` | `pnpm audit --prod --audit-level=high` (also run in CI) |
 | `pnpm demo` | With `DEMO_MODE=true`: indexes `fixtures/demo-repo` on the local git host, opens a pull request with a cross-file bug, and runs the real review pipeline (`LLM_PROVIDER=fake` replays `fixtures/demo-repo/recorded/`; `--record` saves a new recording) |
 | `pnpm eval` | Evaluation harness over `eval/cases` (precision, recall, latency, cost; reports in `eval/reports/`). `--provider fake --recorded` replays `eval/recordings/`; see [eval/README.md](eval/README.md) |
+| `pnpm e2e` | Playwright tests of the public site (screenshots at 375 and 1440 px, axe, overflow) against the production build; run `pnpm build` first |
 
 ## Rules for every change
 

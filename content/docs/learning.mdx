@@ -1,0 +1,36 @@
+---
+title: Learning & feedback
+description: How reactions, replies, and commands on OpenReview's comments turn into preferences you can inspect and edit.
+---
+
+OpenReview adapts to each repository from the feedback people already give in code review. Everything it learns is stored as an explicit, readable preference — never as an opaque change to a model — so you can see why a kind of comment stopped appearing and undo it.
+
+## Giving feedback
+
+On any inline comment OpenReview posted:
+
+| You do | It records |
+| --- | --- |
+| React with 👍 | The finding was useful |
+| React with 👎 | The finding was not useful |
+| Reply `@openreview resolved` | Fixed |
+| Reply `@openreview won't fix` | Valid, but you are not changing it |
+| Reply `@openreview false positive` | The finding was wrong |
+| Reply `@openreview useful` / `not useful` | Same as the reactions |
+| Reply `@openreview ignore this pattern` | Stop reporting this kind of finding in this repository |
+
+Plain-text replies are kept with the finding as well. In the dashboard, every finding has the same feedback buttons. Commands that change state are accepted only from people with write access to the repository.
+
+## What is learned
+
+- **Patterns.** Feedback on a finding counts toward the closest pattern of the same category (similar title). When a pattern's net score reaches −2 it is **suppressed** and similar findings stop being posted; at +2 it is **boosted** and ranks higher.
+- **Categories.** Over the most recent rated findings in a category, an acceptance rate below 25% raises that category's minimum confidence in the repository (it never turns the category off); 75% or more boosts it.
+- **Ignore commands** and preferences people have edited are pinned: later feedback does not undo them.
+
+## Inspecting and editing
+
+**Rules → Preferences** lists every learned preference with its signal, score, and the feedback behind it, and shows acceptance by category. You can edit a preference, delete one, or reset what was learned (for one repository or the whole organization; pinned preferences are kept unless you include them). Preferences can be exported as JSON.
+
+## Learning from teammates
+
+Review comments written by people (not by OpenReview) are mined into candidate rules. See [Mined rules](/docs/rules#mined-rules).
