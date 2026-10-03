@@ -18,8 +18,14 @@ import { isSameOrigin } from "@/lib/security/csrf";
 import { APP_VERSION } from "@/lib/version";
 import { createOpenReviewMcpServer, OpenReviewApiError, queryString, type OpenReviewApi } from "@/packages/mcp/src/tools";
 
-/** Runs REST v1 routes in-process as `principal` (the MCP tools' API on the server). */
-export function inProcessApi(deps: ApiDeps, principal: ApiPrincipal): OpenReviewApi {
+/** Client headers carried from the MCP request to the routes it runs, so audit entries keep the caller's address. */
+const FORWARDED_HEADERS = ["x-forwarded-for", "x-real-ip", "user-agent"] as const;
+
+/**
+ * Runs REST v1 routes in-process as `principal` (the MCP tools' API on the server). `origin` is the MCP request,
+ * whose client address and user agent the routes see.
+ */
+export function inProcessApi(deps: ApiDeps, principal: ApiPrincipal, origin?: Request): OpenReviewApi {
   return {
     async request(method, path, { query, body } = {}) {
       const target = path.split("?")[0] ?? path;
@@ -27,6 +33,10 @@ export function inProcessApi(deps: ApiDeps, principal: ApiPrincipal): OpenReview
       if (!match) throw new OpenReviewApiError(404, "not_found", `No API route for ${method} ${target}.`);
       const url = new URL(`${V1_BASE_PATH}${target}${queryString(query)}`, deps.appUrl);
       const headers = new Headers({ accept: "application/json" });
+      for (const name of FORWARDED_HEADERS) {
+        const value = origin?.headers.get(name);
+        if (value) headers.set(name, value);
+      }
       if (body !== undefined) headers.set("content-type", "application/json");
       const req = new Request(url, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
       const res = await executeRouteAs(match.route, deps, req, match.params, principal);
@@ -83,7 +93,7 @@ export async function handleMcpRequest(deps: ApiDeps, req: Request): Promise<Res
     rateHeaders = rateLimitHeaders(decision);
     if (!decision.allowed) return rateLimitedResponse(decision, deps.now(), rateHeaders, log);
 
-    const server = createOpenReviewMcpServer(inProcessApi({ ...deps, log }, principal), { name: "openreview", version: APP_VERSION });
+    const server = createOpenReviewMcpServer(inProcessApi({ ...deps, log }, principal, req), { name: "openreview", version: APP_VERSION });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize: 1024 * 1024 });
     try {
       await server.connect(transport);

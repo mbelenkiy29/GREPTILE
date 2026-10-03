@@ -189,8 +189,7 @@ async function resolveRepositoryId(api: OpenReviewApi, repository: number | stri
   if (typeof repository === "number") return { id: repository, fullName: null };
   if (/^\d+$/.test(repository)) return { id: Number(repository), fullName: null };
   const wanted = repository.replace(/\.git$/, "").replace(/^\/+|\/+$/g, "").toLowerCase();
-  const name = wanted.split("/").pop() ?? wanted;
-  const page = parsed(pageOf(repositoryItem), await api.request("GET", "/repositories", { query: { q: name, pageSize: 100 } }), "repository list");
+  const page = parsed(pageOf(repositoryItem), await api.request("GET", "/repositories", { query: { q: wanted, pageSize: 100 } }), "repository list");
   const match = page.data.find((r) => r.fullName.toLowerCase() === wanted);
   if (!match) {
     const near = page.data.map((r) => r.fullName).slice(0, 5);

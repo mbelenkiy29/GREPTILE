@@ -185,8 +185,8 @@ ensure_pr() {
 }
 
 resolve_repository_id() {
-  local name="${REPO##*/}" id
-  id="$(api GET "/repositories?q=$(urlencode "$name")&pageSize=100" |
+  local id
+  id="$(api GET "/repositories?q=$(urlencode "$REPO")&pageSize=100" |
     REPO_LC="$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')" jget '(d.data.find((r) => r.fullName.toLowerCase() === process.env.REPO_LC) || {}).id')" ||
     die "could not list repositories (the API key needs repos:read)"
   [[ -n "$id" ]] || die "$REPO is not connected to this OpenReview organization"

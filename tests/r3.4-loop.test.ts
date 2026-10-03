@@ -209,6 +209,7 @@ describe("openreview-loop.sh (R3.4)", () => {
     expect(sb.read("prompt-2")).toBe("");
     expect(sb.read("calls")).toContain("git commit -q -m Fix OpenReview findings (iteration 1)");
     for (const r of fake.requests) expect(r.auth).toBe(`Bearer ${TOKEN}`);
+    expect(fake.requests[0]!.url).toBe("/api/v1/repositories?q=acme%2Fshop&pageSize=100");
     expect(fake.requests.some((r) => r.url.includes("severity=critical,high,medium&"))).toBe(true);
   });
 

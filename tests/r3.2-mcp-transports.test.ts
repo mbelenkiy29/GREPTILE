@@ -10,6 +10,7 @@ import { API_SCOPES } from "@/lib/api/keys";
 import { MemoryRateLimiter } from "@/lib/api/rate-limit";
 import { executeRoute, matchRoute, type ApiDeps } from "@/lib/api/router";
 import { V1_ROUTES } from "@/lib/api/v1";
+import { listAudit } from "@/lib/data/audit";
 import { findingFeedback } from "@/lib/db/schema";
 import { handleMcpRequest, mcpMethodNotAllowed } from "@/lib/mcp/server";
 import { ConfigError, configFilePath, resolveConfig, restApi } from "@/packages/mcp/src/rest";
@@ -58,11 +59,16 @@ describe("MCP Streamable HTTP endpoint (R3.2)", () => {
 
     // The official client end to end (initialize, initialized notification, the 405 on the optional GET stream).
     const client = new Client({ name: "http-test", version: "1.0.0" });
-    await client.connect(new StreamableHTTPClientTransport(new URL(MCP_URL), { fetch: mcpFetch(deps), requestInit: { headers: { authorization: `Bearer ${token}` } } }));
+    await client.connect(new StreamableHTTPClientTransport(new URL(MCP_URL), { fetch: mcpFetch(deps), requestInit: { headers: { authorization: `Bearer ${token}`, "x-forwarded-for": "203.0.113.9" } } }));
     const res = (await client.callTool({ name: "mark_finding_resolved", arguments: { findingId: fx.findings.fCritical.id } })) as CallToolResult;
     expect(res.isError).toBeFalsy();
     const [fb] = await fx.db.select().from(findingFeedback).where(eq(findingFeedback.source, "mcp"));
     expect(fb).toMatchObject({ findingId: fx.findings.fCritical.id, kind: "resolved", orgId: "org_a" });
+    // Writes are audited like REST calls, as the key, with the MCP client's address.
+    const queued = (await client.callTool({ name: "trigger_review", arguments: { repository: "acme/api", prNumber: 1 } })) as CallToolResult;
+    expect(queued.isError).toBeFalsy();
+    const [entry] = (await listAudit(fx.db, "org_a")).filter((a) => a.action === "review.requested");
+    expect(entry).toMatchObject({ actorType: "api_key", ip: "203.0.113.9" });
     const tools = await client.listTools();
     expect(tools.tools.length).toBe(12);
     await client.close();
@@ -153,7 +159,7 @@ describe("openreview-mcp stdio proxy (R3.2)", () => {
     const crit = fx.findings.fCritical.id;
 
     const expectations: [string, Record<string, unknown>, string[]][] = [
-      ["list_reviews", { repository: "acme/api", prNumber: 1 }, ["GET /api/v1/repositories?q=api&pageSize=100", `GET /api/v1/reviews?repositoryId=${fx.repos.api.id}&prNumber=1&pageSize=20`]],
+      ["list_reviews", { repository: "acme/api", prNumber: 1 }, ["GET /api/v1/repositories?q=acme%2Fapi&pageSize=100", `GET /api/v1/reviews?repositoryId=${fx.repos.api.id}&prNumber=1&pageSize=20`]],
       ["get_review", { reviewId: r1 }, [`GET /api/v1/reviews/${r1}`]],
       ["list_review_comments", { reviewId: r1, minSeverity: "high" }, [`GET /api/v1/findings?reviewId=${r1}&status=open&severity=critical%2Chigh&sort=severity&page=1&pageSize=100`]],
       ["list_findings", { severity: ["critical"] }, ["GET /api/v1/findings?status=open&severity=critical&sort=severity&pageSize=50"]],
