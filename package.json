@@ -18,7 +18,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "verify:parity": "tsx scripts/verify-parity.ts",
     "worker": "tsx worker/index.ts",
-    "mcp:build": "pnpm --filter openreview-mcp build"
+    "mcp:build": "pnpm --filter openreview-mcp build",
+    "deps:audit": "pnpm audit --prod --audit-level=high"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

@@ -2,6 +2,8 @@
 # Optional build secret `extra_ca`: a PEM bundle to trust when installs go
 # through a TLS-intercepting proxy. Empty (unused) by default.
 FROM node:22-alpine AS base
+# No Next.js telemetry in any stage (R4.6 offline bundle).
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
