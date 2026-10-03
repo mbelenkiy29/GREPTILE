@@ -1,0 +1,41 @@
+{
+  "name": "openreview-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for OpenReview: review findings, fix prompts, re-reviews, and codebase search for coding agents. Runs over stdio and talks to an OpenReview server's REST API.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "openreview-mcp": "dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "tsc -p tsconfig.build.json"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "code-review",
+    "openreview"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3"
+  }
+}
