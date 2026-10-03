@@ -1,5 +1,5 @@
 {
-  "name": "openreview",
+  "name": "openreview-app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,7 +18,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "verify:parity": "tsx scripts/verify-parity.ts",
     "worker": "tsx worker/index.ts",
-    "mcp:build": "pnpm --filter openreview-mcp build"
+    "mcp:build": "pnpm --filter openreview-mcp build",
+    "cli:build": "pnpm --filter openreview build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

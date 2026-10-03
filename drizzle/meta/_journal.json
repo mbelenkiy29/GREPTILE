@@ -162,6 +162,13 @@
       "when": 1790998650661,
       "tag": "0022_equal_firelord",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791001436856,
+      "tag": "0023_cli_sessions",
+      "breakpoints": true
     }
   ]
 }

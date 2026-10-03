@@ -127,6 +127,8 @@ describe("roles and permissions", () => {
       "createWorkspace",
       "chooseWorkspace",
       "acceptWorkspaceInvitation",
+      // CLI login (R3.5): approving needs membership in the chosen org, checked in `decideLogin`.
+      "decideCliLoginAction",
     ]);
     const checked: string[] = [];
     for (const file of files) {

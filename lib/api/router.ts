@@ -14,7 +14,8 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import type { FixFileReader } from "@/lib/fix/context";
 import type { JobQueue } from "@/lib/jobs/types";
-import type { EmbeddingProvider } from "@/lib/llm/types";
+import type { EmbeddingProvider, LlmProvider } from "@/lib/llm/types";
+import type { RunReview } from "@/lib/pipeline/engine";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { authenticateRequest, rateLimitKey, requireScope, type ApiPrincipal } from "./auth";
 import { ApiError, apiError } from "./http";
@@ -35,7 +36,18 @@ export interface ApiDeps {
   readFile?: FixFileReader;
   /** Embeds codebase-search questions for semantic matches; without it search uses symbols, paths, and full text. */
   embedder?: EmbeddingProvider;
+  /** The review engine's model gateway and embedder, for reviews the API runs itself (`POST /reviews/local`, R3.5). */
+  reviewEngine?: () => ReviewEngineDeps;
+  /** How long `POST /reviews/local` may run before it is aborted. */
+  localReviewTimeoutMs?: number;
   log?: Logger;
+}
+
+export interface ReviewEngineDeps {
+  llm: LlmProvider;
+  embedder?: EmbeddingProvider;
+  /** The engine; defaults to `runReview` (tests inject one). */
+  runReview?: RunReview;
 }
 
 export const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -73,6 +85,8 @@ export interface RouteSpec<P = unknown, Q = unknown, B = unknown> {
   params?: z.ZodType<P>;
   query?: z.ZodType<Q>;
   body?: z.ZodType<B>;
+  /** Largest accepted request body (default 64 KiB). */
+  maxBodyBytes?: number;
   responses: Record<number, ResponseDoc>;
   /** Method syntax on purpose: routes with different param/query/body types share one table ({@link AnyRoute}). */
   handler(ctx: HandlerContext<P, Q, B>): Promise<Response>;
@@ -115,10 +129,12 @@ function parse<T>(schema: z.ZodType<T> | undefined, value: unknown, where: strin
 
 const MAX_BODY_BYTES = 64 * 1024;
 
-async function readJsonBody(req: Request): Promise<unknown> {
+async function readJsonBody(req: Request, maxBytes: number = MAX_BODY_BYTES): Promise<unknown> {
   const type = req.headers.get("content-type") ?? "";
+  const tooLarge = () => new ApiError(400, "bad_request", `Request body is too large (limit ${Math.floor(maxBytes / 1024)} KiB).`);
+  if (Number(req.headers.get("content-length") ?? "0") > maxBytes) throw tooLarge();
   const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw new ApiError(400, "bad_request", "Request body is too large.");
+  if (Buffer.byteLength(text) > maxBytes) throw tooLarge();
   if (!text.trim()) return {};
   if (!/^application\/(.+\+)?json\b/i.test(type)) throw new ApiError(400, "bad_request", "Send the request body as JSON (content-type: application/json).");
   try {
@@ -189,7 +205,7 @@ async function runAuthorized(route: AnyRoute, deps: ApiDeps, req: Request, rawPa
   if (principal && route.scope) requireScope(principal, route.scope);
   const params = parse(route.params, rawParams, "path");
   const query = parse(route.query, queryObject(new URL(req.url)), "query");
-  const body = route.body ? parse(route.body, await readJsonBody(req), "body") : undefined;
+  const body = route.body ? parse(route.body, await readJsonBody(req, route.maxBodyBytes), "body") : undefined;
   return route.handler({
     deps,
     req,

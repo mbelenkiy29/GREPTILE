@@ -13,13 +13,26 @@ import { findingFeedback, findings, indexJobs, reviewRuns, rules } from "@/lib/d
 import { addMember, makeUser, signedInCookie } from "./helpers/auth";
 import { API_ORIGIN, apiDeps, call, json, makeKey } from "./helpers/api";
 import { dashboardFixture } from "./helpers/dashboard";
+import { reviewOutput, stubEngine } from "./helpers/stub-engine";
+import { FakeLlm } from "@/lib/llm/fake";
+
+/** A minimal CLI review body (R3.5) for `repositoryId`. */
+const localReviewBody = (repositoryId: number) => ({
+  repositoryId,
+  baseSha: "a".repeat(40),
+  headSha: "b".repeat(40),
+  files: [{ path: "src/x.ts", status: "added", patch: "@@ -0,0 +1 @@\n+export const x = 1;" }],
+  headFiles: { "src/x.ts": "export const x = 1;\n" },
+});
 
 const NOW = new Date("2026-03-01T12:00:00Z");
 const ALL = [...API_SCOPES];
 
 async function fixture() {
   const fx = await dashboardFixture(NOW);
-  const deps = apiDeps(fx.db);
+  // CLI reviews (POST /reviews/local, R3.5) run a stand-in engine here; tests/r3.5-cli-server.test.ts runs the real one.
+  const engine = stubEngine(() => reviewOutput());
+  const deps = apiDeps(fx.db, { reviewEngine: () => ({ llm: new FakeLlm(), runReview: engine.run }) });
   const [globexFinding] = await fx.db.select().from(findings).where(eq(findings.orgId, "org_b"));
   const globexRule = await createRule(fx.db, "org_b", { text: "Globex rule text", source: "dashboard" });
   return { ...fx, deps, globexFinding: globexFinding!, globexRule };
@@ -225,6 +238,7 @@ describe("REST API v1 (R6.18)", () => {
       "GET /repositories/{id}/knowledge": async () => ({ request: `GET /repositories/${repos.api.id}/knowledge` }),
       "GET /reviews": async () => ({ request: "GET /reviews" }),
       "POST /reviews": async () => ({ request: "POST /reviews", body: { repositoryId: repos.api.id, prNumber: 77 } }),
+      "POST /reviews/local": async () => ({ request: "POST /reviews/local", body: localReviewBody(repos.api.id) }),
       "GET /reviews/{id}": async () => ({ request: `GET /reviews/${reviews.r1.review.id}` }),
       "POST /reviews/runs/{runId}/cancel": async () => ({ request: `POST /reviews/runs/${reviews.r3.run.id}/cancel` }),
       "GET /reviews/{id}/fix-all": async () => ({ request: `GET /reviews/${reviews.r1.review.id}/fix-all` }),
@@ -272,6 +286,8 @@ describe("REST API v1 (R6.18)", () => {
       [`PATCH /rules/${globexRule.id}`, { text: "Hijacked rule text" }],
       [`DELETE /rules/${globexRule.id}`],
       ["POST /reviews", { repositoryId: repos.core.id, prNumber: 9 }],
+      ["POST /reviews/local", localReviewBody(repos.core.id)],
+      ["POST /reviews/local", { ...localReviewBody(repos.core.id), repositoryId: undefined, repoFullName: "globex/core" }],
       ["POST /rules", { text: "Rule for their repo", repositoryId: repos.core.id }],
     ];
     for (const [request, body] of foreign) {

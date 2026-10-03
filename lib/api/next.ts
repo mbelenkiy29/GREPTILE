@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { apiEnv, authEnv } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
 import { bullQueue } from "@/lib/jobs/queue";
-import { embeddings, type EmbeddingProvider } from "@/lib/llm";
+import { embeddings, llm, type EmbeddingProvider } from "@/lib/llm";
 import { errorMessage, log } from "@/lib/log";
 import { redis } from "@/lib/redis";
 import { RedisRateLimiter } from "./rate-limit";
@@ -45,6 +45,9 @@ export function productionApiDeps(): ApiDeps {
     sessionTtlDays: authEnv().SESSION_TTL_DAYS,
     readFile: ({ installationExternalId, repoFullName, path, ref }) => gitHost().client(installationExternalId).getFileContent(repoFullName, path, ref),
     ...(emb ? { embedder: emb } : {}),
+    // The same model gateway and embedder the worker reviews pull requests with.
+    reviewEngine: () => ({ llm: llm({ db: db() }), embedder: embeddings({ db: db() }) }),
+    localReviewTimeoutMs: e.LOCAL_REVIEW_TIMEOUT_MS,
     log: apiLog,
   };
 }

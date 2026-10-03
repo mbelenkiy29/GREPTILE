@@ -20,7 +20,9 @@ import { findingFeedback, findings, findingStatus, repos } from "@/lib/db/schema
 import { buildFixAllTask, DEFAULT_FIX_ALL_MIN_CONFIDENCE } from "@/lib/fix/fix-all";
 import { loadFindingFix } from "@/lib/fix/context";
 import { buildFixPrompts, cursorDeepLink, FIX_AGENTS, type FixAgent } from "@/lib/fix/prompt";
-import { REVIEW_MODES } from "@/lib/llm/types";
+import { LlmError, REVIEW_MODES } from "@/lib/llm/types";
+import { errorMessage } from "@/lib/log";
+import { LOCAL_REVIEW_MAX_BODY_BYTES, LocalReviewError, localReviewBodySchema, localReviewResultSchema, ReviewModelError, runServerLocalReview, usageAuthor } from "@/lib/review/local";
 import { getRun } from "@/lib/pipeline/state";
 import { cancelReview, requestReview } from "@/lib/pipeline/request";
 import { UsageLimitError } from "@/lib/billing/limits";
@@ -286,7 +288,11 @@ const listReviews = defineRoute({
   query: z.strictObject({
     ...pageFields,
     repositoryId: intId.optional(),
+    /** `owner/name`, as an alternative to `repositoryId`. */
+    repository: z.string().trim().min(3).max(300).optional(),
     prNumber: intId.optional(),
+    /** The pull request's head branch. */
+    headRef: z.string().trim().min(1).max(300).optional(),
     status: z.enum(REVIEW_STATUSES).optional(),
     mode: z.enum(REVIEW_MODES).optional(),
   }),
@@ -296,7 +302,9 @@ const listReviews = defineRoute({
       page: query.page,
       pageSize: query.pageSize,
       repoId: query.repositoryId,
-      prNumber: query.prNumber,
+      ...(query.repository !== undefined ? { repoFullName: query.repository } : {}),
+      ...(query.prNumber !== undefined ? { prNumber: query.prNumber } : {}),
+      ...(query.headRef !== undefined ? { headRef: query.headRef } : {}),
       status: query.status,
       mode: query.mode,
     });
@@ -383,6 +391,78 @@ const createReview = defineRoute({
       },
       202,
     );
+  },
+});
+
+/** Default limit on how long a CLI review may run inside one request. */
+export const LOCAL_REVIEW_TIMEOUT_MS = 5 * 60_000;
+/** CLI reviews one org may run at once in this process (each holds a request open while the model works). */
+export const LOCAL_REVIEWS_PER_ORG = 2;
+const localReviewsRunning = new Map<string, number>();
+
+const localReview = defineRoute({
+  method: "POST",
+  path: "/reviews/local",
+  tag: "Reviews",
+  summary: "Review a local change (the CLI's `openreview review`) against the repository's index",
+  description:
+    "Runs the review engine on the submitted diff and changed files' head contents, with the organization's settings, rules, and learned preferences, and answers with the findings. Nothing is posted to the git host. Usage is recorded with trigger `cli`.",
+  scope: "reviews:write",
+  body: localReviewBodySchema,
+  maxBodyBytes: LOCAL_REVIEW_MAX_BODY_BYTES,
+  responses: {
+    200: { description: "The review.", schema: z.object({ review: localReviewResultSchema }) },
+    409: { description: "The repository is archived or not indexed yet.", schema: errorSchema },
+    503: { description: "No model is configured on the server.", schema: errorSchema },
+    504: { description: "The review did not finish in time.", schema: errorSchema },
+    ...ERRORS,
+    ...NOT_FOUND,
+  },
+  async handler({ deps, req, principal, body, log }) {
+    if (!deps.reviewEngine) throw new ApiError(503, "unavailable", "Reviews from the CLI are not available on this server.");
+    const author = await usageAuthor(deps.db, principal.orgId, principal.actor.type === "api_key" ? { type: "api_key", keyId: principal.actor.keyId } : { type: "user", userId: principal.actor.userId });
+    const running = localReviewsRunning.get(principal.orgId) ?? 0;
+    if (running >= LOCAL_REVIEWS_PER_ORG) {
+      throw new ApiError(429, "rate_limited", `Your organization already has ${running} CLI reviews running. Wait for one to finish.`);
+    }
+    const engine = deps.reviewEngine();
+    const controller = new AbortController();
+    const timeoutMs = deps.localReviewTimeoutMs ?? LOCAL_REVIEW_TIMEOUT_MS;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const onClientGone = () => controller.abort();
+    req.signal.addEventListener("abort", onClientGone, { once: true });
+    localReviewsRunning.set(principal.orgId, running + 1);
+    try {
+      const review = await runServerLocalReview(
+        { db: deps.db, llm: engine.llm, ...(engine.embedder ? { embedder: engine.embedder } : {}), ...(engine.runReview ? { runReview: engine.runReview } : {}), log, signal: controller.signal },
+        { orgId: principal.orgId, body, author },
+      );
+      log.info("CLI review completed", { repositoryId: review.repository.id, findings: review.findings.length, credits: review.usage.credits });
+      await audit(deps, req, principal, {
+        action: "review.local_completed",
+        targetType: "repository",
+        targetId: review.repository.id ?? 0,
+        metadata: { baseSha: body.baseSha, headSha: body.headSha, files: body.files.length, findings: review.findings.length, mode: review.mode, focus: review.focus },
+      });
+      return apiJson({ review });
+    } catch (err) {
+      if (err instanceof LocalReviewError) {
+        if (err.code === "not_found") throw new ApiError(404, "not_found", err.message);
+        throw new ApiError(409, "conflict", err.message);
+      }
+      if (controller.signal.aborted && !req.signal.aborted) throw new ApiError(504, "timeout", `The review did not finish within ${Math.round(timeoutMs / 1000)}s. Try --mode fast or a smaller change.`);
+      if (err instanceof LlmError || err instanceof ReviewModelError) {
+        log.warn("CLI review failed in the model gateway", { error: errorMessage(err) });
+        throw new ApiError(503, "unavailable", `The review model failed: ${errorMessage(err, 300)}`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      req.signal.removeEventListener("abort", onClientGone);
+      const left = (localReviewsRunning.get(principal.orgId) ?? 1) - 1;
+      if (left > 0) localReviewsRunning.set(principal.orgId, left);
+      else localReviewsRunning.delete(principal.orgId);
+    }
   },
 });
 
@@ -717,6 +797,7 @@ export const V1_ROUTES: readonly AnyRoute[] = [
   repositoryKnowledge,
   listReviews,
   createReview,
+  localReview,
   getReview,
   cancelRun,
   fixAll,

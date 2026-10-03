@@ -1160,6 +1160,8 @@ export const usageEvents = pgTable(
     /** Estimated USD; null when unpriced. */
     costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
     credits: integer("credits").notNull().default(0),
+    /** What started the work when it is not a review run's own trigger, e.g. `cli` for CLI reviews (R3.5). */
+    trigger: text("trigger"),
     createdAt: createdAt(),
   },
   (t) => [index().on(t.orgId, t.createdAt)],
@@ -1588,4 +1590,42 @@ export const billingUsageReports = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.periodStart] })],
+);
+
+// ---- cli ----
+
+export const cliSessionStatus = pgEnum("cli_session_status", ["pending", "approved", "denied", "expired"]);
+
+/**
+ * A CLI device-code login (R3.5). The CLI holds the device code (only its SHA-256 is stored) and polls; a signed-in
+ * member confirms the short user code at /cli/activate and picks an org. The first poll after approval creates the
+ * API key (`apiKeyId`) and returns its token once; the token itself is never stored.
+ */
+export const cliSessions = pgTable(
+  "cli_sessions",
+  {
+    id: serial("id").primaryKey(),
+    deviceCodeHash: text("device_code_hash").notNull(),
+    /** 8 characters from an unambiguous alphabet, shown as XXXX-XXXX. */
+    userCode: text("user_code").notNull(),
+    orgId: text("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    status: cliSessionStatus("status").notNull().default("pending"),
+    apiKeyId: integer("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+    /** Hostname the CLI reported (the key is named "CLI on <host>"). */
+    clientHost: text("client_host").notNull(),
+    /** Address that started the login, shown on the confirmation page. */
+    clientIp: text("client_ip"),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** When the key's token was handed to the CLI (at most once). */
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("cli_sessions_device_code_hash_uq").on(t.deviceCodeHash),
+    uniqueIndex("cli_sessions_user_code_uq").on(t.userCode),
+    index().on(t.expiresAt),
+  ],
 );

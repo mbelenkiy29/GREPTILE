@@ -8,3 +8,6 @@ node_modules
 coverage
 playwright-report
 test-results
+**/node_modules
+packages/*/dist
+.openreview
