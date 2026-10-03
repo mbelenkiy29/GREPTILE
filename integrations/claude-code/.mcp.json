@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "openreview": {
+      "command": "npx",
+      "args": ["-y", "openreview-mcp"],
+      "env": {
+        "OPENREVIEW_URL": "${OPENREVIEW_URL:-}",
+        "OPENREVIEW_TOKEN": "${OPENREVIEW_TOKEN:-}"
+      }
+    }
+  }
+}
