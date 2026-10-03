@@ -56,7 +56,8 @@ export function v1(id: string) {
   const route = V1_ROUTES.find((r) => routeId(r) === id);
   if (!route) throw new Error(`unknown API route ${id}`);
   return async (req: Request, ctx: RouteContext): Promise<Response> => {
-    const raw = await ctx.params;
+    // Routes without dynamic segments get no params object.
+    const raw = (await ctx?.params) ?? {};
     const params: Record<string, string | string[]> = {};
     for (const [k, v] of Object.entries(raw)) if (v !== undefined) params[k] = v;
     return executeRoute(route, productionApiDeps(), req, params);

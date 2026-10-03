@@ -7,7 +7,7 @@ import { auditDashboard } from "@/lib/audit/dashboard";
 import { setActiveOrg } from "@/lib/auth/sessions";
 import { db } from "@/lib/db";
 import { acceptInvitationById } from "@/lib/data/members";
-import { createOrg, OrgError, type OrgErrorCode } from "@/lib/data/orgs";
+import { createOrg, listUserOrgs, OrgError, type OrgErrorCode } from "@/lib/data/orgs";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 
 /*
@@ -49,6 +49,7 @@ export async function createOrgAction(formData: FormData) {
 export async function acceptListedInvitation(formData: FormData) {
   const session = await requireUser();
   if (await checkRateLimit("invite.accept", session.userId)) redirect("/orgs?error=rate_limited");
+  const before = new Set((await listUserOrgs(db(), session.userId)).map((o) => o.id));
   const result = await attempt(() =>
     acceptInvitationById(db(), {
       invitationId: Number(formData.get("invitationId")),
@@ -57,7 +58,9 @@ export async function acceptListedInvitation(formData: FormData) {
     }),
   );
   if ("error" in result) redirect(`/orgs?error=${result.error}`);
-  await auditDashboard({ orgId: result.orgId, userId: session.userId }, { action: "member.joined", targetType: "user", targetId: session.userId, metadata: { via: "invitation" } });
+  if (!before.has(result.orgId)) {
+    await auditDashboard({ orgId: result.orgId, userId: session.userId }, { action: "member.joined", targetType: "user", targetId: session.userId, metadata: { via: "invitation" } });
+  }
   await setActiveOrg(db(), { sessionId: session.id, userId: session.userId, orgId: result.orgId });
   revalidatePath("/", "layout");
   redirect("/dashboard");
