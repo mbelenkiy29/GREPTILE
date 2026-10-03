@@ -1924,3 +1924,71 @@ export const demoReviews = pgTable(
   },
   (t) => [uniqueIndex("demo_reviews_pow_nonce_uq").on(t.powNonce), index().on(t.clientKey, t.createdAt), index().on(t.createdAt), index().on(t.orgId)],
 );
+
+// ---- e2e: demo / local mode (R6.22) ----
+
+/**
+ * A pull request on the local git host (R6.22 demo / local mode): a branch of a bare repository under LOCAL_GIT_ROOT
+ * proposed for merging into another. The branches live in git; this row holds what a git host would (title, body,
+ * author, state). `head_sha` / `base_sha` are the commits last seen, kept for closed pull requests whose branches are
+ * gone. Only written when demo mode is on (never in production unless explicitly allowed).
+ */
+export const localPullRequests = pgTable(
+  "local_pull_requests",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    author: text("author").notNull(),
+    baseRef: text("base_ref").notNull(),
+    headRef: text("head_ref").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha").notNull(),
+    state: text("state").$type<"open" | "closed" | "merged">().notNull().default("open"),
+    draft: boolean("draft").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("local_pull_requests_repo_number_uq").on(t.repoId, t.number), index().on(t.orgId)],
+);
+
+/**
+ * Comments and reviews on a local pull request (R6.22): `issue` comments on the conversation, inline
+ * `review_comment`s (threaded through `in_reply_to`), and submitted `review`s (state APPROVED, COMMENTED, ...).
+ */
+export const localComments = pgTable(
+  "local_comments",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    pullRequestId: integer("pull_request_id")
+      .notNull()
+      .references(() => localPullRequests.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"issue" | "review_comment" | "review">().notNull(),
+    body: text("body").notNull(),
+    author: text("author").notNull(),
+    path: text("path"),
+    line: integer("line"),
+    startLine: integer("start_line"),
+    inReplyTo: integer("in_reply_to"),
+    /** The `review` row an inline comment was submitted with. */
+    reviewId: integer("review_id"),
+    commitSha: text("commit_sha"),
+    /** For `review` rows: APPROVED, CHANGES_REQUESTED, COMMENTED. */
+    state: text("state"),
+    reactions: jsonb("reactions").$type<{ id: number; content: string; user: string }[]>().notNull().default([]),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.pullRequestId, t.kind), index().on(t.orgId)],
+);

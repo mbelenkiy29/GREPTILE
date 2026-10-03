@@ -1,0 +1,15 @@
+diff --git a/src/inventory/reserve.ts b/src/inventory/reserve.ts
+index cb3f26c..d0e6d3f 100644
+--- a/src/inventory/reserve.ts
++++ b/src/inventory/reserve.ts
+@@ -3,5 +3,9 @@ import type { StockStore } from "./store";
+ /** Reserves `quantity` units of `sku` for an order; false when not enough is in stock. */
+ export async function reserve(store: StockStore, sku: string, quantity: number): Promise<boolean> {
+   if (!Number.isInteger(quantity) || quantity <= 0) throw new RangeError("quantity must be a positive integer");
+-  return store.decrementIfAvailable(sku, quantity);
++  // decrementIfAvailable needs a row lock on hot SKUs; read and write the level directly instead.
++  const available = await store.get(sku);
++  if (available < quantity) return false;
++  await store.set(sku, available - quantity);
++  return true;
+ }

@@ -1,0 +1,31 @@
+{
+  "title": "formatPrice changes its return type under an unchanged caller",
+  "kind": "breaking API change",
+  "pr": {
+    "title": "Return price parts from formatPrice",
+    "body": "The new checkout UI styles the currency symbol separately.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "render-object-object",
+      "file": "src/money/format.ts",
+      "lines": [
+        9,
+        11
+      ],
+      "category": "api_compat",
+      "severity": "high",
+      "description": "formatPrice now returns an object, but renderInvoice in src/invoice/render.ts (unchanged) calls .padStart on it and concatenates it as a string.",
+      "keywords": [
+        "caller",
+        "consumer",
+        "renderInvoice",
+        "object",
+        "breaking",
+        "return type"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

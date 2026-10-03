@@ -1,0 +1,38 @@
+diff --git a/src/dates/calendar.ts b/src/dates/calendar.ts
+index 58d1789..d340d23 100644
+--- a/src/dates/calendar.ts
++++ b/src/dates/calendar.ts
+@@ -1,10 +1,10 @@
+ /** Days in `month` (1-12) of `year`. */
+ export function daysInMonth(year: number, month: number): number {
+-  if (month === 2) return isLeapYear(year) ? 29 : 28;
++  if (month === 2) return 28 + Number(isLeapYear(year));
+   return [4, 6, 9, 11].includes(month) ? 30 : 31;
+ }
+ 
+-/** Gregorian leap years: every 4th year, except centuries not divisible by 400 (fixed in #212: 1900 is not a leap year). */
++/** Leap years: every 4th year. */
+ export function isLeapYear(year: number): boolean {
+-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
++  return year % 4 === 0;
+ }
+diff --git a/test/calendar.test.ts b/test/calendar.test.ts
+index d69041c..110bfc7 100644
+--- a/test/calendar.test.ts
++++ b/test/calendar.test.ts
+@@ -1,14 +1,8 @@
+ import assert from "node:assert/strict";
+ import { test } from "node:test";
+-import { daysInMonth, isLeapYear } from "../src/dates/calendar";
++import { daysInMonth } from "../src/dates/calendar";
+ 
+ test("daysInMonth knows short months", () => {
+   assert.equal(daysInMonth(2023, 4), 30);
+   assert.equal(daysInMonth(2023, 1), 31);
+ });
+-
+-test("regression #212: centuries are leap years only when divisible by 400", () => {
+-  assert.equal(isLeapYear(1900), false);
+-  assert.equal(isLeapYear(2000), true);
+-  assert.equal(daysInMonth(1900, 2), 28);
+-});

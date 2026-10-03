@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case cross-file-units, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:correctness",
+      "response": {
+        "findings": [
+          {
+            "title": "requestTimeout now returns milliseconds but callUpstream still multiplies by 1000",
+            "description": "callUpstream (unchanged) computes requestTimeout(process.env) * 1000, so the default timeout becomes 30,000,000 ms (over 8 hours).",
+            "impact": "Hung upstream calls are never aborted in practice; requests pile up.",
+            "severity": "high",
+            "confidence": 0.85,
+            "path": "src/config/timeouts.ts",
+            "startLine": 4,
+            "endLine": 4,
+            "symbol": "requestTimeout",
+            "evidence": [
+              {
+                "path": "src/config/timeouts.ts",
+                "startLine": 4,
+                "endLine": 4,
+                "snippet": "  return Number.isFinite(ms) && ms > 0 ? ms : 30_000;",
+                "why": "The function now returns milliseconds."
+              },
+              {
+                "path": "src/http/upstream.ts",
+                "startLine": 6,
+                "endLine": 6,
+                "snippet": "const timer = setTimeout(() => controller.abort(), requestTimeout(process.env) * 1000);",
+                "why": "The caller converts seconds to milliseconds."
+              }
+            ],
+            "suggestedFix": "Remove the * 1000 in callUpstream, or keep requestTimeout in seconds.",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "high",
+            "confidence": 0.85,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": []
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

@@ -4,8 +4,11 @@
  * A "pull request" is a GitLab merge request (`number` is its iid) or a Bitbucket pull request.
  */
 
-/** The git hosts OpenReview supports; `installations.provider` holds one of them. */
-export const GIT_PROVIDERS = ["github", "gitlab", "bitbucket"] as const;
+/**
+ * The git hosts OpenReview supports; `installations.provider` holds one of them. `local` is the demo / local mode
+ * host (R6.22, `lib/git/local`), available only when DEMO_MODE is on outside production.
+ */
+export const GIT_PROVIDERS = ["github", "gitlab", "bitbucket", "local"] as const;
 export type GitProvider = (typeof GIT_PROVIDERS)[number];
 
 export function isGitProvider(value: unknown): value is GitProvider {

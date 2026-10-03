@@ -1,0 +1,20 @@
+diff --git a/src/money/format.ts b/src/money/format.ts
+index 8db0c2a..ffb4f99 100644
+--- a/src/money/format.ts
++++ b/src/money/format.ts
+@@ -1,7 +1,12 @@
+ const SYMBOLS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };
+ 
+-/** Formats integer cents as a price, e.g. formatPrice(123456, "USD") === "$1,234.56". */
+-export function formatPrice(cents: number, currency = "USD"): string {
++export interface FormattedPrice {
++  symbol: string;
++  amount: string;
++}
++
++/** Formats integer cents as a price, e.g. formatPrice(123456, "USD") → { symbol: "$", amount: "1,234.56" }. */
++export function formatPrice(cents: number, currency = "USD"): FormattedPrice {
+   const amount = (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+-  return `${SYMBOLS[currency] ?? `${currency} `}${amount}`;
++  return { symbol: SYMBOLS[currency] ?? `${currency} `, amount };
+ }

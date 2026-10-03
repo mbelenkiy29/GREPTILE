@@ -4,7 +4,7 @@ import { Badge, humanize, StatusPill } from "@/components/ui/Badge";
 import { CellTitle, Table } from "@/components/ui/Table";
 import type { RepoListItem } from "@/lib/data/repos";
 import { Icon } from "@/components/ui/icons";
-import { commitUrl, PROVIDER_LABEL, repoUrl, repoWeb } from "@/lib/git/web-url";
+import { commitUrl, PROVIDER_LABEL, providerIcon, repoUrl, repoWeb } from "@/lib/git/web-url";
 import { formatRelative, shortSha } from "@/lib/ui/format";
 import { IndexStatus } from "./IndexStatus";
 
@@ -12,8 +12,7 @@ export type RepoRow = RepoListItem;
 
 /** The repository's git host as a small labelled icon (R3.6). */
 export function ProviderIcon({ provider }: { provider: string }) {
-  const name = provider === "gitlab" ? "gitlab" : provider === "bitbucket" ? "bitbucket" : "github";
-  return <Icon name={name} size={12} title={PROVIDER_LABEL[provider] ?? provider} />;
+  return <Icon name={providerIcon(provider)} size={12} title={PROVIDER_LABEL[provider] ?? provider} />;
 }
 
 function ReviewsState({ repo }: { repo: Pick<RepoRow, "enabled" | "archived"> }) {

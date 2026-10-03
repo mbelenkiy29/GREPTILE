@@ -1,0 +1,28 @@
+diff --git a/migrations/0002_contact_email.sql b/migrations/0002_contact_email.sql
+new file mode 100644
+index 0000000..a8e0137
+--- /dev/null
++++ b/migrations/0002_contact_email.sql
+@@ -0,0 +1,4 @@
++-- Rename users.email to contact_email (marketing and login now share one address column).
++ALTER TABLE users ADD COLUMN contact_email text UNIQUE;
++ALTER TABLE users DROP COLUMN email;
++ALTER TABLE users ALTER COLUMN contact_email SET NOT NULL;
+diff --git a/src/db/users.ts b/src/db/users.ts
+index fcfe43a..9214d5e 100644
+--- a/src/db/users.ts
++++ b/src/db/users.ts
+@@ -4,11 +4,11 @@ export interface Sql {
+ 
+ export interface UserRow {
+   id: string;
+-  email: string;
++  contact_email: string;
+   name: string | null;
+ }
+ 
+ export async function findUserByEmail(sql: Sql, email: string): Promise<UserRow | null> {
+-  const [row] = await sql.query<UserRow>("SELECT id, email, name FROM users WHERE email = $1", [email.toLowerCase()]);
++  const [row] = await sql.query<UserRow>("SELECT id, contact_email, name FROM users WHERE contact_email = $1", [email.toLowerCase()]);
+   return row ?? null;
+ }

@@ -40,6 +40,8 @@
     "node_modules",
     ".next",
     ".claude",
-    "packages/*/dist"
+    "packages/*/dist",
+    "fixtures",
+    "eval/cases"
   ]
 }

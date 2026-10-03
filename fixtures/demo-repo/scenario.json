@@ -1,0 +1,23 @@
+{
+  "repository": "demo/payments-service",
+  "defaultBranch": "main",
+  "baseCommitMessage": "Initial import of payments-service",
+  "pullRequest": {
+    "branch": "discount-cap",
+    "title": "Cap coupon discounts at a plan maximum",
+    "body": "Coupons can no longer take more than 30% off unless a plan allows more. `applyDiscount` now takes the percentage first and an optional `maxPercentOff`; the pricing tests are updated.",
+    "author": "dana",
+    "commitMessage": "Cap coupon discounts at a plan maximum",
+    "changes": "pr"
+  },
+  "fix": {
+    "commitMessage": "Keep applyDiscount's original argument order",
+    "changes": "fix"
+  },
+  "bug": {
+    "path": "src/billing/pricing.ts",
+    "line": 16,
+    "caller": { "path": "src/billing/invoices.ts", "line": 15 },
+    "summary": "applyDiscount now takes (percentOff, amountCents) but buildInvoice in src/billing/invoices.ts, outside the diff, still passes (subtotal, coupon.percentOff): the subtotal is used as the percentage and the coupon percentage as the amount."
+  }
+}

@@ -1,0 +1,38 @@
+diff --git a/src/auth/session.ts b/src/auth/session.ts
+index bb299f6..38fbc42 100644
+--- a/src/auth/session.ts
++++ b/src/auth/session.ts
+@@ -9,16 +9,26 @@ function sign(payload: string, secret: string): string {
+   return createHmac("sha256", secret).update(payload).digest("hex");
+ }
+ 
+-/** Verifies a `userId.expiresAt.signature` token; null when malformed, forged, or expired. */
+-export function verifySession(token: string, secret: string, now = Date.now()): Session | null {
++interface TokenParts {
++  userId: string;
++  expires: string;
++  signature: string;
++}
++
++function parseToken(token: string): TokenParts | null {
+   const [userId, expires, signature] = token.split(".");
+   if (!userId || !expires || !signature) return null;
+-  const expected = Buffer.from(sign(`${userId}.${expires}`, secret), "hex");
+-  const given = Buffer.from(signature, "hex");
++  return { userId, expires, signature };
++}
++
++/** Verifies a `userId.expiresAt.signature` token; null when malformed, forged, or expired. */
++export function verifySession(token: string, secret: string, now = Date.now()): Session | null {
++  const parts = parseToken(token);
++  if (!parts) return null;
++  const expected = Buffer.from(sign(`${parts.userId}.${parts.expires}`, secret), "hex");
++  const given = Buffer.from(parts.signature, "hex");
+   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+-  const expiresAt = Number(expires);
+-  if (!Number.isFinite(expiresAt) || expiresAt <= now) return null;
+-  return { userId, expiresAt };
++  return { userId: parts.userId, expiresAt: Number(parts.expires) };
+ }
+ 
+ export function issueSession(userId: string, secret: string, ttlMs: number, now = Date.now()): string {

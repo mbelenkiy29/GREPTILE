@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written model responses for the offline `pnpm demo` walkthrough (LLM_PROVIDER=fake) of the discount-cap pull request. They were not produced by a model: they stand in for one so the real indexer, retrieval, verifier, publishing, and dashboard can be seen without an API key. Run `pnpm demo --record` with a configured model to capture real responses instead.",
+  "calls": [
+    {
+      "key": "review:correctness",
+      "response": {
+        "findings": [
+          {
+            "title": "buildInvoice still passes (subtotal, percentOff) to applyDiscount after its parameters were swapped",
+            "description": "applyDiscount now takes the percentage first and the amount second, but its caller buildInvoice in src/billing/invoices.ts (not part of this diff) still calls applyDiscount(subtotal, coupon.percentOff). The subtotal in cents is treated as the percentage (and capped at 30) while the coupon percentage is treated as the amount, so every discounted invoice is computed from the coupon's percent value instead of the order subtotal.",
+            "impact": "Any invoice issued with a coupon is billed at a few cents instead of its discounted subtotal; revenue is lost silently because both arguments are numbers and the code still compiles.",
+            "severity": "critical",
+            "confidence": 0.93,
+            "path": "src/billing/pricing.ts",
+            "startLine": 16,
+            "endLine": 16,
+            "symbol": "applyDiscount",
+            "evidence": [
+              {
+                "path": "src/billing/pricing.ts",
+                "startLine": 16,
+                "endLine": 16,
+                "snippet": "export function applyDiscount(percentOff: number, amountCents: number, maxPercentOff = DEFAULT_MAX_PERCENT_OFF): number {",
+                "why": "The percentage is now the first parameter and the amount the second."
+              },
+              {
+                "path": "src/billing/invoices.ts",
+                "startLine": 15,
+                "endLine": 15,
+                "snippet": "const discounted = coupon ? applyDiscount(subtotal, coupon.percentOff) : subtotal;",
+                "why": "The only production caller still passes the amount first, so the arguments arrive swapped."
+              }
+            ],
+            "suggestedFix": "Keep the original (amountCents, percentOff) order and add maxPercentOff as the third parameter, or update buildInvoice to call applyDiscount(coupon.percentOff, subtotal).",
+            "suggestion": "export function applyDiscount(amountCents: number, percentOff: number, maxPercentOff = DEFAULT_MAX_PERCENT_OFF): number {",
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": ["buildInvoice in src/billing/invoices.ts calls applyDiscount(subtotal, coupon.percentOff), which no longer matches the new (percentOff, amountCents) order."],
+            "severity": "critical",
+            "confidence": 0.93,
+            "checks": { "grounded": true, "codeAccurate": true, "introducedByPr": true, "actionable": true, "nonTrivial": true, "notDuplicate": true }
+          }
+        ]
+      }
+    },
+    {
+      "key": "summary:summarizer",
+      "response": {
+        "overview": "Caps coupon discounts at a plan maximum (30% by default) by giving applyDiscount a maxPercentOff parameter, and reorders its parameters so the percentage comes first.",
+        "whatChanged": [
+          "applyDiscount takes (percentOff, amountCents, maxPercentOff) and caps the discount",
+          "New DEFAULT_MAX_PERCENT_OFF constant (30)",
+          "Pricing tests updated for the new argument order and the cap"
+        ],
+        "affectedAreas": ["billing", "invoice totals"],
+        "riskLevel": "high",
+        "riskRationale": "The parameter swap is not reflected in buildInvoice, the caller outside this diff, so coupon invoices are computed from swapped arguments.",
+        "confidence": 1,
+        "architectureImpact": null
+      }
+    }
+  ],
+  "defaults": {
+    "classify": { "subsystems": ["billing"], "riskAreas": ["pricing"], "additionalAgents": [] },
+    "review": { "findings": [] }
+  }
+}

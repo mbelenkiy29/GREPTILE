@@ -1,0 +1,29 @@
+{
+  "title": "Non-null assertion on a lookup that can miss",
+  "kind": "null handling",
+  "pr": {
+    "title": "Mention notifications by author id",
+    "body": "Adds mentionTextById for the webhook path, which only has the author's id.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "author-not-found",
+      "file": "src/notify/mention.ts",
+      "lines": [
+        11,
+        12
+      ],
+      "category": "correctness",
+      "severity": "medium",
+      "description": "participants.find can return undefined (an author who left the thread), and author! then throws a TypeError.",
+      "keywords": [
+        "undefined",
+        "null",
+        "not found",
+        "missing"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

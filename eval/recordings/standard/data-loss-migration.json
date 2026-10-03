@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case data-loss-migration, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:data",
+      "response": {
+        "findings": [
+          {
+            "title": "Dropping users.email loses every address: nothing copies it to contact_email",
+            "description": "contact_email is added empty and email is dropped in the next statement; no UPDATE copies the data, and the NOT NULL constraint then fails on existing rows.",
+            "impact": "Irreversible loss of all user email addresses (or a failed deploy).",
+            "severity": "critical",
+            "confidence": 0.85,
+            "path": "migrations/0002_contact_email.sql",
+            "startLine": 3,
+            "endLine": 3,
+            "symbol": null,
+            "evidence": [
+              {
+                "path": "migrations/0002_contact_email.sql",
+                "startLine": 3,
+                "endLine": 3,
+                "snippet": "ALTER TABLE users DROP COLUMN email;",
+                "why": "The column is dropped right after an empty column is added."
+              }
+            ],
+            "suggestedFix": "Use ALTER TABLE users RENAME COLUMN email TO contact_email, or backfill with UPDATE users SET contact_email = email before dropping.",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "critical",
+            "confidence": 0.85,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": [
+        {
+          "id": "data",
+          "reason": "scripted routing for this case"
+        }
+      ]
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

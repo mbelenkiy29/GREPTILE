@@ -1,0 +1,29 @@
+{
+  "title": "New archive endpoint skips the organization check",
+  "kind": "authorization",
+  "pr": {
+    "title": "Add project archiving",
+    "body": "POST /projects/:id/archive archives a project.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "cross-org-archive",
+      "file": "src/routes/projects.ts",
+      "lines": [
+        26,
+        31
+      ],
+      "category": "security",
+      "severity": "high",
+      "description": "archiveProject loads the project by id without checking project.orgId against caller.orgId, so any user can archive another organization's project.",
+      "keywords": [
+        "org",
+        "tenant",
+        "authoriz",
+        "another organization"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

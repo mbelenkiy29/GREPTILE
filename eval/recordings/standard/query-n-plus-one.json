@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case query-n-plus-one, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:performance",
+      "response": {
+        "findings": [
+          {
+            "title": "N+1 queries: one customer lookup per order",
+            "description": "The loop issues a SELECT for every order, so a day with 10,000 orders runs 10,001 queries; a LEFT JOIN keeps deleted customers in one query.",
+            "impact": "The daily report slows down linearly with order volume and loads the database.",
+            "severity": "medium",
+            "confidence": 0.85,
+            "path": "src/reports/orders.ts",
+            "startLine": 17,
+            "endLine": 17,
+            "symbol": "ordersWithCustomers",
+            "evidence": [
+              {
+                "path": "src/reports/orders.ts",
+                "startLine": 17,
+                "endLine": 17,
+                "snippet": "    const [customer] = await sql.query<{ name: string }>(\"SELECT name FROM customers WHERE id = $1\", [order.customerId]);",
+                "why": "A query runs inside the for loop."
+              }
+            ],
+            "suggestedFix": "Use one query with LEFT JOIN customers c ON c.id = o.customer_id and COALESCE(c.name, '(deleted customer)').",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "medium",
+            "confidence": 0.85,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": [
+        {
+          "id": "performance",
+          "reason": "scripted routing for this case"
+        }
+      ]
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

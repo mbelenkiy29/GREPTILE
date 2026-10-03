@@ -1,0 +1,24 @@
+diff --git a/src/reports/orders.ts b/src/reports/orders.ts
+index 47a2817..470065f 100644
+--- a/src/reports/orders.ts
++++ b/src/reports/orders.ts
+@@ -8,11 +8,14 @@ export interface OrderRow {
+ 
+ /** Orders created since `since`, with their customer's name (the daily sales report). */
+ export async function ordersWithCustomers(sql: Sql, since: Date): Promise<OrderRow[]> {
+-  return sql.query<OrderRow>(
+-    `SELECT o.id, o.total_cents AS "totalCents", c.name AS customer
+-       FROM orders o JOIN customers c ON c.id = o.customer_id
+-      WHERE o.created_at >= $1
+-      ORDER BY o.created_at`,
++  const orders = await sql.query<{ id: string; totalCents: number; customerId: string }>(
++    `SELECT id, total_cents AS "totalCents", customer_id AS "customerId" FROM orders WHERE created_at >= $1 ORDER BY created_at`,
+     [since],
+   );
++  const rows: OrderRow[] = [];
++  for (const order of orders) {
++    const [customer] = await sql.query<{ name: string }>("SELECT name FROM customers WHERE id = $1", [order.customerId]);
++    rows.push({ id: order.id, totalCents: order.totalCents, customer: customer?.name ?? "(deleted customer)" });
++  }
++  return rows;
+ }

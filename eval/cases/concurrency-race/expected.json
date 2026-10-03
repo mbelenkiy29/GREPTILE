@@ -1,0 +1,30 @@
+{
+  "title": "Read-then-write stock reservation races",
+  "kind": "concurrency",
+  "pr": {
+    "title": "Avoid row locks when reserving stock",
+    "body": "decrementIfAvailable locks hot rows; read and write the stock level directly.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "oversell-race",
+      "file": "src/inventory/reserve.ts",
+      "lines": [
+        7,
+        9
+      ],
+      "category": "correctness",
+      "severity": "high",
+      "description": "Two concurrent reservations both read the same level and both write available - quantity: a lost update that oversells stock.",
+      "keywords": [
+        "race",
+        "concurren",
+        "atomic",
+        "oversell",
+        "lost update"
+      ]
+    }
+  ],
+  "nonIssues": []
+}
