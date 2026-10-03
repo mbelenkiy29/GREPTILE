@@ -4,7 +4,7 @@
  * fingerprint marker `<!-- openreview:fp=… -->` so it is never reposted.
  */
 import { commentFixPrompt, fence as safeFence, type FixContext } from "@/lib/fix/prompt";
-import type { EngineFinding, ReviewOutput, Severity } from "./types";
+import type { EngineFinding, ReviewOutput, RuntimeValidationResult, Severity } from "./types";
 
 export const SUMMARY_MARKER = "<!-- openreview:summary -->";
 /** Engine fingerprints are 16 hex characters; the marker accepts any short id so stored identities stay recognizable. */
@@ -161,6 +161,55 @@ export function fixWithAiBlock(f: EngineFinding, ctx: FixContext, flavor: Markdo
   return `<details>\n<summary>Fix with AI</summary>\n\n${safeFence(prompt, "markdown")}\n\n</details>`;
 }
 
+/** Lines of the log tail shown in the summary comment (the dashboard shows the whole excerpt). */
+const LOG_TAIL_LINES = 60;
+const LOG_TAIL_CHARS = 6000;
+
+function seconds(ms: number): string {
+  return ms >= 60_000 ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s` : `${Math.max(0, Math.round(ms / 1000))}s`;
+}
+
+/** The last lines of a log, at most {@link LOG_TAIL_LINES} lines and {@link LOG_TAIL_CHARS} characters. */
+export function logTail(text: string): string {
+  const lines = text.replace(/\s+$/, "").split("\n").slice(-LOG_TAIL_LINES).join("\n");
+  return lines.length > LOG_TAIL_CHARS ? `…${lines.slice(-LOG_TAIL_CHARS)}` : lines;
+}
+
+/**
+ * The "Runtime validation" section (R4.5): outcome, failing command and exit code, recognized failing tests, and the
+ * tail of the (already redacted) log in a fenced block.
+ */
+export function renderRuntimeValidation(rv: RuntimeValidationResult): string {
+  const env = `image \`${safeText(rv.image)}\`, ${rv.network === "install-only" ? "network for the install step only" : "no network"}`;
+  const cmd = rv.command ? `\`${safeText(oneLine(rv.command)).replace(/`/g, "'")}\`` : "the test command";
+  const parts = ["### Runtime validation"];
+  switch (rv.status) {
+    case "passed":
+      parts.push(`**Passed** — ${cmd} succeeded in ${seconds(rv.durationMs)} (${env}).`);
+      break;
+    case "failed":
+      parts.push(`**Failed** — the ${rv.failedStep ?? "test"} step ${cmd} exited with code ${rv.exitCode ?? "unknown"} after ${seconds(rv.durationMs)} (${env}).`);
+      break;
+    case "timeout":
+      parts.push(`**Timed out** — ${rv.failedStep ? `the ${rv.failedStep} step ` : ""}was killed after ${seconds(rv.durationMs)} (${env}).`);
+      break;
+    case "error":
+      parts.push(`**Could not run** — ${safeText(oneLine(rv.reason ?? "the sandbox failed"))}`);
+      break;
+    case "skipped":
+      parts.push(`**Skipped** — ${safeText(oneLine(rv.reason ?? "runtime validation is not available"))}`);
+      break;
+  }
+  if (rv.status !== "error" && rv.status !== "skipped" && rv.reason) parts.push(`> ${safeText(oneLine(rv.reason))}`);
+  if (rv.failingTests.length) {
+    parts.push(`**Failing tests**\n${rv.failingTests.slice(0, 10).map((t) => `- \`${safeText(oneLine(t)).replace(/`/g, "'")}\``).join("\n")}`);
+  }
+  if ((rv.status === "failed" || rv.status === "timeout") && rv.outputExcerpt.trim()) {
+    parts.push(`<details>\n<summary>Log tail</summary>\n\n${fence(safeText(logTail(rv.outputExcerpt)), "text")}\n\n</details>`);
+  }
+  return parts.join("\n\n");
+}
+
 /** The summary comment for a review. */
 export function renderSummaryMarkdown(output: ReviewOutput, opts: SummaryMarkdownOptions = {}): string {
   const detailed = (opts.commentStyle ?? "detailed") === "detailed";
@@ -189,6 +238,8 @@ export function renderSummaryMarkdown(output: ReviewOutput, opts: SummaryMarkdow
   } else {
     out.push("### Findings", security ? "No security issues found." : "No issues found.");
   }
+
+  if (output.runtimeValidation) out.push(renderRuntimeValidation(output.runtimeValidation));
 
   if (summary.relevantTests.length) {
     out.push("### Relevant tests", summary.relevantTests.slice(0, detailed ? 10 : 5).map((t) => `- \`${safeText(t.path)}\` — ${safeText(oneLine(t.note))}`).join("\n"));

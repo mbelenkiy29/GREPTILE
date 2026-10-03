@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { RepoSettings } from "@/lib/db/schema";
 import { AGENT_IDS, SEVERITIES, type AgentId, type Severity } from "@/lib/engine/types";
 import { globMatch } from "@/lib/rules";
+import { runtimeValidationSchema } from "@/lib/sandbox/config";
 
 export const COMMENT_TYPES = ["logic", "security", "style"] as const;
 export type CommentType = (typeof COMMENT_TYPES)[number];
@@ -45,8 +46,14 @@ export const reviewSettingsShape = {
 
 export const reviewSettingsSchema = z.object(reviewSettingsShape).partial().strict() satisfies z.ZodType<RepoSettings>;
 
-/** Dashboard-editable review settings for a repo (overridden by openreview.json). */
-export const repoSettingsSchema = reviewSettingsSchema;
+/**
+ * Dashboard-editable review settings for a repo (overridden by openreview.json), plus the repo-only runtime
+ * validation settings (R4.5).
+ */
+export const repoSettingsSchema = z
+  .object({ ...reviewSettingsShape, runtimeValidation: runtimeValidationSchema })
+  .partial()
+  .strict() satisfies z.ZodType<RepoSettings>;
 /** Org-wide defaults (overridden by repo settings and openreview.json). */
 export const orgSettingsSchema = reviewSettingsSchema;
 

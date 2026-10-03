@@ -6,6 +6,7 @@ import { SEVERITIES, type ReviewSummary, type Severity } from "@/lib/engine/type
 import { listFindings, severityRank, type FindingRow } from "./findings";
 import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
 import { scoped } from "./tenant";
+import { getRuntimeValidation, type RuntimeValidationView } from "@/lib/sandbox/results";
 
 export interface ReviewListItem {
   id: number;
@@ -233,6 +234,8 @@ export interface ReviewDetail extends ReviewListItem {
   findings: { items: FindingRow[]; total: number };
   /** Candidates the engine rejected, with the reason (in `verification`), newest first. */
   rejected: { items: FindingRow[]; total: number };
+  /** Runtime validation (R4.5) of the latest run (or of `opts.runId`), when one ran. */
+  runtimeValidation: RuntimeValidationView | null;
 }
 
 export interface ReviewDetailOptions {
@@ -289,7 +292,8 @@ export async function getReviewDetail(db: Db, orgId: string, reviewId: number, o
   ]);
   // Only a run of this review (one listed in its history) can be selected.
   const agentRunFor = opts.runId !== undefined && runHistory.some((r) => r.id === opts.runId) ? opts.runId : runHistory[0]?.id;
-  const agents = agentRunFor !== undefined ? await listAgentRuns(db, orgId, agentRunFor) : [];
+  const [agents, runtimeValidation] =
+    agentRunFor !== undefined ? await Promise.all([listAgentRuns(db, orgId, agentRunFor), getRuntimeValidation(db, orgId, agentRunFor)]) : [[], null];
   return {
     id: r.id,
     repoFullName: row.repoFullName,
@@ -321,6 +325,7 @@ export async function getReviewDetail(db: Db, orgId: string, reviewId: number, o
     agentRuns: agents,
     findings,
     rejected,
+    runtimeValidation,
   };
 }
 

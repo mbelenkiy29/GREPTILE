@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { cancelIndexJob, queueManualIndex } from "@/lib/indexer/jobs";
 import { bullQueue } from "@/lib/jobs/queue";
 import { errorMessage, log } from "@/lib/log";
+import { saveRuntimeValidationForm } from "@/lib/sandbox/settings-form";
 import { safeReturnPath, withToast } from "@/lib/ui/toast";
 
 function repoIdOf(formData: FormData): number | null {
@@ -90,6 +91,16 @@ export async function cancelIndex(formData: FormData) {
   }
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), cancelled ? "index.cancelled" : "index.not_running"));
+}
+
+/** Saves (or removes) a repository's runtime validation settings (R4.5). */
+export async function saveRuntimeValidation(formData: FormData) {
+  const { orgId, role } = await requireOrg({ permission: "settings.manage" });
+  const result = await saveRuntimeValidationForm(db(), { orgId, role }, formData);
+  const returnTo = safeReturnPath(formData.get("returnTo"), "/dashboard/repos");
+  if (result.status === "saved" || result.status === "cleared") revalidatePath(returnTo.split("?")[0]!);
+  const toast = result.status === "saved" ? "runtime.saved" : result.status === "cleared" ? "runtime.cleared" : result.status === "invalid" ? "runtime.invalid" : "repo.not_found";
+  redirect(withToast(returnTo, toast));
 }
 
 /** Saves a repository's review settings (R6.14); validation errors come back to the form inline. */

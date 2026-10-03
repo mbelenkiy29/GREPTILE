@@ -136,6 +136,51 @@ const enterpriseShape = {
   WEBHOOK_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(1_000_000).default(1_200)),
 };
 
+/**
+ * Runtime validation (R4.5, beta); also parsed on their own by `sandboxEnv()`. Off unless RUNTIME_VALIDATION_ENABLED is
+ * set AND a repository enables `runtimeValidation` in its config. The worker talks to a Docker Engine API at
+ * SANDBOX_DOCKER_HOST; run that engine on a separate sandbox host or rootless, and never mount its socket into the web
+ * container.
+ */
+const sandboxShape = {
+  RUNTIME_VALIDATION_ENABLED: flag,
+  /** `unix:///var/run/docker.sock` or `tcp://sandbox-host:2375` (plain HTTP; reach a remote engine over a private network). */
+  SANDBOX_DOCKER_HOST: optional,
+  SANDBOX_IMAGE: z.string().trim().min(1).default("node:22-bookworm-slim"),
+  /** Comma-separated images (`*` wildcards) repositories may choose; empty = any image. */
+  SANDBOX_ALLOWED_IMAGES: optional,
+  SANDBOX_CPUS: optionalNumber(z.number().min(0.1).max(64).default(2)),
+  SANDBOX_MEMORY_MB: optionalNumber(z.number().int().min(128).max(262_144).default(2048)),
+  /** Size of the in-memory (tmpfs) volume holding the checkout and everything the commands write. */
+  SANDBOX_WORKDIR_MB: optionalNumber(z.number().int().min(64).max(262_144).default(2048)),
+  SANDBOX_TIMEOUT_SEC: optionalNumber(z.number().int().min(10).max(7200).default(600)),
+  SANDBOX_MAX_OUTPUT_KB: optionalNumber(z.number().int().min(4).max(10_240).default(256)),
+  /**
+   * HTTP(S) forward proxy that only allows package registries, reachable on SANDBOX_INSTALL_NETWORK. Required for the
+   * `install-only` network policy; without it installs run offline.
+   */
+  SANDBOX_REGISTRY_PROXY: optional,
+  /** Docker network (create it with `--internal`) on which only the registry proxy is reachable. */
+  SANDBOX_INSTALL_NETWORK: z.string().trim().min(1).default("openreview-sandbox-install"),
+};
+
+/** Public "Paste a PR" demo (R3.7); also parsed on their own by `demoEnv()`. Off unless DEMO_ENABLED is set. */
+const demoShape = {
+  DEMO_ENABLED: flag,
+  DEMO_PER_IP_PER_HOUR: optionalNumber(z.number().int().min(1).max(10_000).default(3)),
+  DEMO_GLOBAL_PER_HOUR: optionalNumber(z.number().int().min(1).max(100_000).default(30)),
+  /** Leading zero bits the browser's proof-of-work must find (each extra bit doubles the work). */
+  DEMO_POW_DIFFICULTY: optionalNumber(z.number().int().min(8).max(28).default(18)),
+  DEMO_MAX_REPO_MB: optionalNumber(z.number().min(1).max(10_000).default(50)),
+  DEMO_MAX_PR_FILES: optionalNumber(z.number().int().min(1).max(3000).default(50)),
+  DEMO_MAX_PR_ADDITIONS: optionalNumber(z.number().int().min(1).max(1_000_000).default(2000)),
+  /** Estimated model spend (USD, from model_calls) per UTC day after which demo reviews are refused. */
+  DEMO_DAILY_COST_USD: optionalNumber(z.number().min(0).default(5)),
+  DEMO_RETENTION_HOURS: optionalNumber(z.number().min(1).max(24 * 365).default(24)),
+  /** Optional token (no scopes needed) for a higher GitHub API rate limit; never used to write. */
+  DEMO_GITHUB_TOKEN: optional,
+};
+
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
 const siteShape = {
   /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
@@ -187,6 +232,8 @@ const fields = z.object({
   ...billingShape,
   ...enterpriseShape,
   ...scmShape,
+  ...sandboxShape,
+  ...demoShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -325,4 +372,20 @@ export function scmEnv(source: Record<string, string | undefined> = process.env)
     GITLAB_URL: source.GITLAB_URL || undefined,
     BITBUCKET_API_URL: source.BITBUCKET_API_URL || undefined,
   });
+}
+
+const sandboxSchema = z.object(sandboxShape);
+export type SandboxEnv = z.infer<typeof sandboxSchema>;
+
+/** Runtime validation settings (R4.5); parsed on their own so the sandbox (and tests) need no other variables. */
+export function sandboxEnv(source: Record<string, string | undefined> = process.env): SandboxEnv {
+  return sandboxSchema.parse(source);
+}
+
+const demoSchema = z.object(demoShape);
+export type DemoEnv = z.infer<typeof demoSchema>;
+
+/** Public demo settings (R3.7); parsed on their own so the demo pages and job need no GitHub App variables. */
+export function demoEnv(source: Record<string, string | undefined> = process.env): DemoEnv {
+  return demoSchema.parse(source);
 }

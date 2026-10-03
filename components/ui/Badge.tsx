@@ -28,7 +28,7 @@ export function Badge({
   );
 }
 
-export type PillKind = "review" | "run" | "index" | "job" | "severity" | "finding" | "delivery" | "risk" | "agent";
+export type PillKind = "review" | "run" | "index" | "job" | "severity" | "finding" | "delivery" | "risk" | "agent" | "validation";
 
 const TONES: Record<PillKind, Record<string, Tone>> = {
   review: { queued: "muted", running: "info", completed: "ok", failed: "bad", skipped: "muted", cancelled: "muted" },
@@ -53,6 +53,7 @@ const TONES: Record<PillKind, Record<string, Tone>> = {
   delivery: { processing: "info", accepted: "ok", ignored: "muted", failed: "bad" },
   risk: { low: "ok", medium: "warn", high: "bad" },
   agent: { ok: "ok", error: "bad", skipped: "muted" },
+  validation: { queued: "muted", running: "info", passed: "ok", failed: "bad", timeout: "warn", error: "bad", skipped: "muted" },
 };
 
 const LIVE = new Set(["running", "indexing", "processing", "ingesting", "retrieving_context", "reviewing", "verifying", "summarizing", "publishing"]);

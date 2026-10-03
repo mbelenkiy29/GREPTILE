@@ -13,6 +13,7 @@ import { blobUrl, commitUrl, repoWeb, type RepoWeb } from "@/lib/git/web-url";
 import { FixWithAiMenu } from "@/components/fix/FixWithAi";
 import { FindingCard, verificationNote } from "./FindingCard";
 import { RunLifecycle } from "./RunLifecycle";
+import { RuntimeValidationCard } from "./RuntimeValidationCard";
 import { modelLabel } from "./ReviewsTable";
 
 const TRIGGER_LABEL: Record<string, string> = {
@@ -272,6 +273,8 @@ export function ReviewDetailView({
       {review.error && <p className="error-text">Last run failed: {review.error}</p>}
 
       <SummarySection summary={summary} fallback={review.summary} />
+
+      {review.runtimeValidation && <RuntimeValidationCard validation={review.runtimeValidation} />}
 
       <div className="grid-2" style={{ alignItems: "start" }}>
         <Card

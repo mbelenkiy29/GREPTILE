@@ -6,6 +6,7 @@ import { hostname } from "node:os";
 import { DelayedError, Worker } from "bullmq";
 import { pruneAudit } from "@/lib/data/audit";
 import { pruneDeliveries } from "@/lib/data/deliveries";
+import { purgeDemoData } from "@/lib/demo/purge";
 import { db } from "@/lib/db";
 import { enterpriseEnv, env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
@@ -18,6 +19,7 @@ import { gatewayForOrg } from "@/lib/llm/org";
 import { errorMessage, log, redactText } from "@/lib/log";
 import { RECOVERY_INTERVAL_MS, recoverStaleRuns } from "@/lib/pipeline/recovery";
 import { redis } from "@/lib/redis";
+import { sandboxFromEnv } from "@/lib/sandbox/validate";
 
 const wlog = log.child({ component: "worker", host: hostname(), pid: process.pid });
 
@@ -40,6 +42,7 @@ const deps: JobDeps = {
   embedder: embeddings({ db: db() }),
   cacheDir: e.REPO_CACHE_DIR,
   botMention: e.BOT_MENTION,
+  sandbox: sandboxFromEnv(e.REPO_CACHE_DIR, wlog),
 };
 
 let active = 0;
@@ -93,6 +96,23 @@ async function prune() {
     if (removed) wlog.info("pruned audit log entries", { removed, retentionDays: auditDays });
   } catch (err) {
     wlog.warn("pruning the audit log failed", { error: errorMessage(err) });
+  }
+  // Sandbox leftovers (R4.5) of runs a crashed worker could not clean up: anything older than the longest possible run.
+  const sandbox = deps.sandbox;
+  if (sandbox?.env.RUNTIME_VALIDATION_ENABLED && sandbox.runner?.sweep) {
+    try {
+      const swept = await sandbox.runner.sweep((sandbox.env.SANDBOX_TIMEOUT_SEC + 600) * 1000);
+      if (swept.containers || swept.volumes) wlog.info("removed stale sandbox containers", swept);
+    } catch (err) {
+      wlog.warn("sandbox sweep failed", { error: errorMessage(err) });
+    }
+  }
+  // Demo retention (R3.7): results and demo indexes older than DEMO_RETENTION_HOURS.
+  try {
+    const purged = await purgeDemoData(deps.db, { retentionHours: e.DEMO_RETENTION_HOURS, cacheDir: e.REPO_CACHE_DIR });
+    if (purged.reviews || purged.repos) wlog.info("purged demo data", { ...purged, retentionHours: e.DEMO_RETENTION_HOURS });
+  } catch (err) {
+    wlog.warn("purging demo data failed", { error: errorMessage(err) });
   }
 }
 void prune();

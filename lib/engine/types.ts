@@ -271,6 +271,25 @@ export interface ContextItemSummary {
   score?: number;
 }
 
+/** Outcome of running the repository's tests in the sandbox (R4.5), attached to the review it ran for. */
+export interface RuntimeValidationResult {
+  status: "passed" | "failed" | "timeout" | "error" | "skipped";
+  image: string;
+  network: "none" | "install-only";
+  /** The step that failed, or null. */
+  failedStep: "install" | "test" | null;
+  /** The failing command (or the test command when nothing failed). */
+  command: string | null;
+  exitCode: number | null;
+  durationMs: number;
+  /** Captured output: capped (head and tail kept), control characters stripped, secrets redacted. */
+  outputExcerpt: string;
+  /** Failing test names recognized in the output. */
+  failingTests: string[];
+  /** Why it was skipped or errored, and notes (e.g. the install ran offline). */
+  reason: string | null;
+}
+
 export interface ReviewOutput {
   summary: ReviewSummary;
   findings: EngineFinding[];
@@ -283,6 +302,8 @@ export interface ReviewOutput {
    */
   openPriorFindings?: OpenPriorFinding[];
   classification: ChangeClassification;
+  /** Runtime validation of the PR head (R4.5), when the repository enables it; added by the review job. */
+  runtimeValidation?: RuntimeValidationResult;
   context: { items: ContextItemSummary[]; tokensUsed: number; tokenBudget: number; dropped: number };
   agentRuns: AgentRunRecord[];
   usage: Usage & { costUsd: number | null; calls: number };

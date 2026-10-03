@@ -183,6 +183,13 @@
       "when": 1791007017941,
       "tag": "0025_scm_providers",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791007598127,
+      "tag": "0026_sandbox_demo",
+      "breakpoints": true
     }
   ]
 }

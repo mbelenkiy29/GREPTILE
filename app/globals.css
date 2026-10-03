@@ -2264,3 +2264,26 @@ pre.block {
   align-items: center;
   gap: var(--space-2);
 }
+
+/* ---- public demo (R3.7) --------------------------------------------------------------------------------------- */
+.demo-card {
+  max-width: 560px;
+}
+.demo-limits {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+.demo-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-6);
+  display: grid;
+  gap: var(--space-5);
+}
+.demo-header {
+  display: flex;
+  align-items: center;
+}

@@ -68,6 +68,28 @@ export interface RepoSettings {
   /** Preset for minConfidence / maxComments / minSeverity when those are not set explicitly. */
   strictness?: "low" | "medium" | "high";
   context?: string[];
+  /**
+   * Runtime validation (R4.5): run the repository's tests in a sandbox. Repo layer and `openreview.json` (read at the
+   * base commit) only; validated by `runtimeValidationSchema` in `lib/sandbox/config.ts`.
+   */
+  runtimeValidation?: RuntimeValidationConfig;
+}
+
+/** A repository's runtime validation settings (R4.5). Commands run as `sh -c <command>` inside the sandbox only. */
+export interface RuntimeValidationConfig {
+  enabled: boolean;
+  /** Container image; defaults to SANDBOX_IMAGE. */
+  image?: string;
+  /** Dependency install command, e.g. `npm ci`. */
+  install?: string;
+  /** Test command, e.g. `npm test -- --reporter=dot`. */
+  test: string;
+  /** Wall-clock limit for the whole run; never more than SANDBOX_TIMEOUT_SEC. */
+  timeoutSec?: number;
+  /** `none` (default): no network at all. `install-only`: the install step may reach the registry proxy. */
+  network?: "none" | "install-only";
+  /** Extra environment variables (literal values from the config, never secrets), e.g. `{ "CI": "true" }`. */
+  env?: Record<string, string>;
 }
 
 /** Org-wide review defaults (R6.14); same shape as repo settings, which override them. */
@@ -1800,4 +1822,105 @@ export const scmWebhooks = pgTable(
     index().on(t.provider, t.externalHookId),
     index().on(t.orgId),
   ],
+);
+
+// ---- sandbox ----
+
+export const runtimeValidationStatus = pgEnum("runtime_validation_status", ["queued", "running", "passed", "failed", "timeout", "error", "skipped"]);
+
+/**
+ * Runtime validation of a review run (R4.5): the repository's install and test commands run in an isolated container
+ * at the PR head. One row per run; `outputExcerpt` is capped (head and tail) and secret-redacted.
+ */
+export const runtimeValidations = pgTable(
+  "runtime_validations",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    reviewRunId: integer("review_run_id")
+      .notNull()
+      .references(() => reviewRuns.id, { onDelete: "cascade" }),
+    status: runtimeValidationStatus("status").notNull().default("queued"),
+    image: text("image").notNull(),
+    network: text("network").notNull().default("none"),
+    commands: jsonb("commands").$type<{ install: string | null; test: string }>().notNull(),
+    /** The step that failed (`install` or `test`), when one did. */
+    failedStep: text("failed_step"),
+    exitCode: integer("exit_code"),
+    durationMs: integer("duration_ms"),
+    outputExcerpt: text("output_excerpt"),
+    outputTruncated: boolean("output_truncated").notNull().default(false),
+    /** Failing test names recognized in the output (jest, vitest, pytest, go test). */
+    failingTests: text("failing_tests").array().notNull().default([]),
+    /** Why the run was skipped or errored, and notes such as an offline install. */
+    reason: text("reason"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("runtime_validations_run_uq").on(t.reviewRunId), index().on(t.orgId)],
+);
+
+// ---- demo ----
+
+export const demoReviewStatus = pgEnum("demo_review_status", ["queued", "running", "completed", "failed", "rejected"]);
+
+/** A finding of a demo review, as the result page shows it. */
+export interface DemoFinding {
+  title: string;
+  description: string;
+  impact: string;
+  severity: "critical" | "high" | "medium" | "low";
+  confidence: number;
+  category: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  suggestedFix: string;
+  /** Head-commit code around the finding. */
+  code: { startLine: number; text: string } | null;
+}
+
+/** What a completed demo review stores (R3.7). */
+export interface DemoResultData {
+  summary: { overview: string; whatChanged: string[]; riskLevel: "low" | "medium" | "high"; riskRationale: string; confidence: number };
+  findings: DemoFinding[];
+  filesReviewed: number;
+  durationMs: number;
+}
+
+/**
+ * Public "Paste a PR" demo reviews (R3.7), owned by the system org `org_demo`. The id is an unguessable token (the
+ * result page's URL). The client address is kept only as a keyed hash, for rate limiting; `powNonce` makes every
+ * proof-of-work challenge single use. Rows are purged after DEMO_RETENTION_HOURS.
+ */
+export const demoReviews = pgTable(
+  "demo_reviews",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id").references(() => repos.id, { onDelete: "set null" }),
+    owner: text("owner").notNull(),
+    repo: text("repo").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    status: demoReviewStatus("status").notNull().default("queued"),
+    clientKey: text("client_key").notNull(),
+    powNonce: text("pow_nonce").notNull(),
+    prTitle: text("pr_title"),
+    prAuthor: text("pr_author"),
+    baseSha: text("base_sha"),
+    headSha: text("head_sha"),
+    result: jsonb("result").$type<DemoResultData>(),
+    /** Shown to the visitor when the review was rejected or failed. */
+    reason: text("reason"),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
+    createdAt: createdAt(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("demo_reviews_pow_nonce_uq").on(t.powNonce), index().on(t.clientKey, t.createdAt), index().on(t.createdAt), index().on(t.orgId)],
 );
