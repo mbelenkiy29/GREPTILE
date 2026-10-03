@@ -9,6 +9,7 @@ import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { answerMention } from "@/lib/conversations";
 import { reportUsage } from "@/lib/billing/report";
 import { runReviewJob } from "@/lib/review/run";
+import type { RuntimeValidationDeps } from "@/lib/sandbox/validate";
 import type { JobName, JobPayloads, JobQueue } from "./types";
 
 export interface JobDeps {
@@ -19,6 +20,8 @@ export interface JobDeps {
   embedder: EmbeddingProvider;
   cacheDir: string;
   botMention: string;
+  /** Runtime validation sandbox (R4.5); built from the environment by the worker. */
+  sandbox?: RuntimeValidationDeps;
   /** Logger carrying the job's correlation ids (set by {@link runObservedJob}). */
   log?: Logger;
 }

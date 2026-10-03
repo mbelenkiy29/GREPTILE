@@ -16,6 +16,7 @@ import { embeddings, llm } from "@/lib/llm";
 import { errorMessage, log, redactText } from "@/lib/log";
 import { RECOVERY_INTERVAL_MS, recoverStaleRuns } from "@/lib/pipeline/recovery";
 import { redis } from "@/lib/redis";
+import { sandboxFromEnv } from "@/lib/sandbox/validate";
 
 const wlog = log.child({ component: "worker", host: hostname(), pid: process.pid });
 
@@ -36,6 +37,7 @@ const deps: JobDeps = {
   embedder: embeddings({ db: db() }),
   cacheDir: e.REPO_CACHE_DIR,
   botMention: e.BOT_MENTION,
+  sandbox: sandboxFromEnv(e.REPO_CACHE_DIR, wlog),
 };
 
 let active = 0;

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { OrgSettings, RepoSettings } from "@/lib/db/schema";
 import type { GitClient } from "@/lib/git/types";
 import type { ReviewRule } from "@/lib/rules";
+import { runtimeValidationSchema, type RuntimeValidationConfig } from "@/lib/sandbox/config";
 import {
   COMMENT_TYPES,
   STRICTNESS,
@@ -32,6 +33,8 @@ export const repoConfigSchema = z
       .max(100)
       .optional(),
     ...z.object(reviewSettingsShape).partial().shape,
+    /** Runtime validation (R4.5); honoured only from the base commit's file, like every other key. */
+    runtimeValidation: runtimeValidationSchema.optional(),
   })
   .strict();
 
@@ -52,6 +55,8 @@ export interface EffectiveConfig {
   /** Every effective review setting (R6.14) and the layer it came from. */
   settings: EffectiveSettings;
   settingSources: Record<SettingKey, SettingSource>;
+  /** Runtime validation settings (R4.5): `openreview.json` wins over the repo's dashboard settings; null = none. */
+  runtimeValidation: RuntimeValidationConfig | null;
   notices: string[];
 }
 
@@ -83,6 +88,7 @@ function settingsOf(file: RepoConfigFile): RepoSettings {
   const settings: Record<string, unknown> = { ...file };
   delete settings.$schema;
   delete settings.rules;
+  delete settings.runtimeValidation;
   return settings as RepoSettings;
 }
 
@@ -125,6 +131,7 @@ export function resolveConfig(
     },
     settings,
     settingSources: sources,
+    runtimeValidation: file?.runtimeValidation ?? dashboard?.runtimeValidation ?? null,
     notices,
   };
 }

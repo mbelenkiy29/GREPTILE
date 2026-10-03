@@ -114,7 +114,9 @@ export async function saveRepoSettingsForm(db: Db, ctx: { orgId: string; role: R
   if (!repo) return { status: "not_found", errors: {}, message: "That repository isn't connected to this organization." };
   const result = parseSettingsForm(form);
   if (result.errors) return { status: "invalid", errors: result.errors, message: "Some settings need attention.", values: submittedValues(form) };
-  await updateRepoSettings(db, ctx.orgId, repo.id, result.settings);
+  // The review settings form replaces its layer; runtime validation (R4.5) is edited separately and kept.
+  const kept = repo.settings.runtimeValidation;
+  await updateRepoSettings(db, ctx.orgId, repo.id, { ...result.settings, ...(kept ? { runtimeValidation: kept } : {}) });
   return { status: "saved", errors: {}, message: "Settings saved." };
 }
 

@@ -1,6 +1,7 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -8,11 +9,14 @@ const exec = promisify(execFile);
 /** Commits of history recorded per index run (R6.3). */
 export const COMMIT_HISTORY = 50;
 
-async function git(cwd: string, args: string[]) {
+const gitEnv = () => ({ ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LFS_SKIP_SMUDGE: "1" });
+
+async function git(cwd: string, args: string[], opts: { timeoutMs?: number } = {}) {
   const { stdout } = await exec("git", args, {
     cwd,
     maxBuffer: 256 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LFS_SKIP_SMUDGE: "1" },
+    env: gitEnv(),
+    ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: "SIGKILL" as const } : {}),
   });
   return stdout;
 }
@@ -32,10 +36,36 @@ async function ensureRepo(dir: string) {
  * returns the fetched commit's sha. The URL (which may carry a short-lived token) is passed per fetch and never
  * written to .git/config.
  */
-export async function fetchRef(url: string, dir: string, ref: string): Promise<string> {
+export async function fetchRef(url: string, dir: string, ref: string, opts: { depth?: number; timeoutMs?: number } = {}): Promise<string> {
   await ensureRepo(dir);
-  await git(dir, ["fetch", "--quiet", `--depth=${COMMIT_HISTORY + 1}`, "--no-tags", url, ref]);
+  await git(dir, ["fetch", "--quiet", `--depth=${opts.depth ?? COMMIT_HISTORY + 1}`, "--no-tags", "--", url, ref], opts);
   return (await git(dir, ["rev-parse", "FETCH_HEAD"])).trim();
+}
+
+/** A file's content at commit `sha`, or null when it does not exist there (or is larger than `maxBytes`). */
+export async function readBlob(dir: string, sha: string, filePath: string, maxBytes = 2 * 1024 * 1024): Promise<Buffer | null> {
+  const spec = `${sha}:${filePath}`;
+  const size = await git(dir, ["cat-file", "-s", spec]).then(
+    (s) => Number(s.trim()),
+    () => null,
+  );
+  if (size === null || !Number.isFinite(size) || size > maxBytes) return null;
+  const { stdout } = await exec("git", ["cat-file", "blob", spec], { cwd: dir, encoding: "buffer", maxBuffer: maxBytes + 1024, env: gitEnv() });
+  return stdout;
+}
+
+/** The tree of commit `sha` as a tar stream (`git archive`): the files as committed, without `.git`. */
+export function archiveTree(dir: string, sha: string): Readable {
+  const child = spawn("git", ["archive", "--format=tar", sha], { cwd: dir, env: gitEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (d: Buffer) => {
+    if (stderr.length < 2000) stderr += d.toString("utf8");
+  });
+  child.on("close", (code) => {
+    if (code !== 0) child.stdout.destroy(new Error(`git archive failed (exit ${code}): ${stderr.trim().slice(0, 500)}`));
+  });
+  child.on("error", (err) => child.stdout.destroy(err));
+  return child.stdout;
 }
 
 /** Checks out a fetched commit as a clean working tree and returns its sha. */

@@ -2,7 +2,7 @@
  * The `review-pr` job (R6.6): runs one tracked review run through the state machine.
  *
  *   claim (queued → ingesting) → gates → ingest the PR → build the engine request → engine (stages via onStage)
- *   → publish under the per-PR lock (publishing → completed) → persist findings, aggregates, and usage
+ *   → runtime validation when the repository enables it (R4.5) → publish under the per-PR lock (publishing → completed) → persist findings, aggregates, and usage
  *
  * Concurrency (S30): a run whose head is no longer the PR's head, or for which a newer run exists, ends
  * `superseded`; the publish step re-checks that atomically under a per-PR advisory lock while claiming the PR's
@@ -59,6 +59,7 @@ import { modelCallTotals } from "@/lib/llm/recorder";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { creditsFor, defaultRunReview, type RunReview } from "@/lib/pipeline/engine";
 import { claimPublishSlot } from "@/lib/pipeline/lock";
+import { runRuntimeValidation, type RuntimeValidationDeps } from "@/lib/sandbox/validate";
 import { MAX_RUN_ATTEMPTS } from "@/lib/pipeline/recovery";
 import { createRun, hasNewerRun, ReviewRequestError } from "@/lib/pipeline/request";
 import {
@@ -97,6 +98,8 @@ export interface ReviewJobDeps {
   limits?: LimitDeps;
   /** Delivery of usage alerts crossed by the review (R4.3): fetch, DNS resolver, clock. */
   alerts?: AlertDeps;
+  /** Runtime validation (R4.5); without it no validation runs. The worker builds it from the environment. */
+  sandbox?: RuntimeValidationDeps;
 }
 
 export type ReviewJobPayload = JobPayloads["review-pr"];
@@ -509,7 +512,7 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
   };
 
   const engine = deps.runReview ?? defaultRunReview;
-  const output: ReviewOutput = await engine(
+  let output: ReviewOutput = await engine(
     {
       db,
       llm: deps.llm,
@@ -541,6 +544,20 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
     request,
   );
   await ctx.stopIfRequested();
+
+  // Runtime validation (R4.5): the base commit's config decides whether and what runs; bounded by cancellation.
+  if (deps.sandbox && config.runtimeValidation?.enabled) {
+    const validation = await runRuntimeValidation(db, deps.sandbox, {
+      orgId: run.orgId,
+      reviewRunId: run.id,
+      config: config.runtimeValidation,
+      headSha: pr.headSha,
+      cloneUrl: () => client.cloneUrl(repo.fullName),
+      signal: ctx.controller.signal,
+    });
+    if (validation) output = { ...output, runtimeValidation: validation };
+    await ctx.stopIfRequested();
+  }
 
   // Claim the PR's publishing slot; the guard makes sure only the newest, uncancelled run publishes (S30).
   const credits = creditsFor(mode);
