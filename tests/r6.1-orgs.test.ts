@@ -50,7 +50,7 @@ async function roles(orgId: string) {
 describe("roles and permissions", () => {
   test("R6.1 permission matrix: members read, re-review, and give feedback; admins manage the org's setup; owners can do everything", () => {
     const expected: Record<Action, Role[]> = {
-      "org.update": ["owner"],
+      "org.update": ["owner", "admin"],
       "org.delete": ["owner"],
       "billing.manage": ["owner"],
       "members.invite": ["owner", "admin"],
@@ -117,7 +117,17 @@ describe("roles and permissions", () => {
     walk(root);
     expect(files.length).toBeGreaterThanOrEqual(6);
     // Actions on the user's own memberships: membership/addressing is verified in the data layer instead of a role.
-    const selfService = new Set(["switchOrg", "createOrgAction", "acceptListedInvitation", "acceptInviteAction", "leaveCurrentOrg"]);
+    const selfService = new Set([
+      "switchOrg",
+      "createOrgAction",
+      "acceptListedInvitation",
+      "acceptInviteAction",
+      "leaveCurrentOrg",
+      // Onboarding's workspace step (R6.2) does the same for a user who may not have an org yet.
+      "createWorkspace",
+      "chooseWorkspace",
+      "acceptWorkspaceInvitation",
+    ]);
     const checked: string[] = [];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
@@ -135,7 +145,7 @@ describe("roles and permissions", () => {
         checked.push(name);
       }
     }
-    expect(checked).toEqual(expect.arrayContaining(["toggleRepo", "reindexRepo", "saveRepoSettings", "addRule", "removeRule", "editPattern", "inviteMember", "changeRole", "removeFromOrg"]));
+    expect(checked).toEqual(expect.arrayContaining(["toggleRepo", "reindexRepo", "saveRepoSettings", "saveRule", "toggleRule", "removeRule", "editPattern", "inviteMember", "changeRole", "removeFromOrg"]));
   });
 });
 

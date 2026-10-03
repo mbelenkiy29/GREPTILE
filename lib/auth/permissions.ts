@@ -3,9 +3,9 @@
  * mutations and privileged reads that are checked server-side on every request.
  *
  * - member: trigger re-reviews and give finding feedback.
- * - admin: also manage repositories, rules, review settings, API keys, invitations, and non-owner members, and read
- *   the audit log.
- * - owner: everything, including billing, renaming or deleting the org, and managing other owners.
+ * - admin: also manage repositories, rules, review settings, API keys, invitations, and non-owner members, rename
+ *   the org, and read the audit log.
+ * - owner: everything, including billing, deleting the org, and managing other owners.
  */
 
 export const ROLES = ["owner", "admin", "member"] as const;
@@ -37,7 +37,7 @@ const ADMINS: readonly Role[] = ["owner", "admin"];
 const OWNERS: readonly Role[] = ["owner"];
 
 const MATRIX: Record<Action, readonly Role[]> = {
-  "org.update": OWNERS,
+  "org.update": ADMINS,
   "org.delete": OWNERS,
   "billing.manage": OWNERS,
   "members.invite": ADMINS,
@@ -79,3 +79,10 @@ export function assignableRoles(actor: Role): Role[] {
 }
 
 export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+
+/** What each role can do, in words, for the Team page. Mirrors the permission matrix above. */
+export const ROLE_DESCRIPTION: Record<Role, string> = {
+  owner: "Everything an admin can do, plus billing, deleting the organization, and managing other owners.",
+  admin: "Manages repositories, rules, review settings, API keys, and invitations; renames the organization; manages members and admins.",
+  member: "Sees everything in the organization, requests re-reviews, and gives feedback on findings.",
+};
