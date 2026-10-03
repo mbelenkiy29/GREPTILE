@@ -29,6 +29,8 @@ export async function claimDelivery(
   db: Db,
   input: {
     deliveryId: string;
+    /** Host that sent it (R3.6); defaults to `github`. */
+    provider?: string;
     event: string;
     action?: string | null;
     installationId?: number;
@@ -46,6 +48,7 @@ export async function claimDelivery(
     .insert(webhookDeliveries)
     .values({
       deliveryId: input.deliveryId,
+      provider: input.provider ?? "github",
       event: input.event,
       action: input.action ?? null,
       status: "processing",
@@ -150,6 +153,7 @@ export async function failDelivery(
 
 const summary = {
   deliveryId: webhookDeliveries.deliveryId,
+  provider: webhookDeliveries.provider,
   event: webhookDeliveries.event,
   action: webhookDeliveries.action,
   installationId: webhookDeliveries.installationId,

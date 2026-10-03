@@ -85,6 +85,9 @@ export function bitbucketWebUrl(apiUrl: string): string {
   return `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}`;
 }
 
+/** UUIDs without braces, lower case (`{ABC-…}` and `abc-…` name the same object). */
+export const normalizeUuid = (uuid: string) => uuid.replace(/[{}]/g, "").toLowerCase();
+
 /** A stable numeric id for a repository UUID (`{xxxxxxxx-…}`): its first 52 bits. */
 export function bitbucketRepoId(uuid: string): number {
   const hex = uuid.replace(/[{}-]/g, "").toLowerCase();
@@ -299,7 +302,7 @@ export class BitbucketApi {
 
   async deleteHook(fullName: string, hookUuid: string): Promise<void> {
     try {
-      await this.send(`${repoPath(fullName)}/hooks/${encodeURIComponent(hookUuid)}`, { method: "DELETE" });
+      await this.send(`${repoPath(fullName)}/hooks/${encodeURIComponent(`{${normalizeUuid(hookUuid)}}`)}`, { method: "DELETE" });
     } catch (err) {
       if (!isNotFound(err)) throw err;
     }
