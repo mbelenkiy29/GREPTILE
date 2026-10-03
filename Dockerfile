@@ -8,7 +8,9 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     npm install -g pnpm@10.28.0
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Workspace packages' manifests, so the lockfile's importers match (pnpm workspace).
+COPY packages/mcp/package.json packages/mcp/
 RUN --mount=type=secret,id=extra_ca,required=false \
     if [ -s /run/secrets/extra_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/extra_ca; fi; \
     pnpm install --frozen-lockfile

@@ -14,11 +14,12 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import type { FixFileReader } from "@/lib/fix/context";
 import type { JobQueue } from "@/lib/jobs/types";
+import type { EmbeddingProvider } from "@/lib/llm/types";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { authenticateRequest, rateLimitKey, requireScope, type ApiPrincipal } from "./auth";
 import { ApiError, apiError } from "./http";
 import type { ApiScope } from "./keys";
-import type { RateLimiter } from "./rate-limit";
+import type { RateLimitDecision, RateLimiter } from "./rate-limit";
 
 export interface ApiDeps {
   db: Db;
@@ -32,6 +33,8 @@ export interface ApiDeps {
   sessionTtlDays: number;
   /** Reads a file at a commit through the git host (fix prompts show current code); stored evidence otherwise. */
   readFile?: FixFileReader;
+  /** Embeds codebase-search questions for semantic matches; without it search uses symbols, paths, and full text. */
+  embedder?: EmbeddingProvider;
   log?: Logger;
 }
 
@@ -130,6 +133,93 @@ function withHeaders(res: Response, headers: Record<string, string>): Response {
   return res;
 }
 
+/** Path parameters of `path` (relative to `/api/v1`) when it matches the route's template, else null. */
+export function matchPath(route: Pick<RouteSpec, "path">, path: string): Record<string, string> | null {
+  const names: string[] = [];
+  const pattern = route.path.replace(/[.+?^$()|[\]\\]/g, "\\$&").replace(/\{(\w+)\}/g, (_, n: string) => (names.push(n), "([^/]+)"));
+  const m = new RegExp(`^${pattern}$`).exec(path);
+  if (!m) return null;
+  const params: Record<string, string> = {};
+  names.forEach((n, i) => {
+    params[n] = decodeURIComponent(m[i + 1]!);
+  });
+  return params;
+}
+
+/** The route of `routes` serving `method path` (path relative to `/api/v1`, without the query), with its params. */
+export function matchRoute(routes: readonly AnyRoute[], method: string, path: string): { route: AnyRoute; params: Record<string, string> } | null {
+  for (const route of routes) {
+    if (route.method !== method.toUpperCase()) continue;
+    const params = matchPath(route, path);
+    if (params) return { route, params };
+  }
+  return null;
+}
+
+/** The `x-ratelimit-*` headers of a decision. */
+export function rateLimitHeaders(decision: RateLimitDecision): Record<string, string> {
+  return {
+    "x-ratelimit-limit": String(decision.limit),
+    "x-ratelimit-remaining": String(decision.remaining),
+    "x-ratelimit-reset": String(Math.ceil(decision.resetAt.getTime() / 1000)),
+  };
+}
+
+/** The 429 answer for a denied decision. */
+export function rateLimitedResponse(decision: RateLimitDecision, now: Date, headers: Record<string, string>, log: Logger): Response {
+  const retryAfter = Math.max(1, Math.ceil((decision.resetAt.getTime() - now.getTime()) / 1000));
+  log.warn("API rate limit exceeded", { limit: decision.limit });
+  return apiError(429, "rate_limited", `Rate limit of ${decision.limit} requests per minute exceeded. Retry in ${retryAfter}s.`, {
+    headers: { ...headers, "retry-after": String(retryAfter) },
+  });
+}
+
+function errorResponse(err: unknown, log: Logger, headers: Record<string, string>): Response {
+  if (err instanceof ApiError) {
+    const h: Record<string, string> = { ...headers };
+    if (err.status === 401) h["www-authenticate"] = 'Bearer realm="openreview"';
+    return apiError(err.status, err.code, err.message, { headers: h, ...(err.details !== undefined ? { details: err.details } : {}) });
+  }
+  log.error("API request failed", { error: errorMessage(err) });
+  return apiError(500, "internal_error", "Something went wrong. Try again; if it keeps failing, check the server logs.", { headers });
+}
+
+/** Steps 3-5 of the pipeline (scope, validation, handler) once the caller is known (null: a public route). */
+async function runAuthorized(route: AnyRoute, deps: ApiDeps, req: Request, rawParams: Record<string, string | string[]>, principal: ApiPrincipal | null, log: Logger) {
+  if (principal && route.scope) requireScope(principal, route.scope);
+  const params = parse(route.params, rawParams, "path");
+  const query = parse(route.query, queryObject(new URL(req.url)), "query");
+  const body = route.body ? parse(route.body, await readJsonBody(req), "body") : undefined;
+  return route.handler({
+    deps,
+    req,
+    // Public routes never read the principal.
+    principal: principal as ApiPrincipal,
+    params,
+    query,
+    body,
+    log,
+  });
+}
+
+function actorOf(p: ApiPrincipal): string {
+  return p.actor.type === "api_key" ? `api_key:${p.actor.keyId}` : p.actor.userId;
+}
+
+/**
+ * Runs a route for a principal the caller already authenticated and rate-limited (the MCP endpoint runs its tools
+ * through the REST routes this way): the route's scope check, validation, and tenant scoping apply exactly as over
+ * HTTP, and errors come back as the same JSON error responses.
+ */
+export async function executeRouteAs(route: AnyRoute, deps: ApiDeps, req: Request, rawParams: Record<string, string | string[]>, principal: ApiPrincipal): Promise<Response> {
+  const log = (deps.log ?? rootLog.child({ component: "api" })).child({ route: routeId(route), orgId: principal.orgId, actor: actorOf(principal) });
+  try {
+    return await runAuthorized(route, deps, req, rawParams, principal, log);
+  } catch (err) {
+    return errorResponse(err, log, {});
+  }
+}
+
 /** Runs one route for a request (see the module comment). `rawParams` are the URL's path segments by name. */
 export async function executeRoute(route: AnyRoute, deps: ApiDeps, req: Request, rawParams: Record<string, string | string[]> = {}): Promise<Response> {
   const baseLog = deps.log ?? rootLog.child({ component: "api" });
@@ -139,43 +229,14 @@ export async function executeRoute(route: AnyRoute, deps: ApiDeps, req: Request,
     let principal: ApiPrincipal | null = null;
     if (!route.public) {
       principal = await authenticateRequest(deps, req);
-      log = log.child({ orgId: principal.orgId, actor: principal.actor.type === "api_key" ? `api_key:${principal.actor.keyId}` : principal.actor.userId });
+      log = log.child({ orgId: principal.orgId, actor: actorOf(principal) });
       const decision = await deps.limiter.hit(`api:${rateLimitKey(principal)}`, deps.rateLimitPerMinute, RATE_LIMIT_WINDOW_MS, deps.now());
-      rateHeaders = {
-        "x-ratelimit-limit": String(decision.limit),
-        "x-ratelimit-remaining": String(decision.remaining),
-        "x-ratelimit-reset": String(Math.ceil(decision.resetAt.getTime() / 1000)),
-      };
-      if (!decision.allowed) {
-        const retryAfter = Math.max(1, Math.ceil((decision.resetAt.getTime() - deps.now().getTime()) / 1000));
-        log.warn("API rate limit exceeded", { limit: decision.limit });
-        return apiError(429, "rate_limited", `Rate limit of ${decision.limit} requests per minute exceeded. Retry in ${retryAfter}s.`, {
-          headers: { ...rateHeaders, "retry-after": String(retryAfter) },
-        });
-      }
-      if (route.scope) requireScope(principal, route.scope);
+      rateHeaders = rateLimitHeaders(decision);
+      if (!decision.allowed) return rateLimitedResponse(decision, deps.now(), rateHeaders, log);
     }
-    const params = parse(route.params, rawParams, "path");
-    const query = parse(route.query, queryObject(new URL(req.url)), "query");
-    const body = route.body ? parse(route.body, await readJsonBody(req), "body") : undefined;
-    const res = await route.handler({
-      deps,
-      req,
-      // Public routes never read the principal.
-      principal: principal as ApiPrincipal,
-      params,
-      query,
-      body,
-      log,
-    });
+    const res = await runAuthorized(route, deps, req, rawParams, principal, log);
     return withHeaders(res, rateHeaders);
   } catch (err) {
-    if (err instanceof ApiError) {
-      const headers: Record<string, string> = { ...rateHeaders };
-      if (err.status === 401) headers["www-authenticate"] = 'Bearer realm="openreview"';
-      return apiError(err.status, err.code, err.message, { headers, ...(err.details !== undefined ? { details: err.details } : {}) });
-    }
-    log.error("API request failed", { error: errorMessage(err) });
-    return apiError(500, "internal_error", "Something went wrong. Try again; if it keeps failing, check the server logs.", { headers: rateHeaders });
+    return errorResponse(err, log, rateHeaders);
   }
 }

@@ -17,10 +17,12 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "verify:parity": "tsx scripts/verify-parity.ts",
-    "worker": "tsx worker/index.ts"
+    "worker": "tsx worker/index.ts",
+    "mcp:build": "pnpm --filter openreview-mcp build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@modelcontextprotocol/sdk": "1.32.0",
     "@vscode/tree-sitter-wasm": "^0.3.1",
     "bullmq": "^6.3.11",
     "drizzle-orm": "^0.45.3",

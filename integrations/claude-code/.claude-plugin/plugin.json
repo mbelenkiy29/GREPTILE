@@ -1,0 +1,11 @@
+{
+  "name": "openreview",
+  "displayName": "OpenReview",
+  "version": "0.1.0",
+  "description": "Fix OpenReview pull request findings from Claude Code: /openreview-fix pulls the unresolved findings for the current branch's PR and fixes them one by one, /openreview-loop pushes, waits for the review, and fixes until clean, and the openreview-review skill reviews local changes before you push. Includes the OpenReview MCP server.",
+  "author": {
+    "name": "OpenReview contributors"
+  },
+  "license": "AGPL-3.0-only",
+  "keywords": ["code-review", "pull-requests", "mcp", "openreview"]
+}

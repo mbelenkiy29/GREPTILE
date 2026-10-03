@@ -318,6 +318,8 @@ export const REVIEW_STATUSES = reviewStatus.enumValues;
 
 export interface ReviewFilter extends PageOptions {
   repoId?: number;
+  /** One pull request's review (with `repoId`, at most one row). */
+  prNumber?: number;
   status?: ReviewStatus;
   /** Review mode of the latest run: fast | standard | deep. */
   mode?: string;
@@ -354,6 +356,7 @@ export async function listReviewPage(db: Db, orgId: string, filter: ReviewFilter
     reviews,
     orgId,
     filter.repoId !== undefined ? eq(reviews.repoId, filter.repoId) : undefined,
+    filter.prNumber !== undefined ? eq(reviews.prNumber, filter.prNumber) : undefined,
     filter.status ? eq(reviews.status, filter.status) : undefined,
     filter.mode ? eq(reviews.mode, filter.mode) : undefined,
   );

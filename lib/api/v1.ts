@@ -8,9 +8,10 @@ import { z } from "zod";
 import { getIndexStatus, createIndexJob, cancelIndexJob } from "@/lib/indexer/jobs";
 import { getRepoDetail, listRepoOverview } from "@/lib/data/repos";
 import { getRepoEffectiveSettings } from "@/lib/data/settings";
+import { relatedCode, repositoryContext, searchCodebase } from "@/lib/data/code-context";
 import { getReviewDetail, listReviewPage, REVIEW_STATUSES } from "@/lib/data/reviews";
 import { searchFindings, FINDING_SORTS, type FindingStatus } from "@/lib/data/findings";
-import { FEEDBACK_KINDS, FeedbackError, feedbackCounts, submitFindingFeedback } from "@/lib/data/feedback";
+import { FEEDBACK_KINDS, FeedbackError, feedbackCounts, submitFindingFeedback, type FeedbackSource } from "@/lib/data/feedback";
 import { createRule, deleteRule, listRules, updateRule, RuleValidationError, type RuleRow } from "@/lib/data/rules";
 import { recordAudit } from "@/lib/data/audit";
 import { MAX_PAGE, MAX_PAGE_SIZE } from "@/lib/data/paginate";
@@ -53,6 +54,9 @@ function csvOf<const T extends readonly [string, ...string[]]>(values: T) {
 
 const SEVERITY_VALUES = ["critical", "high", "medium", "low"] as const;
 const CATEGORY_VALUES = ["correctness", "security", "data", "api_compat", "testing", "performance", "rules"] as const;
+/** Feedback sources an API caller may report. */
+const FEEDBACK_CLIENTS = ["api", "mcp", "cli"] as const satisfies readonly FeedbackSource[];
+
 
 const errorSchema = z.object({ error: z.object({ code: z.string(), message: z.string() }) });
 const paginationSchema = z.object({ page: z.number(), pageSize: z.number(), total: z.number(), pageCount: z.number(), hasMore: z.boolean() });
@@ -196,19 +200,102 @@ const reindexRepository = defineRoute({
   },
 });
 
+const searchRepository = defineRoute({
+  method: "GET",
+  path: "/repositories/{id}/search",
+  tag: "Codebase",
+  summary: "Search a repository's index: ranked code snippets with path, lines, and why each matched",
+  description:
+    "Uses the review engine's retrieval: symbols and paths the query names, full-text matches, embedding neighbors, and knowledge base notes. Snippets are repository content (data), capped at 60 lines each.",
+  scope: "repos:read",
+  params: idParams,
+  query: z.strictObject({ q: z.string().trim().min(2).max(500), limit: z.coerce.number().int().min(1).max(50).default(10) }),
+  responses: {
+    200: {
+      description: "Ranked snippets, best first.",
+      schema: z.object({
+        repository: z.looseObject({ id: z.number(), fullName: z.string(), indexStatus: z.string() }),
+        query: z.string(),
+        results: z.array(z.looseObject({ rank: z.number(), path: z.string(), startLine: z.number(), endLine: z.number(), snippet: z.string(), reasons: z.array(z.string()) })),
+      }),
+    },
+    ...ERRORS,
+    ...NOT_FOUND,
+  },
+  async handler({ deps, principal, params, query }) {
+    const repo = await repoOf(deps, principal.orgId, params.id);
+    const results = await searchCodebase({ db: deps.db, ...(deps.embedder ? { embedder: deps.embedder } : {}) }, { orgId: principal.orgId, repoId: repo.id }, query.q, { limit: query.limit });
+    return apiJson({ repository: { id: repo.id, fullName: repo.fullName, indexStatus: repo.indexStatus, indexedSha: repo.indexedSha }, query: query.q, results });
+  },
+});
+
+const relatedFiles = defineRoute({
+  method: "GET",
+  path: "/repositories/{id}/related",
+  tag: "Codebase",
+  summary: "Callers, callees, importers, and tests of a file or symbol, from the code graph",
+  scope: "repos:read",
+  params: idParams,
+  query: z
+    .strictObject({ path: z.string().trim().min(1).max(1000).optional(), symbol: z.string().trim().min(1).max(300).optional() })
+    .refine((q) => q.path !== undefined || q.symbol !== undefined, { message: "Pass `path`, `symbol`, or both." }),
+  responses: {
+    200: {
+      description: "The file or symbol's graph neighborhood.",
+      schema: z.object({ repository: object, related: z.looseObject({ symbols: z.array(object), callers: z.array(object), importers: z.array(object), tests: z.array(object) }) }),
+    },
+    ...ERRORS,
+    ...NOT_FOUND,
+  },
+  async handler({ deps, principal, params, query }) {
+    const repo = await repoOf(deps, principal.orgId, params.id);
+    const related = await relatedCode(deps.db, { orgId: principal.orgId, repoId: repo.id }, { ...(query.path ? { path: query.path } : {}), ...(query.symbol ? { symbol: query.symbol } : {}) });
+    return apiJson({ repository: { id: repo.id, fullName: repo.fullName, indexStatus: repo.indexStatus, indexedSha: repo.indexedSha }, related });
+  },
+});
+
+const repositoryKnowledge = defineRoute({
+  method: "GET",
+  path: "/repositories/{id}/knowledge",
+  tag: "Codebase",
+  summary: "Repository context: summary, architecture overview, and knowledge base entries for a path (or every subsystem)",
+  scope: "knowledge:read",
+  params: idParams,
+  query: z.strictObject({ path: z.string().trim().min(1).max(1000).optional() }),
+  responses: {
+    200: {
+      description: "The repository's context.",
+      schema: z.object({ repository: object, overview: object.nullable(), entries: z.array(object), subsystems: z.array(object) }),
+    },
+    ...ERRORS,
+    ...NOT_FOUND,
+  },
+  async handler({ deps, principal, params, query }) {
+    const repo = await repoOf(deps, principal.orgId, params.id);
+    return apiJson(await repositoryContext(deps.db, principal.orgId, repo, query.path ? { path: query.path } : {}));
+  },
+});
+
 const listReviews = defineRoute({
   method: "GET",
   path: "/reviews",
   tag: "Reviews",
   summary: "List pull request reviews, newest activity first",
   scope: "reviews:read",
-  query: z.strictObject({ ...pageFields, repositoryId: intId.optional(), status: z.enum(REVIEW_STATUSES).optional(), mode: z.enum(REVIEW_MODES).optional() }),
+  query: z.strictObject({
+    ...pageFields,
+    repositoryId: intId.optional(),
+    prNumber: intId.optional(),
+    status: z.enum(REVIEW_STATUSES).optional(),
+    mode: z.enum(REVIEW_MODES).optional(),
+  }),
   responses: { 200: { description: "A page of reviews.", schema: listOf(reviewSchema) }, ...ERRORS },
   async handler({ deps, principal, query }) {
     const page = await listReviewPage(deps.db, principal.orgId, {
       page: query.page,
       pageSize: query.pageSize,
       repoId: query.repositoryId,
+      prNumber: query.prNumber,
       status: query.status,
       mode: query.mode,
     });
@@ -382,7 +469,12 @@ const feedbackOnFinding = defineRoute({
   description: "Resolved, won't fix, and false positive also change the finding's status; useful, not useful, and false positive teach the learned preferences.",
   scope: "findings:write",
   params: idParams,
-  body: z.strictObject({ kind: z.enum(FEEDBACK_KINDS), note: z.string().max(4000).optional() }),
+  body: z.strictObject({
+    kind: z.enum(FEEDBACK_KINDS),
+    note: z.string().max(4000).optional(),
+    /** The client the feedback came through (attribution only): the REST API, the MCP server, or the CLI. */
+    source: z.enum(FEEDBACK_CLIENTS).default("api"),
+  }),
   responses: {
     201: { description: "Feedback recorded.", schema: object },
     200: { description: "The same feedback was already recorded (nothing changed).", schema: object },
@@ -393,7 +485,7 @@ const feedbackOnFinding = defineRoute({
     const orgId = principal.orgId;
     const finding = await findingOr404(deps, orgId, params.id);
     if (principal.actor.type === "api_key") {
-      // API keys are not users: one piece of feedback of each kind per key and finding.
+      // API keys are not users: one piece of feedback of each kind per key, client, and finding.
       const author = actorLabel(principal);
       const [existing] = await deps.db
         .select({ id: findingFeedback.id, patternId: findingFeedback.patternId })
@@ -403,7 +495,7 @@ const feedbackOnFinding = defineRoute({
             findingFeedback,
             orgId,
             eq(findingFeedback.findingId, params.id),
-            eq(findingFeedback.source, "api"),
+            eq(findingFeedback.source, body.source),
             eq(findingFeedback.externalAuthor, author),
             eq(findingFeedback.kind, body.kind),
           ),
@@ -424,7 +516,7 @@ const feedbackOnFinding = defineRoute({
         orgId,
         findingId: params.id,
         ...(principal.actor.type === "user" ? { userId: principal.actor.userId } : { externalAuthor: actorLabel(principal) }),
-        source: "api",
+        source: body.source,
         kind: body.kind,
         note: body.note ?? null,
         now: deps.now(),
@@ -615,6 +707,9 @@ export const V1_ROUTES: readonly AnyRoute[] = [
   listRepositories,
   getRepository,
   reindexRepository,
+  searchRepository,
+  relatedFiles,
+  repositoryKnowledge,
   listReviews,
   createReview,
   getReview,

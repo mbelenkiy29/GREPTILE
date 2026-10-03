@@ -1,0 +1,15 @@
+{
+  "name": "openreview",
+  "description": "OpenReview plugins for Claude Code: fix review findings, review before pushing, and loop until the pull request is clean.",
+  "owner": {
+    "name": "OpenReview contributors"
+  },
+  "plugins": [
+    {
+      "name": "openreview",
+      "source": "./claude-code",
+      "description": "Pull unresolved OpenReview findings for your branch's pull request and fix them (/openreview-fix), loop push → review → fix until clean (/openreview-loop), and review locally before pushing.",
+      "category": "code-review"
+    }
+  ]
+}

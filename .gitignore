@@ -13,3 +13,6 @@ test-results/
 
 # Agent worktrees and local Claude Code state
 .claude/worktrees/
+
+# Built workspace packages
+packages/*/dist/
