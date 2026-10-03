@@ -8,7 +8,7 @@ export function RulesNav({ current }: { current: "rules" | "learned" }) {
         Rules
       </Link>
       <Link href="/dashboard/learned" aria-current={current === "learned" ? "page" : undefined}>
-        Learned from feedback
+        Preferences
       </Link>
     </nav>
   );

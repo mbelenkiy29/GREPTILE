@@ -2,6 +2,7 @@
 import { count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { scoped } from "@/lib/data/tenant";
 import type { Db } from "@/lib/db";
+import type { JobQueue } from "@/lib/jobs/types";
 import { EMPTY_INDEX_PROGRESS, indexJobs, indexJobStatus, indexJobTrigger, repos, type IndexProgress } from "@/lib/db/schema";
 
 export type IndexJob = typeof indexJobs.$inferSelect;
@@ -122,6 +123,31 @@ export async function cancelIndexJob(db: Db, orgId: string, repoId: number, id: 
     .where(scoped(indexJobs, orgId, eq(indexJobs.repoId, repoId), eq(indexJobs.id, id), inArray(indexJobs.status, ["queued", "running"])))
     .returning({ id: indexJobs.id });
   return rows.length > 0;
+}
+
+/**
+ * Queues a tracked index run a person asked for (dashboard re-index, onboarding retry): records the `index_jobs`
+ * row and enqueues `index-repo` for it. If the queue refuses, the row is cancelled so no tracked run waits forever.
+ * Returns undefined when the repository is not the org's.
+ */
+export async function queueManualIndex(
+  deps: { db: Db; queue: JobQueue },
+  input: { orgId: string; repoId: number; kind: IndexKind; requestedBy: string },
+): Promise<IndexJob | undefined> {
+  const [repo] = await deps.db.select({ id: repos.id }).from(repos).where(scoped(repos, input.orgId, eq(repos.id, input.repoId)));
+  if (!repo) return undefined;
+  const job = await createIndexJob(deps.db, { orgId: input.orgId, repoId: repo.id, kind: input.kind, trigger: "manual" });
+  try {
+    await deps.queue.add(
+      "index-repo",
+      { orgId: input.orgId, repoId: repo.id, mode: input.kind, trigger: "manual", indexJobId: job.id, meta: { requestedBy: input.requestedBy } },
+      { jobId: `index-${repo.id}-manual-${job.id}` },
+    );
+  } catch (err) {
+    await cancelIndexJob(deps.db, input.orgId, repo.id, job.id);
+    throw err;
+  }
+  return job;
 }
 
 // ---- transitions used by the indexer -----------------------------------------------------------------------------

@@ -97,6 +97,8 @@ export const orgs = pgTable(
     personal: boolean("personal").notNull().default(false),
     /** Org-wide review setting defaults (R6.14); repo settings and openreview.json override them key by key. */
     settings: jsonb("settings").$type<OrgSettings>().notNull().default({}),
+    /** When someone finished the onboarding wizard (R6.2); every other wizard step is derived from data. */
+    onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
     createdBy: text("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
@@ -408,10 +410,15 @@ export const mentionReplies = pgTable(
 );
 
 export const ruleStatus = pgEnum("rule_status", ["active", "candidate", "rejected"]);
+/** What a rule is about (R6.11); the same names as the reviewer categories, plus `style`. */
+export const ruleCategory = pgEnum("rule_category", ["correctness", "security", "data", "api_compat", "testing", "performance", "rules", "style"]);
+export const ruleSeverity = pgEnum("rule_severity", ["critical", "high", "medium", "low"]);
 
 /**
- * Plain-English review rules (R2.1), org-wide (`repoId` null) or per repo, optionally
- * limited to glob `paths`. Mined candidates (R2.5) start as `candidate` until approved.
+ * Plain-English review rules (R2.1, R6.11), org-wide (`repoId` null) or per repo, optionally limited to glob
+ * `paths`. Mined candidates (R2.5) start as `candidate` until approved. `severity` is the default (and minimum)
+ * severity of a finding that cites the rule; `instructions` add context and examples; a disabled rule is kept but
+ * never sent to reviews.
  */
 export const rules = pgTable(
   "rules",
@@ -421,7 +428,13 @@ export const rules = pgTable(
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
     repoId: integer("repo_id").references(() => repos.id, { onDelete: "cascade" }),
+    /** Short name shown in the dashboard; empty for rules written before titles existed (the text is shown). */
+    title: text("title").notNull().default(""),
     text: text("text").notNull(),
+    category: ruleCategory("category").notNull().default("rules"),
+    severity: ruleSeverity("severity").notNull().default("medium"),
+    enabled: boolean("enabled").notNull().default(true),
+    instructions: text("instructions").notNull().default(""),
     paths: text("paths").array().notNull().default([]),
     status: ruleStatus("status").notNull().default("active"),
     source: text("source").notNull().default("dashboard"),

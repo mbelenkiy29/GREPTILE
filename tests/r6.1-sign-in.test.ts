@@ -25,6 +25,9 @@ import { isSameOrigin } from "@/lib/security/csrf";
 import { fakeGitHub, makeUser, NOW, setCookies, signedInCookie, TEST_SECRET, testAuthConfig as config } from "./helpers/auth";
 import { createTestDb } from "./helpers/db";
 
+/** Without a `next` page, a user whose workspace has no GitHub installation yet lands on the onboarding wizard (R6.2). */
+const LANDING = "https://review.example.com/onboarding";
+
 let db: Db;
 
 beforeEach(async () => {
@@ -200,7 +203,7 @@ describe("GitHub sign-in", () => {
     // Another browser, a renamed GitHub account, a fresh token without expiry.
     const later = new Date(NOW.getTime() + DAY);
     const second = await signIn(fakeGitHub({ accessToken: "ghu_second00000000000000000000000000", login: "octo-renamed", expiresIn: null }), { now: later });
-    expect(second.headers.get("location")).toBe("https://review.example.com/dashboard");
+    expect(second.headers.get("location")).toBe(LANDING);
     const all = await db.select().from(users);
     expect(all).toHaveLength(1);
     expect(all[0]).toMatchObject({ id: before!.id, githubLogin: "octo-renamed" });
@@ -260,14 +263,14 @@ describe("GitHub sign-in", () => {
       expect(safeNextPath(bad), String(bad)).toBe("/dashboard");
     }
     const res = await signIn(fakeGitHub(), { next: "//evil.example/steal" });
-    expect(res.headers.get("location")).toBe("https://review.example.com/dashboard");
+    expect(res.headers.get("location")).toBe(LANDING);
     const res2 = await signIn(fakeGitHub(), { next: "/\\evil.example" });
-    expect(res2.headers.get("location")).toBe("https://review.example.com/dashboard");
+    expect(res2.headers.get("location")).toBe(LANDING);
     for (const next of ["/.//evil.example", "/a/..//evil.example", "/x/./..//evil.example"]) {
       const dotted = await signIn(fakeGitHub(), { next });
       const location = new URL(dotted.headers.get("location")!);
       expect(location.origin, next).toBe("https://review.example.com");
-      expect(location.pathname, next).toBe("/dashboard");
+      expect(location.pathname, next).toBe(new URL(LANDING).pathname);
     }
     expect(signInPath("/.//evil.example")).toBe("/sign-in");
     expect(safeNextPath("/a/../dashboard/team")).toBe("/dashboard/team");
@@ -300,7 +303,7 @@ describe("GitHub sign-in", () => {
 
     // Without the email permission the sign-in still works, just without an address.
     const noEmail = await signIn(fakeGitHub({ emails: { status: 403 } }));
-    expect(noEmail.headers.get("location")).toBe("https://review.example.com/dashboard");
+    expect(noEmail.headers.get("location")).toBe(LANDING);
     expect((await db.select().from(users))[0]?.email).toBeNull();
   });
 

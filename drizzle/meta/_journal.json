@@ -141,6 +141,13 @@
       "when": 1790994840641,
       "tag": "0019_knowledge_base",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790997629706,
+      "tag": "0020_rules_v2_onboarding",
+      "breakpoints": true
     }
   ]
 }

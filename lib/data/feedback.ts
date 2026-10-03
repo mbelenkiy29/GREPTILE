@@ -392,3 +392,50 @@ export function parseFeedbackForm(formData: FormData): z.infer<typeof feedbackFo
   return parsed.data;
 }
 
+/** What the dashboard's feedback controls show for one finding (R6.10). */
+export interface FindingFeedbackView {
+  /** useful / not-useful votes from everyone (dashboard, API, GitHub). */
+  useful: number;
+  notUseful: number;
+  /** The current user's vote and the feedback row to retract it, if any. */
+  myVote: { kind: "useful" | "not_useful"; feedbackId: number } | null;
+  /** The current user's own status feedback (resolved / won't fix / false positive), newest first. */
+  myStatus: { kind: "resolved" | "wont_fix" | "false_positive"; feedbackId: number; note: string | null }[];
+}
+
+/** Feedback state of several findings for one user, keyed by finding id; findings of other orgs are absent. */
+export async function feedbackForFindings(db: Db, orgId: string, userId: string, findingIds: readonly number[]): Promise<Map<number, FindingFeedbackView>> {
+  const out = new Map<number, FindingFeedbackView>();
+  const ids = [...new Set(findingIds)].filter((id) => Number.isSafeInteger(id));
+  if (!ids.length) return out;
+  const owned = await db.select({ id: findings.id }).from(findings).where(scoped(findings, orgId, inArray(findings.id, ids)));
+  for (const { id } of owned) out.set(id, { useful: 0, notUseful: 0, myVote: null, myStatus: [] });
+  if (!out.size) return out;
+  const known = [...out.keys()];
+  const [totals, mine] = await Promise.all([
+    db
+      .select({ findingId: feedbackTable.findingId, kind: feedbackTable.kind, n: count() })
+      .from(feedbackTable)
+      .where(scoped(feedbackTable, orgId, inArray(feedbackTable.findingId, known), inArray(feedbackTable.kind, ["useful", "not_useful"])))
+      .groupBy(feedbackTable.findingId, feedbackTable.kind),
+    db
+      .select()
+      .from(feedbackTable)
+      .where(scoped(feedbackTable, orgId, inArray(feedbackTable.findingId, known), eq(feedbackTable.userId, userId)))
+      .orderBy(desc(feedbackTable.createdAt), desc(feedbackTable.id)),
+  ]);
+  for (const t of totals) {
+    const v = out.get(t.findingId);
+    if (!v) continue;
+    if (t.kind === "useful") v.useful = Number(t.n);
+    else v.notUseful = Number(t.n);
+  }
+  for (const m of mine) {
+    const v = out.get(m.findingId);
+    if (!v) continue;
+    if (m.kind === "useful" || m.kind === "not_useful") v.myVote ??= { kind: m.kind, feedbackId: m.id };
+    else v.myStatus.push({ kind: m.kind, feedbackId: m.id, note: m.note });
+  }
+  return out;
+}
+

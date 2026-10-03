@@ -7,6 +7,7 @@ import { can, type Role } from "@/lib/auth/permissions";
 import type { Db } from "@/lib/db";
 import type { RepoSettings } from "@/lib/db/schema";
 import { getRepo, updateRepoSettings } from "@/lib/data/installations";
+import { getOrgSettings, updateOrgSettings } from "@/lib/data/settings";
 import { AGENT_IDS } from "@/lib/engine/types";
 import { repoSettingsSchema, type SettingKey } from "./settings";
 import type { SettingsFormErrors, SettingsFormState } from "./settings-form-state";
@@ -115,4 +116,26 @@ export async function saveRepoSettingsForm(db: Db, ctx: { orgId: string; role: R
   if (result.errors) return { status: "invalid", errors: result.errors, message: "Some settings need attention.", values: submittedValues(form) };
   await updateRepoSettings(db, ctx.orgId, repo.id, result.settings);
   return { status: "saved", errors: {}, message: "Settings saved." };
+}
+
+/**
+ * The server-action body behind the org review defaults (R6.14, R6.2): checks the caller's role, validates, and
+ * saves `orgs.settings` for `ctx.orgId`. The full Settings form replaces the org layer (an empty field removes the
+ * key); the onboarding wizard sends only some fields and `merge`s them into the existing layer.
+ */
+export async function saveOrgSettingsForm(
+  db: Db,
+  ctx: { orgId: string; role: Role },
+  form: FormData,
+  opts: { merge?: boolean } = {},
+): Promise<SettingsFormState> {
+  if (!can(ctx.role, "settings.manage")) {
+    return { status: "forbidden", errors: {}, message: "Only owners and admins can change review defaults." };
+  }
+  const result = parseSettingsForm(form);
+  if (result.errors) return { status: "invalid", errors: result.errors, message: "Some settings need attention.", values: submittedValues(form) };
+  const next = opts.merge ? { ...((await getOrgSettings(db, ctx.orgId)) ?? {}), ...result.settings } : result.settings;
+  const saved = await updateOrgSettings(db, ctx.orgId, next);
+  if (!saved) return { status: "not_found", errors: {}, message: "This organization no longer exists." };
+  return { status: "saved", errors: {}, message: "Review defaults saved." };
 }

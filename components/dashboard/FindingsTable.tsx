@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { ConfidencePill, humanize, StatusPill } from "@/components/ui/Badge";
 import { SortHeader, Table } from "@/components/ui/Table";
 import type { FindingListItem } from "@/lib/data/findings";
@@ -15,12 +16,15 @@ export function FindingsTable({
   state,
   githubUrl,
   now = new Date(),
+  feedback,
 }: {
   findings: FindingListItem[];
   pathname: string;
   state: QueryState;
   githubUrl?: string;
   now?: Date;
+  /** Feedback controls for a finding (R6.10); they replace the plain status pill when given. */
+  feedback?: (f: FindingListItem) => ReactNode;
 }) {
   const sort = { pathname, state, defaultField: "date" } as const;
   return (
@@ -64,9 +68,7 @@ export function FindingsTable({
               </Link>
               {f.prAuthor && <div className="cell-sub">@{f.prAuthor}</div>}
             </td>
-            <td>
-              <StatusPill kind="finding" value={f.status} />
-            </td>
+            <td style={feedback ? { minWidth: 220 } : undefined}>{feedback ? feedback(f) : <StatusPill kind="finding" value={f.status} />}</td>
             <td>
               <ConfidencePill value={f.confidence} />
             </td>

@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, count, desc, eq, gte, inArray, lt, ne, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { findings, repos, reviewComments, reviews } from "@/lib/db/schema";
+import { findingFeedback, findings, repos, reviewComments, reviews } from "@/lib/db/schema";
 import type { EngineFinding, HistoricalFinding, PriorFinding, RejectedCandidate } from "@/lib/engine/types";
 import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
 import { scoped } from "./tenant";
@@ -392,8 +392,30 @@ export interface FindingSearch extends PageOptions {
   agent?: string;
   /** Defaults to published findings. */
   visibility?: FindingVisibility[];
+  /** Feedback on the finding (R6.10): any "useful" vote, any "not useful" vote, no feedback at all, or false positive. */
+  usefulness?: FindingUsefulness;
+  /** Cites this rule (`rule:12`, or `config:1` for an openreview.json rule). */
+  rule?: string;
   sort?: FindingSort;
   dir?: "asc" | "desc";
+}
+
+export const FINDING_USEFULNESS = ["useful", "not_useful", "none", "false_positive"] as const;
+export type FindingUsefulness = (typeof FINDING_USEFULNESS)[number];
+
+function hasFeedback(kinds?: string[]): SQL {
+  return sql`exists (select 1 from ${findingFeedback} where ${findingFeedback.findingId} = ${findings.id} and ${findingFeedback.orgId} = ${findings.orgId}${
+    kinds ? sql` and ${findingFeedback.kind} in (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})` : sql``
+  })`;
+}
+
+/** The SQL condition for a usefulness filter (R6.10). */
+function usefulnessCondition(u: FindingUsefulness | undefined): SQL | undefined {
+  if (u === "useful") return hasFeedback(["useful"]);
+  if (u === "not_useful") return hasFeedback(["not_useful"]);
+  if (u === "false_positive") return sql`(${findings.status} = 'false_positive' or ${hasFeedback(["false_positive"])})`;
+  if (u === "none") return sql`not ${hasFeedback()}`;
+  return undefined;
 }
 
 export interface FindingListItem extends FindingRow {
@@ -417,6 +439,8 @@ export async function searchFindings(db: Db, orgId: string, f: FindingSearch = {
     f.from ? gte(findings.createdAt, f.from) : undefined,
     f.to ? lt(findings.createdAt, f.to) : undefined,
     f.agent ? sql`(${findings.agent} = ${f.agent} or ${f.agent} = any(${findings.agents}))` : undefined,
+    usefulnessCondition(f.usefulness),
+    f.rule ? eq(findings.ruleId, f.rule) : undefined,
   );
   const dir = f.dir === "asc" ? asc : desc;
   const order =

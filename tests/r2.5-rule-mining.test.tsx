@@ -121,7 +121,7 @@ describe("mining rules from human reviewers", () => {
     await updateRule(fx.db, "org_a", cents!.id, { status: "active" });
     await updateRule(fx.db, "org_a", logger!.id, { status: "rejected" });
     const prompt = await review();
-    expect(prompt).toContain(`- [rule:${cents!.id}] (applies to: services/billing/**) Represent money as integer cents, never floating point.`);
+    expect(prompt).toContain(`- [rule:${cents!.id}] (category: rules; severity: medium; applies to: services/billing/**) Represent money as integer cents, never floating point.`);
     expect(prompt).not.toContain("shared logger");
 
     const html = renderToStaticMarkup(

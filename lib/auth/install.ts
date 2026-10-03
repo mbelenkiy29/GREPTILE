@@ -53,7 +53,9 @@ export function createInstallStartHandler(factory: () => Pick<InstallDeps, "db" 
     const gate = await requireRepoManager(deps, req, now);
     if (!gate.ok) return gate.response;
     const url = new URL(`${deps.config.githubWebUrl}/apps/${encodeURIComponent(deps.config.appSlug)}/installations/new`);
-    url.searchParams.set("state", signInstallState(deps.config.appSecret, gate.ctx.orgId, now.getTime(), gate.ctx.userId));
+    // `?from=onboarding` (R6.2) brings the user back to the wizard after GitHub; it is recorded in the signed state.
+    const from = new URL(req.url).searchParams.get("from") === "onboarding" ? "onboarding" : "repos";
+    url.searchParams.set("state", signInstallState(deps.config.appSecret, gate.ctx.orgId, now.getTime(), gate.ctx.userId, from));
     return redirectTo(url.toString());
   };
 }
@@ -64,18 +66,20 @@ export function createInstallCallbackHandler(factory: () => InstallDeps) {
     const deps = factory();
     const { db, config } = deps;
     const now = (deps.now ?? (() => new Date()))();
-    const back = (outcome: string) => redirectTo(appUrl(config, `/dashboard/repos?install=${outcome}`));
+    const params = new URL(req.url).searchParams;
+    const state = verifyInstallState(config.appSecret, params.get("state") ?? "", now.getTime());
+    // Only a validly signed state picks the page to return to (a fixed list, never a URL from the request).
+    const page = state?.returnTo === "onboarding" ? "/onboarding" : "/dashboard/repos";
+    const back = (outcome: string) => redirectTo(appUrl(config, `${page}?install=${outcome}`));
 
     const gate = await requireRepoManager(deps, req, now);
     if (!gate.ok) return gate.response;
     const { ctx } = gate;
-    const params = new URL(req.url).searchParams;
     const logger = log.child({ orgId: ctx.orgId, userId: ctx.userId });
 
     // A user without permission to install on the account asked an admin to approve it; nothing to link yet.
     if (params.get("setup_action") === "request") return back("requested");
 
-    const state = verifyInstallState(config.appSecret, params.get("state") ?? "", now.getTime());
     if (!state || state.orgId !== ctx.orgId || state.userId !== ctx.userId) return back("invalid_state");
     const installationId = Number(params.get("installation_id"));
     if (!Number.isSafeInteger(installationId) || installationId <= 0) return back("missing_installation");

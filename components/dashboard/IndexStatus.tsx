@@ -3,17 +3,9 @@ import { StatusPill } from "@/components/ui/Badge";
 import { indexProgressFraction } from "@/lib/data/overview";
 import type { IndexProgress } from "@/lib/db/schema";
 import { formatCount } from "@/lib/ui/format";
+import { INDEX_PHASE_LABEL } from "./index-phases";
 
-const PHASE_LABEL: Record<string, string> = {
-  queued: "Waiting to start",
-  checkout: "Checking out",
-  scan: "Scanning files",
-  parse: "Parsing",
-  embed: "Embedding",
-  graph: "Building graph",
-  finalize: "Finalizing",
-  done: "Done",
-};
+const PHASE_LABEL = INDEX_PHASE_LABEL;
 
 /** A repository's index state; while a job is queued or running, its phase and a live progress bar. */
 export function IndexStatus({

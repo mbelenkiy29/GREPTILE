@@ -1,3 +1,5 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
 import { Badge, ConfidencePill, humanize, StatusPill } from "@/components/ui/Badge";
 import { CodeBlock } from "@/components/ui/Code";
 import { Icon } from "@/components/ui/icons";
@@ -29,11 +31,14 @@ export function FindingCard({
   repoFullName,
   prNumber,
   githubUrl,
+  footer,
 }: {
   finding: FindingRow;
   repoFullName: string;
   prNumber: number;
   githubUrl?: string;
+  /** Controls under the finding (e.g. feedback, R6.10). */
+  footer?: ReactNode;
 }) {
   const note = verificationNote(f.verification);
   return (
@@ -66,7 +71,14 @@ export function FindingCard({
       </div>
       {(f.ruleId || f.ruleText) && (
         <div className="dim">
-          <Icon name="rules" size={12} /> Rule <span className="mono">{f.ruleId}</span>
+          <Icon name="rules" size={12} /> Rule{" "}
+          {f.ruleId && /^rule:\d+$/.test(f.ruleId) ? (
+            <Link className="mono" href={`/dashboard/rules/${f.ruleId.slice("rule:".length)}`}>
+              {f.ruleId}
+            </Link>
+          ) : (
+            <span className="mono">{f.ruleId}</span>
+          )}
           {f.ruleText && <>: {f.ruleText}</>}
         </div>
       )}
@@ -105,6 +117,7 @@ export function FindingCard({
           Resolved{f.resolution === "fixed" ? " by commit" : ""} <span className="mono">{f.resolvedSha.slice(0, 7)}</span>
         </p>
       )}
+      {footer}
     </article>
   );
 }

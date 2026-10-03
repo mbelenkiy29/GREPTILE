@@ -193,8 +193,11 @@ export function ReviewDetailView({
   githubUrl,
   now = new Date(),
   runId,
+  findingActions,
 }: {
   review: ReviewDetail;
+  /** Per-finding controls, e.g. feedback (R6.10), rendered at the end of each finding card. */
+  findingActions?: (f: ReviewDetail["findings"]["items"][number]) => ReactNode;
   /** Run whose lifecycle and agents to show (defaults to the latest; agents must have been loaded for it). */
   runId?: number;
   /** Re-review / cancel controls (rendered by the page). */
@@ -345,7 +348,7 @@ export function ReviewDetailView({
         </div>
         {review.findings.items.length ? (
           review.findings.items.map((f) => (
-            <FindingCard key={f.id} finding={f} repoFullName={review.repoFullName} prNumber={review.prNumber} githubUrl={githubUrl} />
+            <FindingCard key={f.id} finding={f} repoFullName={review.repoFullName} prNumber={review.prNumber} githubUrl={githubUrl} footer={findingActions?.(f)} />
           ))
         ) : review.comments.length ? null : (
           <EmptyState icon="check" title="No findings" headingLevel={3}>

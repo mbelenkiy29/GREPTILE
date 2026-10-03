@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
 import { appUrl, authConfig } from "@/lib/auth/config";
 import { db } from "@/lib/db";
-import { changeMemberRole, createInvitation, leaveOrg, parseInviteTarget, removeMember, revokeInvitation } from "@/lib/data/members";
+import { changeMemberRole, createInvitation, leaveOrg, parseInviteTarget, regenerateInvitationLink, removeMember, revokeInvitation } from "@/lib/data/members";
 import { OrgError, type OrgErrorCode } from "@/lib/data/orgs";
 import type { InviteFormState } from "./InviteForm";
+import type { InviteLinkState } from "./InviteLinkButton";
 
 /*
  * Team management (R6.1). Each action checks the role permission here and the data layer re-checks the acting
@@ -43,6 +44,24 @@ export async function inviteMember(_prev: InviteFormState, formData: FormData): 
     });
     revalidatePath("/dashboard/team");
     return { link: appUrl(authConfig(), `/invite/${token}`), target: target.githubLogin ? `@${target.githubLogin}` : (target.email ?? null) };
+  } catch (err) {
+    if (err instanceof OrgError) return { error: err.message };
+    throw err;
+  }
+}
+
+/** A fresh link for a pending invitation (the old link stops working); shown once. */
+export async function newInviteLink(_prev: InviteLinkState, formData: FormData): Promise<InviteLinkState> {
+  const ctx = await requireOrg({ permission: "members.invite" });
+  try {
+    const { token } = await regenerateInvitationLink(db(), {
+      orgId: ctx.orgId,
+      actorId: ctx.userId,
+      invitationId: Number(formData.get("invitationId")),
+      now: new Date(),
+    });
+    revalidatePath("/dashboard/team");
+    return { link: appUrl(authConfig(), `/invite/${token}`) };
   } catch (err) {
     if (err instanceof OrgError) return { error: err.message };
     throw err;

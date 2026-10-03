@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { CONFIG_FILE, parseRepoConfig } from "@/lib/config/repo-config";
+import { CONFIG_FILE, parseRepoConfig, resolveConfig } from "@/lib/config/repo-config";
+import type { ReviewRule } from "@/lib/rules";
 import { orgSettingsSchema, resolveEffectiveSettings, type EffectiveSettings, type SettingKey, type SettingSource } from "@/lib/config/settings";
 import type { Db } from "@/lib/db";
 import { installations, orgs, repos, type OrgSettings, type RepoSettings } from "@/lib/db/schema";
@@ -82,6 +83,41 @@ export async function getRepoSettingsView(
   }
   const { settings, sources } = resolveEffectiveSettings(row.org, row.repo, file.settings ?? undefined);
   return { repoSettings: row.repo, orgSettings: row.org, settings, sources, file };
+}
+
+/**
+ * Rules declared in a repository's `openreview.json` on its default branch (R6.11), shown read-only on the Rules
+ * page. Bounded by `timeoutMs`; when the file can't be read the status says why.
+ */
+export async function getRepoConfigRules(
+  db: Db,
+  orgId: string,
+  repoId: number,
+  opts: { host: GitHost; timeoutMs?: number },
+): Promise<{ status: ConfigFileStatus; message: string | null; rules: ReviewRule[]; fullName: string } | undefined> {
+  const [row] = await db
+    .select({ fullName: repos.fullName, defaultBranch: repos.defaultBranch, installationExternalId: installations.externalId })
+    .from(repos)
+    .innerJoin(installations, and(eq(installations.id, repos.installationId), eq(installations.orgId, orgId)))
+    .where(scoped(repos, orgId, eq(repos.id, repoId)));
+  if (!row) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const text = await Promise.race([
+      opts.host.client(row.installationExternalId).getFileContent(row.fullName, CONFIG_FILE, row.defaultBranch),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timed out")), opts.timeoutMs ?? 3_000);
+      }),
+    ]);
+    if (text === null) return { status: "absent", message: null, rules: [], fullName: row.fullName };
+    const parsed = parseRepoConfig(text);
+    if (!parsed.config) return { status: "invalid", message: parsed.error ?? `${CONFIG_FILE} is invalid`, rules: [], fullName: row.fullName };
+    return { status: "found", message: null, rules: resolveConfig(undefined, parsed.config).rules, fullName: row.fullName };
+  } catch (err) {
+    return { status: "unavailable", message: `Couldn't read ${CONFIG_FILE}: ${errorMessage(err)}`, rules: [], fullName: row.fullName };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function readConfigFile(

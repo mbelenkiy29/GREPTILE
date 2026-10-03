@@ -16,7 +16,7 @@ import { errorMessage } from "@/lib/log";
 import type { ContextItem } from "@/lib/retrieval";
 import type { FileDiff } from "@/lib/review/diff";
 import { similarity, tokens } from "@/lib/review/text";
-import { ruleApplies, type ReviewRule } from "@/lib/rules";
+import { applySeverityFloor, ruleApplies, type ReviewRule } from "@/lib/rules";
 import type { Candidate } from "./agents";
 import { callJson, mapLimit, record, type EngineContext } from "./calls";
 import { anchorCodeOf, enclosingSymbol, fingerprint, matchPrior } from "./identity";
@@ -81,7 +81,8 @@ interface Working {
   anchorCode: string;
   fingerprint: string;
   priorFindingId: number | null;
-  rule: { id: string; text: string } | null;
+  /** The cited rule; its severity (R6.11) is the finding's minimum severity. */
+  rule: { id: string; text: string; severity?: ReviewRule["severity"] } | null;
   boosted: boolean;
 }
 
@@ -443,7 +444,7 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
     const ruleId = c.ruleId?.trim().replace(/^\[|\]$/g, "") ?? null;
     if (ruleId) {
       const r = rulesById.get(ruleId);
-      if (r && ruleApplies(r, c.path)) rule = { id: r.id, text: r.text };
+      if (r && ruleApplies(r, c.path)) rule = { id: r.id, text: r.text, ...(r.severity ? { severity: r.severity } : {}) };
       else if (ruleId.startsWith("instructions:") && input.instructionPaths.has(ruleId.slice("instructions:".length))) {
         rule = { id: ruleId, text: `Repository instructions in ${ruleId.slice("instructions:".length)}` };
       }
@@ -452,6 +453,8 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       reject(w0, "filter", "a team-rules finding must cite a rule or instructions file that applies to this file");
       continue;
     }
+    // A finding that enforces a rule is at least as severe as the rule says (R6.11).
+    c.severity = applySeverityFloor(c.severity, rule);
 
     // Thresholds.
     if (SEVERITY_WEIGHT[c.severity] < SEVERITY_WEIGHT[settings.minSeverity]) {
@@ -545,8 +548,10 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       reject({ agent: w.agent, c: { ...w.c, confidence: v.confidence } }, "verifier", `verified confidence ${v.confidence.toFixed(2)} is below the minimum (${minConfidence})`);
       continue;
     }
-    if (SEVERITY_WEIGHT[v.severity] < SEVERITY_WEIGHT[settings.minSeverity]) {
-      reject({ agent: w.agent, c: { ...w.c, severity: v.severity } }, "filter", `verified severity ${v.severity} is below the minimum (${settings.minSeverity})`);
+    // The judge may lower severity, but never below a cited rule's severity (R6.11).
+    const severity = applySeverityFloor(v.severity, w.rule);
+    if (SEVERITY_WEIGHT[severity] < SEVERITY_WEIGHT[settings.minSeverity]) {
+      reject({ agent: w.agent, c: { ...w.c, severity } }, "filter", `verified severity ${severity} is below the minimum (${settings.minSeverity})`);
       continue;
     }
     const finding: EngineFinding = {
@@ -554,7 +559,7 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       title: w.c.title,
       description: w.c.description,
       impact: w.c.impact,
-      severity: v.severity,
+      severity,
       confidence: Math.round(v.confidence * 1000) / 1000,
       category: w.agent,
       agents: w.agents,
@@ -566,7 +571,7 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       evidence: w.evidence,
       suggestedFix: w.c.suggestedFix,
       suggestion: w.c.suggestion,
-      rule: w.rule,
+      rule: w.rule ? { id: w.rule.id, text: w.rule.text } : null,
       verification: v.verification,
       priorFindingId: w.priorFindingId,
     };

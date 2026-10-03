@@ -29,6 +29,8 @@ export interface MemberView {
   joinedAt: Date;
   /** This is the org's personal-workspace creator, who always stays an owner. */
   workspaceCreator: boolean;
+  /** Last request in this org (a session with it active), else the last sign-in; null if never seen. */
+  lastActiveAt: Date | null;
 }
 
 export interface InvitationView {
@@ -50,8 +52,19 @@ export interface InviteeIdentity {
   githubLogin: string | null;
 }
 
-export async function listMembers(db: Db, orgId: string): Promise<MemberView[]> {
-  return db
+/**
+ * The org's members, owners first. `query` filters by name, GitHub login, or email (case-insensitive substring).
+ */
+export async function listMembers(db: Db, orgId: string, opts: { query?: string } = {}): Promise<MemberView[]> {
+  const q = opts.query?.trim().toLowerCase().slice(0, 100);
+  const like = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+  const lastSeen = db
+    .select({ userId: sessions.userId, at: sql<Date>`max(${sessions.lastSeenAt})`.as("at") })
+    .from(sessions)
+    .where(eq(sessions.activeOrgId, orgId))
+    .groupBy(sessions.userId)
+    .as("last_seen");
+  const rows = await db
     .select({
       userId: users.id,
       name: users.name,
@@ -61,12 +74,28 @@ export async function listMembers(db: Db, orgId: string): Promise<MemberView[]> 
       role: memberships.role,
       joinedAt: memberships.createdAt,
       workspaceCreator: sql<boolean>`coalesce(${orgs.personal} and ${orgs.createdBy} = ${users.id}, false)`,
+      lastSeenAt: lastSeen.at,
+      lastLoginAt: users.lastLoginAt,
     })
     .from(memberships)
     .innerJoin(users, eq(memberships.userId, users.id))
     .innerJoin(orgs, eq(memberships.orgId, orgs.id))
-    .where(scoped(memberships, orgId))
+    .leftJoin(lastSeen, eq(lastSeen.userId, users.id))
+    .where(
+      scoped(
+        memberships,
+        orgId,
+        like
+          ? sql`(lower(${users.name}) like ${like} or lower(coalesce(${users.githubLogin}, '')) like ${like} or lower(coalesce(${users.email}, '')) like ${like})`
+          : undefined,
+      ),
+    )
     .orderBy(asc(memberships.role), asc(users.name));
+  return rows.map(({ lastSeenAt, lastLoginAt, ...m }) => {
+    const seen = lastSeenAt ? new Date(lastSeenAt) : null;
+    const latest = seen && lastLoginAt ? (seen > lastLoginAt ? seen : lastLoginAt) : (seen ?? lastLoginAt);
+    return { ...m, lastActiveAt: latest };
+  });
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -263,6 +292,25 @@ export async function revokeInvitation(
     .where(scoped(invitations, input.orgId, eq(invitations.id, input.invitationId), isNull(invitations.acceptedAt), isNull(invitations.revokedAt)))
     .returning({ id: invitations.id });
   if (!rows.length) throw new OrgError("not_found");
+}
+
+/**
+ * A fresh link for a pending invitation (requires `members.invite`). Only the token hash is stored, so the original
+ * link can't be shown again: this replaces the token (the old link stops working) and restarts the 7-day expiry.
+ */
+export async function regenerateInvitationLink(
+  db: Db,
+  input: { orgId: string; actorId: string; invitationId: number; now: Date },
+): Promise<{ token: string }> {
+  if (!can(await roleOf(db, input.orgId, input.actorId), "members.invite")) throw new OrgError("forbidden");
+  const token = randomToken(32);
+  const rows = await db
+    .update(invitations)
+    .set({ tokenHash: hashToken(token), expiresAt: new Date(input.now.getTime() + INVITE_TTL_MS) })
+    .where(scoped(invitations, input.orgId, eq(invitations.id, input.invitationId), pending(input.now)))
+    .returning({ id: invitations.id });
+  if (!rows.length) throw new OrgError("not_found");
+  return { token };
 }
 
 export type InvitationState = "pending" | "accepted" | "revoked" | "expired";

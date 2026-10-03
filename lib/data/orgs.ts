@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { randomToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
-import { memberships, orgs, sessions } from "@/lib/db/schema";
-import type { Role } from "@/lib/auth/permissions";
+import { llmResponseCache, memberships, modelCalls, orgs, sessions, usageEvents } from "@/lib/db/schema";
+import { can, type Role } from "@/lib/auth/permissions";
 
 /**
  * Organizations (workspaces) and the membership lookups that authorize every request (R6.1). Membership queries are
@@ -34,7 +34,11 @@ export type OrgErrorCode =
   | "revoked"
   | "already_accepted"
   | "wrong_user"
-  | "personal_owner";
+  | "personal_owner"
+  | "invalid_slug"
+  | "slug_taken"
+  | "confirm_mismatch"
+  | "personal_delete";
 
 export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   forbidden: "You don't have permission to do that.",
@@ -51,6 +55,10 @@ export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   already_accepted: "This invitation was already used.",
   wrong_user: "This invitation was sent to a different account. Sign in with the invited GitHub account or email.",
   personal_owner: "A personal workspace always belongs to the person who created it. They stay its owner and can't be removed, demoted, or leave.",
+  invalid_slug: "Slugs are 1–40 lowercase letters, digits, or single dashes, and can't start or end with a dash.",
+  slug_taken: "Another organization already uses that slug.",
+  confirm_mismatch: "Type the organization's slug exactly to confirm.",
+  personal_delete: "A personal workspace can't be deleted. Remove its repositories instead, or create another organization.",
 };
 
 /** The error code named by an untrusted value (e.g. `?error=` in a URL), or null. Only own keys match, never `constructor`. */
@@ -203,4 +211,46 @@ export async function defaultOrgForUser(db: Db, userId: string): Promise<string 
   if (recent) return recent.orgId;
   const [first] = await listUserOrgs(db, userId);
   return first?.id ?? null;
+}
+
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Renames an org and/or changes its slug (Settings → General). Requires `org.update` (owners and admins), checked
+ * against the acting user's membership in the database.
+ */
+export async function renameOrg(db: Db, input: { orgId: string; actorId: string; name: string; slug: string }): Promise<OrgRow> {
+  const member = await getMembership(db, input.orgId, input.actorId);
+  if (!member) throw new OrgError("not_member");
+  if (!can(member.role, "org.update")) throw new OrgError("forbidden");
+  const name = cleanName(input.name);
+  const slug = input.slug.trim().toLowerCase();
+  if (!slug || slug.length > 40 || !SLUG_PATTERN.test(slug)) throw new OrgError("invalid_slug");
+  try {
+    const [row] = await db.update(orgs).set({ name, slug }).where(eq(orgs.id, input.orgId)).returning();
+    if (!row) throw new OrgError("not_found");
+    return row;
+  } catch (err) {
+    if (isUniqueViolation(err, "orgs_slug_uq")) throw new OrgError("slug_taken");
+    throw err;
+  }
+}
+
+/**
+ * Deletes an org and everything it owns (Settings → General). Owners only, never a personal workspace, and the
+ * caller must type the org's slug. Tenant rows reference the org (or its repositories) with ON DELETE CASCADE;
+ * the few metering tables without a foreign key are cleared explicitly in the same transaction.
+ */
+export async function deleteOrg(db: Db, input: { orgId: string; actorId: string; confirm: string }): Promise<void> {
+  const member = await getMembership(db, input.orgId, input.actorId);
+  if (!member) throw new OrgError("not_member");
+  if (!can(member.role, "org.delete")) throw new OrgError("forbidden");
+  if (member.personal) throw new OrgError("personal_delete");
+  if (input.confirm.trim() !== member.slug) throw new OrgError("confirm_mismatch");
+  await db.transaction(async (tx) => {
+    await tx.delete(usageEvents).where(eq(usageEvents.orgId, input.orgId));
+    await tx.delete(modelCalls).where(eq(modelCalls.orgId, input.orgId));
+    await tx.delete(llmResponseCache).where(eq(llmResponseCache.orgId, input.orgId));
+    await tx.delete(orgs).where(eq(orgs.id, input.orgId));
+  });
 }

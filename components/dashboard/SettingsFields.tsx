@@ -56,13 +56,16 @@ export interface SettingsFieldsProps {
   errors?: SettingsFormErrors;
   /** Submitted values to show again after a failed save. */
   values?: Record<string, string | string[]>;
+  /** Which layer the form edits: one repository (default) or the organization's defaults. */
+  scope?: "repo" | "org";
 }
 
 /**
  * Every R6.14 review setting as a form control with its effective value's source badge. Empty fields inherit; the
  * form stores only what is set for this repository.
  */
-export function SettingsFields({ settings, sources, inherited, repoSettings, errors = {}, values }: SettingsFieldsProps) {
+export function SettingsFields({ settings, sources, inherited, repoSettings, errors = {}, values, scope = "repo" }: SettingsFieldsProps) {
+  const target = scope === "org" ? "every repository" : "this repository";
   const str = (key: string, fromRepo: string): string => {
     if (!values) return fromRepo;
     const v = values[key];
@@ -228,7 +231,7 @@ export function SettingsFields({ settings, sources, inherited, repoSettings, err
       <section className="form-section" aria-labelledby="sec-model">
         <div className="form-section-head">
           <h3 id="sec-model">Model and instructions</h3>
-          <p className="dim">Pin a model for this repository and tell reviewers what matters here.</p>
+          <p className="dim">Pin a model for {target} and tell reviewers what matters.</p>
         </div>
         <Field {...chrome("model", "Model", "A model id your configured provider serves. Empty uses the deployment's routing.")}>
           <input
@@ -243,7 +246,7 @@ export function SettingsFields({ settings, sources, inherited, repoSettings, err
             aria-describedby={describe("model", true)}
           />
         </Field>
-        <Field {...chrome("customInstructions", "Custom instructions", "Plain-English guidance added to every review of this repository (up to 4,000 characters).")}>
+        <Field {...chrome("customInstructions", "Custom instructions", `Plain-English guidance added to every review of ${target} (up to 4,000 characters).`)}>
           <textarea
             id={id("customInstructions")}
             name="customInstructions"

@@ -1,22 +1,60 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { deleteLearnedPattern, updateLearnedPattern } from "@/lib/learning";
+import { deletePreference, parseResetForm, PreferenceError, resetPreferences, updatePreference } from "@/lib/learning/preferences";
+import { withToast } from "@/lib/ui/toast";
 
+/* Learned preferences (R2.4, R6.10). Every action needs `rules.manage`; the org comes from the session. */
+
+const PATH = "/dashboard/learned";
+
+function idOf(formData: FormData): number | null {
+  const n = Number(formData.get("id"));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/** Edits a preference's description and signal; any edit pins it. */
 export async function editPattern(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "rules.manage" });
+  const id = idOf(formData);
   const signal = String(formData.get("signal"));
-  await updateLearnedPattern(db(), orgId, Number(formData.get("id")), {
-    description: String(formData.get("description") ?? ""),
-    ...(signal === "suppress" || signal === "boost" || signal === "neutral" ? { signal } : {}),
-  });
-  revalidatePath("/dashboard/learned");
+  let row;
+  try {
+    row =
+      id === null
+        ? undefined
+        : await updatePreference(db(), orgId, id, {
+            description: String(formData.get("description") ?? ""),
+            ...(signal === "suppress" || signal === "boost" || signal === "neutral" ? { signal } : {}),
+          });
+  } catch (err) {
+    if (err instanceof PreferenceError) redirect(withToast(PATH, "preference.invalid"));
+    throw err;
+  }
+  revalidatePath(PATH);
+  redirect(withToast(PATH, row ? "preference.saved" : "preference.not_found"));
 }
 
 export async function removePattern(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "rules.manage" });
-  await deleteLearnedPattern(db(), orgId, Number(formData.get("id")));
-  revalidatePath("/dashboard/learned");
+  const id = idOf(formData);
+  const deleted = id !== null && (await deletePreference(db(), orgId, id));
+  revalidatePath(PATH);
+  redirect(withToast(PATH, deleted ? "preference.deleted" : "preference.not_found"));
+}
+
+/** Forgets learned preferences (all, or one repository's), keeping pinned ones unless `includePinned`. */
+export async function resetAllPreferences(formData: FormData) {
+  const { orgId } = await requireOrg({ permission: "rules.manage" });
+  try {
+    await resetPreferences(db(), orgId, parseResetForm(formData));
+  } catch (err) {
+    if (err instanceof PreferenceError) redirect(withToast(PATH, "preference.not_found"));
+    throw err;
+  }
+  revalidatePath(PATH);
+  redirect(withToast(PATH, "preferences.reset"));
 }
