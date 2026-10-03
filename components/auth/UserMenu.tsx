@@ -1,5 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
+import { DropdownMenu } from "@/components/ui/DropdownMenu";
+import { Icon } from "@/components/ui/icons";
+import { menuItemProps } from "@/components/ui/menu";
 
 export interface UserMenuUser {
   name: string;
@@ -15,24 +18,32 @@ export function Avatar({ user, size = 24 }: { user: Pick<UserMenuUser, "avatarUr
 }
 
 /** Signed-in user: avatar, name, link to organizations, and sign out (a same-origin POST). */
-export function UserMenu({ user }: { user: UserMenuUser }) {
+export function UserMenu({ user, align = "up" }: { user: UserMenuUser; align?: "start" | "end" | "up" }) {
   return (
-    <details className="menu" data-testid="user-menu">
-      <summary aria-label={`Account menu for ${user.name}`}>
-        <Avatar user={user} />
-        <span>{user.name}</span>
-      </summary>
-      <div className="menu-panel">
-        <div className="menu-label">{user.githubLogin ? `@${user.githubLogin}` : (user.email ?? "")}</div>
-        <Link className="menu-item" href="/orgs">
-          Organizations
-        </Link>
-        <form method="post" action="/api/auth/logout">
-          <button className="menu-item" type="submit">
-            Sign out
-          </button>
-        </form>
-      </div>
-    </details>
+    <DropdownMenu
+      testId="user-menu"
+      align={align}
+      label={`Account menu for ${user.name}`}
+      trigger={
+        <span className="account-chip">
+          <Avatar user={user} />
+          <span className="truncate">{user.name}</span>
+          <Icon name="chevron-down" size={14} />
+        </span>
+      }
+    >
+      <div className="menu-label">{user.githubLogin ? `@${user.githubLogin}` : (user.email ?? "")}</div>
+      <Link {...menuItemProps()} href="/orgs">
+        Organizations
+        <Icon name="building" size={14} />
+      </Link>
+      <div className="menu-sep" role="separator" />
+      <form method="post" action="/api/auth/logout" role="none">
+        <button {...menuItemProps()} type="submit">
+          Sign out
+          <Icon name="logout" size={14} />
+        </button>
+      </form>
+    </DropdownMenu>
   );
 }
