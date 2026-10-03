@@ -1,51 +1,71 @@
-import { env } from "@/lib/env";
-import { EMBEDDING_DIM } from "@/lib/db/schema";
-import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from "./anthropic";
-import { FakeEmbeddings, FakeLlm } from "./fake";
-import { OpenAiCompatibleEmbeddings, OpenAiCompatibleProvider } from "./openai";
-import { LlmError, type EmbeddingProvider, type LlmProvider } from "./types";
+import { llmEnvSchema } from "@/lib/env";
+import type { Db } from "@/lib/db";
+import { PostgresResponseCache } from "./cache";
+import { CachedEmbeddings } from "./embedding-cache";
+import { FakeEmbeddings } from "./fake";
+import { createGateway, type ModelGateway } from "./gateway";
+import { OpenAiCompatibleEmbeddings } from "./openai";
+import { pricingTable } from "./pricing";
+import { PostgresModelCallRecorder } from "./recorder";
+import { embeddingRoute, type OrgLlmOverride } from "./routing";
+import { LlmError, type EmbeddingProvider } from "./types";
 
 export * from "./types";
+export { toStoredEmbedding } from "./vector";
+export { createGateway, ModelGateway, type GatewayJsonResult, type GatewayOptions, type GatewayTextResult } from "./gateway";
+export { routeFor, resolveRoute, embeddingRoute, ANTHROPIC_ROUTES, DEFAULT_ANTHROPIC_MODEL, type OrgLlmOverride } from "./routing";
+export { estimateCost, pricingTable, BUILTIN_PRICING, type ModelPrice, type PricingTable } from "./pricing";
+export { estimateTokens, truncateToTokens, fitItemsToBudget } from "./budget";
+export {
+  InMemoryModelCallRecorder,
+  PostgresModelCallRecorder,
+  modelCallTotals,
+  type ModelCallRecord,
+  type ModelCallRecorder,
+  type ModelCallStatus,
+  type ModelCallTotals,
+} from "./recorder";
+export { PostgresResponseCache, responseCacheKey, type ResponseCache } from "./cache";
+export { assertPublicOrgEndpoint, isNonPublicAddress, type HostResolver } from "./endpoint-guard";
+export { CachedEmbeddings } from "./embedding-cache";
 
 /**
- * Fits a provider vector into the fixed pgvector column. Shorter vectors are
- * zero-padded, which leaves cosine similarity unchanged; longer ones are rejected.
+ * The env-configured model gateway (R6.15). With `db`, every call is recorded in `model_calls` and calls that pass
+ * `cache: true` use the Postgres response cache. `orgOverride` applies an org's bring-your-own LLM settings.
  */
-export function toStoredEmbedding(v: number[]): number[] {
-  if (v.length > EMBEDDING_DIM) {
-    throw new LlmError(`embedding has ${v.length} dimensions; at most ${EMBEDDING_DIM} are supported`);
+export function llm(opts: { db?: Db; orgOverride?: OrgLlmOverride } = {}): ModelGateway {
+  const e = llmEnvSchema.parse(process.env);
+  return createGateway({
+    env: e,
+    orgOverride: opts.orgOverride,
+    recorder: opts.db ? new PostgresModelCallRecorder(opts.db) : undefined,
+    cache: opts.db ? new PostgresResponseCache(opts.db, { ttlHours: e.LLM_CACHE_TTL_HOURS }) : undefined,
+  });
+}
+
+/** The env-configured embedding model; with `db`, wrapped in the embedding cache and recorded (R6.16). */
+export function embeddings(opts: { db?: Db } = {}): EmbeddingProvider {
+  const e = llmEnvSchema.parse(process.env);
+  const route = embeddingRoute(e);
+  let inner: EmbeddingProvider;
+  if (route.provider === "fake") {
+    inner = new FakeEmbeddings();
+  } else {
+    if (!route.baseURL) throw new LlmError(`no base URL for the ${route.provider} embedding provider`);
+    inner = new OpenAiCompatibleEmbeddings({
+      flavor: route.provider === "openai" ? "openai" : "openai-compatible",
+      baseURL: route.baseURL,
+      apiKey: e.EMBEDDING_API_KEY,
+      model: route.model,
+    });
   }
-  return v.length === EMBEDDING_DIM ? v : [...v, ...new Array<number>(EMBEDDING_DIM - v.length).fill(0)];
-}
-
-export interface LlmOverrides {
-  provider?: "anthropic" | "openai";
-  model?: string;
-  baseURL?: string;
-  apiKey?: string;
-}
-
-/** The configured chat model. `overrides` lets an org bring its own endpoint (R4.6). */
-export function llm(overrides: LlmOverrides = {}): LlmProvider {
-  const e = env();
-  const provider = overrides.provider ?? e.LLM_PROVIDER;
-  const model = overrides.model ?? e.LLM_MODEL;
-  const baseURL = overrides.baseURL ?? e.LLM_BASE_URL;
-  const apiKey = overrides.apiKey ?? e.LLM_API_KEY;
-  if (provider === "fake") return new FakeLlm();
-  if (provider === "openai") {
-    if (!baseURL || !model) throw new LlmError("LLM_BASE_URL and LLM_MODEL are required for the openai provider");
-    return new OpenAiCompatibleProvider({ baseURL, apiKey, model });
-  }
-  return new AnthropicProvider(model ?? DEFAULT_ANTHROPIC_MODEL, { apiKey, baseURL });
-}
-
-export function embeddings(): EmbeddingProvider {
-  const e = env();
-  if (e.EMBEDDING_PROVIDER === "fake") return new FakeEmbeddings();
-  return new OpenAiCompatibleEmbeddings({
-    baseURL: e.EMBEDDING_BASE_URL ?? "https://api.openai.com/v1",
-    apiKey: e.EMBEDDING_API_KEY,
-    model: e.EMBEDDING_MODEL ?? "text-embedding-3-small",
+  if (!opts.db) return inner;
+  return new CachedEmbeddings(inner, {
+    db: opts.db,
+    recorder: new PostgresModelCallRecorder(opts.db),
+    pricing: pricingTable(e.LLM_PRICING_JSON),
+    maxRetries: e.LLM_MAX_RETRIES,
+    timeoutMs: e.LLM_TIMEOUT_MS,
+    ttlDays: e.EMBEDDING_CACHE_TTL_DAYS,
   });
 }

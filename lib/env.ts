@@ -1,11 +1,58 @@
 import { z } from "zod";
 
+/** A numeric variable; unset or empty falls through to `inner`'s default. */
+const optionalNumber = <T extends z.ZodType>(inner: T) =>
+  z.preprocess((v) => (v === undefined || v === "" ? undefined : Number(v)), inner);
+
+/** A boolean flag: "true"/"1"/"yes" are true; unset or empty is false (already-parsed booleans pass through). */
+const flag = z
+  .union([z.boolean(), z.string()])
+  .optional()
+  .transform((v) => (typeof v === "boolean" ? v : ["true", "1", "yes"].includes((v ?? "").trim().toLowerCase())));
+
 const optional = z
   .string()
   .optional()
   .transform((v) => (v ? v : undefined));
 
 const indexMaxFileBytes = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().default(524_288));
+/** Model gateway settings (R6.15, R6.16); also parsed on their own by `llmEnvSchema`. */
+const llmShape = {
+  LLM_PROVIDER: z.enum(["anthropic", "openai", "openrouter", "openai-compatible", "fake"]).default("anthropic"),
+  LLM_MODEL: optional,
+  LLM_BASE_URL: optional,
+  LLM_API_KEY: optional,
+  /** Per-task model overrides; each falls back to LLM_MODEL, then the provider's built-in route. */
+  LLM_MODEL_REVIEW: optional,
+  LLM_MODEL_VERIFY: optional,
+  LLM_MODEL_SUMMARY: optional,
+  LLM_MODEL_CLASSIFY: optional,
+  LLM_MODEL_CONTEXT: optional,
+  LLM_MODEL_CHAT: optional,
+  LLM_MODEL_KNOWLEDGE: optional,
+  LLM_MODEL_RULES: optional,
+  /** Review and verify model for the fast / deep review modes. */
+  LLM_MODEL_FAST: optional,
+  LLM_MODEL_DEEP: optional,
+  LLM_TIMEOUT_MS: optionalNumber(z.number().int().positive().default(180_000)),
+  LLM_MAX_RETRIES: optionalNumber(z.number().int().min(0).max(10).default(3)),
+  /**
+   * Slowest output rate a call is allowed: an attempt may run for max(LLM_TIMEOUT_MS, maxTokens / rate) so long
+   * deep-mode calls are not cut off. 0 disables the allowance.
+   */
+  LLM_MIN_OUTPUT_TOKENS_PER_SEC: optionalNumber(z.number().min(0).default(60)),
+  /** Let organizations' own LLM endpoints use http and private / loopback / link-local addresses (SSRF guard off). */
+  LLM_ALLOW_PRIVATE_ORG_ENDPOINTS: flag,
+  /** USD per million tokens, merged over the built-in table: {"model": {"input": 1, "output": 2, ...}}. */
+  LLM_PRICING_JSON: optional,
+  LLM_CACHE_TTL_HOURS: optionalNumber(z.number().positive().default(168)),
+  EMBEDDING_PROVIDER: z.enum(["openai", "openai-compatible", "fake"]).default("openai"),
+  EMBEDDING_MODEL: optional,
+  EMBEDDING_BASE_URL: optional,
+  EMBEDDING_API_KEY: optional,
+  /** Embedding cache rows older than this are re-embedded and pruned. */
+  EMBEDDING_CACHE_TTL_DAYS: optionalNumber(z.number().positive().default(90)),
+};
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -25,14 +72,7 @@ const schema = z.object({
   /** Login that `@mentions` the bot in PR comments (R1.7). */
   BOT_MENTION: z.string().default("openreview"),
 
-  LLM_PROVIDER: z.enum(["anthropic", "openai", "fake"]).default("anthropic"),
-  LLM_MODEL: optional,
-  LLM_BASE_URL: optional,
-  LLM_API_KEY: optional,
-  EMBEDDING_PROVIDER: z.enum(["openai", "fake"]).default("openai"),
-  EMBEDDING_MODEL: optional,
-  EMBEDDING_BASE_URL: optional,
-  EMBEDDING_API_KEY: optional,
+  ...llmShape,
 
   REPO_CACHE_DIR: z.string().default("/tmp/openreview-repos"),
   /** Concurrent jobs per worker process. */
@@ -44,6 +84,11 @@ const schema = z.object({
 });
 
 export type Env = z.infer<typeof schema>;
+
+/** The variables the model gateway reads, so `lib/llm` can be configured without the full server env. */
+export const llmEnvSchema = z.object({ APP_URL: z.string().url().default("http://localhost:3000"), ...llmShape });
+
+export type LlmEnv = z.infer<typeof llmEnvSchema>;
 
 let cached: Env | undefined;
 

@@ -1,13 +1,16 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  bigserial,
   boolean,
   customType,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   serial,
   text,
   timestamp,
@@ -623,4 +626,79 @@ export const repoCommits = pgTable(
     index("repo_commits_paths_gin").using("gin", t.changedPaths),
     index().on(t.orgId),
   ],
+);
+
+// ---- gateway ----
+
+export const modelCallStatus = pgEnum("model_call_status", ["ok", "error", "refused", "cache_hit"]);
+
+/**
+ * One row per logical model call through the gateway (R6.15): what ran, what it cost, and how it ended. Retries
+ * of one call share a row (`attempts`). Correlation ids are nullable: indexing and CLI calls have no review run.
+ */
+export const modelCalls = pgTable(
+  "model_calls",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    orgId: text("org_id"),
+    repoId: integer("repo_id"),
+    reviewRunId: integer("review_run_id"),
+    agentRunId: integer("agent_run_id"),
+    task: text("task").notNull(),
+    mode: text("mode"),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    latencyMs: integer("latency_ms").notNull().default(0),
+    /** Estimated USD; null when the model has no known price (never recorded as 0). */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
+    status: modelCallStatus("status").notNull(),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(1),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId, t.createdAt), index().on(t.reviewRunId)],
+);
+
+/**
+ * Embeddings by content hash (R6.16). Content-addressed and deliberately shared across orgs: a row holds only the
+ * vector a given model returns for a given text (never the text), so identical files in different orgs are embedded
+ * once. Rows older than EMBEDDING_CACHE_TTL_DAYS are re-embedded and pruned. Vectors are zero-padded to
+ * EMBEDDING_DIM; `dims` is the original width.
+ */
+export const embeddingCache = pgTable(
+  "embedding_cache",
+  {
+    model: text("model").notNull(),
+    contentHash: text("content_hash").notNull(),
+    dims: integer("dims").notNull(),
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIM }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.model, t.contentHash] })],
+);
+
+/**
+ * Opt-in cache of model responses (R6.16), keyed by a hash of everything that determines the answer (org, provider
+ * and endpoint, model, task, effort, output limit, system, prompt, output schema). Responses can quote private
+ * code, so entries are per org (`org_id`, null for calls without one) and purged with it. Expired rows are ignored
+ * and pruned.
+ */
+export const llmResponseCache = pgTable(
+  "llm_response_cache",
+  {
+    key: text("key").primaryKey(),
+    orgId: text("org_id"),
+    kind: text("kind").$type<"json" | "text">().notNull(),
+    response: jsonb("response").$type<unknown>().notNull(),
+    usage: jsonb("usage")
+      .$type<{ inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }>()
+      .notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index().on(t.expiresAt), index().on(t.orgId)],
 );

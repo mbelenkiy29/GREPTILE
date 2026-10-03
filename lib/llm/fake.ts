@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { EmbeddingProvider, JsonRequest, LlmProvider, TextRequest, Usage } from "./types";
+import { z } from "zod";
+import { LlmValidationError, type EmbeddingProvider, type JsonRequest, type LlmProvider, type TextRequest, type Usage } from "./types";
 
 export type FakeCall = { kind: "json"; req: JsonRequest<unknown> } | { kind: "text"; req: TextRequest };
 
@@ -21,8 +22,14 @@ export class FakeLlm implements LlmProvider {
   async json<T>(req: JsonRequest<T>) {
     const call: FakeCall = { kind: "json", req: req as JsonRequest<unknown> };
     this.calls.push(call);
-    const data = req.schema.parse(await this.handler(call));
-    return { data, usage: this.usageFor(req, JSON.stringify(data)) };
+    const out = await this.handler(call);
+    const parsed = req.schema.safeParse(out);
+    if (!parsed.success) {
+      throw new LlmValidationError(`output does not match ${req.schemaName}`, z.prettifyError(parsed.error), {
+        usage: this.usageFor(req, JSON.stringify(out) ?? ""),
+      });
+    }
+    return { data: parsed.data, usage: this.usageFor(req, JSON.stringify(parsed.data)) };
   }
 
   async text(req: TextRequest) {
@@ -39,8 +46,11 @@ export class FakeLlm implements LlmProvider {
  */
 export class FakeEmbeddings implements EmbeddingProvider {
   readonly name = "fake";
+  readonly model: string;
 
-  constructor(readonly dimensions = 64) {}
+  constructor(readonly dimensions = 64) {
+    this.model = `fake-embedding-${dimensions}`;
+  }
 
   async embed(texts: string[]): Promise<number[][]> {
     return texts.map((t) => {

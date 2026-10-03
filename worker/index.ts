@@ -31,8 +31,8 @@ const deps: JobDeps = {
   db: db(),
   host: gitHost(),
   queue: bullQueue,
-  llm: llm(),
-  embedder: embeddings(),
+  llm: llm({ db: db() }),
+  embedder: embeddings({ db: db() }),
   cacheDir: e.REPO_CACHE_DIR,
   botMention: e.BOT_MENTION,
 };

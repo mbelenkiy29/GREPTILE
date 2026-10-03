@@ -85,6 +85,13 @@
       "when": 1790985252566,
       "tag": "0011_chunk_embedding_index",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790985551805,
+      "tag": "0012_model_gateway",
+      "breakpoints": true
     }
   ]
 }
