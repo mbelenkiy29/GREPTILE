@@ -13,7 +13,11 @@ describe("secrets at rest and redaction", () => {
     // Same plaintext encrypts differently every time (random IV).
     expect(encryptSecret("sk-ant-super-secret-value", key)).not.toBe(sealed);
     const [v, iv, tag, ct] = sealed.split(".");
-    const flipped = `${v}.${iv}.${tag}.${ct!.slice(0, -2)}${ct!.endsWith("A") ? "B" : "A"}${ct!.slice(-1)}`;
+    // Tamper at the byte level so the ciphertext is guaranteed to change (a base64url character swap can be a no-op).
+    const ctBytes = Buffer.from(ct!, "base64url");
+    ctBytes[0]! ^= 0x01;
+    const flipped = `${v}.${iv}.${tag}.${ctBytes.toString("base64url")}`;
+    expect(flipped).not.toBe(sealed);
     expect(() => decryptSecret(flipped, key)).toThrow();
     expect(() => decryptSecret(sealed, randomBytes(32))).toThrow();
   });
