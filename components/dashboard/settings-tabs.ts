@@ -12,6 +12,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "general", label: "General", href: "/dashboard/settings" },
   { id: "review", label: "Review defaults", href: "/dashboard/settings/review" },
   { id: "github", label: "GitHub", href: "/dashboard/settings/github" },
+  { id: "api-keys", label: "API keys", href: "/dashboard/settings/api-keys" },
 ];
 
 /** The tab a settings path belongs to (`/dashboard/settings` itself is General). */

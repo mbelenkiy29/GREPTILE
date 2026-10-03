@@ -29,12 +29,13 @@ async function refused(p: Promise<unknown>): Promise<string> {
 
 describe("organization settings", () => {
   test("R6.14 settings are tabbed routes (General, Review defaults, GitHub) that other sections extend", () => {
-    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(["general", "review", "github"]);
+    expect(SETTINGS_TABS.map((t) => t.id)).toEqual(["general", "review", "github", "api-keys"]);
     expect(activeSettingsTab("/dashboard/settings")).toBe("general");
     expect(activeSettingsTab("/dashboard/settings/review")).toBe("review");
     expect(activeSettingsTab("/dashboard/settings/github?x=1")).toBe("github");
-    const extended = [...SETTINGS_TABS, { id: "api-keys", label: "API keys", href: "/dashboard/settings/api-keys" }];
-    expect(activeSettingsTab("/dashboard/settings/api-keys/new", extended)).toBe("api-keys");
+    expect(activeSettingsTab("/dashboard/settings/api-keys/new")).toBe("api-keys");
+    const extended = [...SETTINGS_TABS, { id: "billing", label: "Billing", href: "/dashboard/settings/billing" }];
+    expect(activeSettingsTab("/dashboard/settings/billing/invoices", extended)).toBe("billing");
     expect(activeSettingsTab("/dashboard/repos")).toBeNull();
 
     // The org-level form edits the org layer and explains it applies to every repository.

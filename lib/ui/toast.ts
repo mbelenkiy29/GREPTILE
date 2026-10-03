@@ -62,6 +62,8 @@ export const TOASTS = {
   "onboarding.defaults_invalid": { tone: "error", message: "Some review defaults were invalid. Check the values and try again." },
   "onboarding.index_queued": { tone: "success", message: "Indexing queued again." },
   "onboarding.review_queued": { tone: "success", message: "Review queued. It appears here when it starts." },
+  "apikey.revoked": { tone: "success", message: "API key revoked. Requests using it are refused from now on." },
+  "apikey.not_found": { tone: "warning", message: "That API key isn't active in this organization." },
 } as const satisfies Record<string, { tone: ToastTone; message: string }>;
 
 export type ToastCode = keyof typeof TOASTS;

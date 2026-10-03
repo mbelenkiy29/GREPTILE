@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { FindingFeedback } from "@/components/dashboard/FindingFeedback";
 import { ReviewDetailView } from "@/components/dashboard/ReviewDetailView";
+import { FixAllMenu } from "@/components/fix/FixWithAi";
 import { AutoRefresh } from "@/components/ui/AutoRefresh";
 import { Icon } from "@/components/ui/icons";
 import { Markdown } from "@/components/ui/Markdown";
@@ -39,8 +40,10 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
   // The stored URL came from the git host; only an http(s) link is used as is.
   const prUrl = storedUrl && /^https?:\/\//i.test(storedUrl) ? storedUrl : githubPrUrl(review.repoFullName, review.prNumber, githubUrl);
 
+  const fixAll = review.findings.total > 0 ? <FixAllMenu reviewId={review.id} /> : null;
   const actions = trigger ? (
     <div className="row-tight">
+      {fixAll}
       {active && latest && (
         <form action={cancelReviewRun}>
           <input type="hidden" name="runId" value={latest.id} />
@@ -82,7 +85,9 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
         </form>
       </details>
     </div>
-  ) : undefined;
+  ) : (
+    fixAll ?? undefined
+  );
 
   return (
     <>

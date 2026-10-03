@@ -32,6 +32,7 @@ export function FindingCard({
   prNumber,
   githubUrl,
   footer,
+  actions,
 }: {
   finding: FindingRow;
   repoFullName: string;
@@ -39,6 +40,8 @@ export function FindingCard({
   githubUrl?: string;
   /** Controls under the finding (e.g. feedback, R6.10). */
   footer?: ReactNode;
+  /** Controls shown at the end of the header row (e.g. "Fix with AI"). */
+  actions?: ReactNode;
 }) {
   const note = verificationNote(f.verification);
   return (
@@ -53,6 +56,7 @@ export function FindingCard({
             Not posted{note.heldBack ? `: ${note.heldBack}` : ""}
           </Badge>
         )}
+        {actions && <span style={{ marginLeft: "auto" }}>{actions}</span>}
       </div>
       <h3 className="finding-title" id={`finding-${f.id}-title`}>
         {f.title}

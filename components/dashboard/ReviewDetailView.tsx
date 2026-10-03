@@ -9,6 +9,7 @@ import { runDurationMs } from "@/lib/data/lifecycle";
 import type { ReviewDetail, ReviewRunItem } from "@/lib/data/reviews";
 import type { ReviewSummary } from "@/lib/engine/types";
 import { formatCount, formatDate, formatDuration, formatRelative, formatUsd, githubBlobUrl, githubCommitUrl, shortSha } from "@/lib/ui/format";
+import { FixWithAiMenu } from "@/components/fix/FixWithAi";
 import { FindingCard, verificationNote } from "./FindingCard";
 import { RunLifecycle } from "./RunLifecycle";
 import { modelLabel } from "./ReviewsTable";
@@ -348,7 +349,15 @@ export function ReviewDetailView({
         </div>
         {review.findings.items.length ? (
           review.findings.items.map((f) => (
-            <FindingCard key={f.id} finding={f} repoFullName={review.repoFullName} prNumber={review.prNumber} githubUrl={githubUrl} footer={findingActions?.(f)} />
+            <FindingCard
+              key={f.id}
+              finding={f}
+              repoFullName={review.repoFullName}
+              prNumber={review.prNumber}
+              githubUrl={githubUrl}
+              actions={<FixWithAiMenu findingId={f.id} />}
+              footer={findingActions?.(f)}
+            />
           ))
         ) : review.comments.length ? null : (
           <EmptyState icon="check" title="No findings" headingLevel={3}>

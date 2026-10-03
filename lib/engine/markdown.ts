@@ -3,6 +3,7 @@
  * summary carries `<!-- openreview:summary -->` so it can be found and updated in place; every finding carries its
  * fingerprint marker `<!-- openreview:fp=… -->` so it is never reposted.
  */
+import { commentFixPrompt, fence as safeFence, type FixContext } from "@/lib/fix/prompt";
 import type { EngineFinding, ReviewOutput, Severity } from "./types";
 
 export const SUMMARY_MARKER = "<!-- openreview:summary -->";
@@ -29,6 +30,11 @@ export function safeText(s: string): string {
 
 export interface MarkdownOptions {
   commentStyle?: "concise" | "detailed";
+  /**
+   * Pull request context for the collapsed "Fix with AI" prompt (R3.1). Inline comments the publisher posts always
+   * carry it; without it no prompt is added.
+   */
+  fix?: FixContext;
 }
 
 export interface SummaryMarkdownOptions extends MarkdownOptions {
@@ -96,8 +102,18 @@ export function renderFindingMarkdown(f: EngineFinding, opts: MarkdownOptions = 
   if (suggestionSafe(f)) parts.push(fence(f.suggestion!, "suggestion"));
   if (f.rule) parts.push(`**Rule** (\`${safeText(f.rule.id)}\`): ${safeText(oneLine(f.rule.text))}`);
   if (f.agents.length > 1) parts.push(`<sub>Independently raised by: ${f.agents.map((a) => CATEGORY_LABEL[a] ?? a).join(", ")}</sub>`);
+  if (opts.fix) parts.push(fixWithAiBlock(f, opts.fix));
   parts.push(fingerprintMarker(f.fingerprint));
   return parts.join("\n\n");
+}
+
+/**
+ * A collapsed `<details>` block holding a ready-to-paste coding-agent prompt for the finding (R3.1), capped so the
+ * comment stays readable. The prompt sits in a code block (GitHub shows a copy button on it).
+ */
+export function fixWithAiBlock(f: EngineFinding, ctx: FixContext): string {
+  const prompt = safeText(commentFixPrompt(f, ctx));
+  return `<details>\n<summary>Fix with AI</summary>\n\n${safeFence(prompt, "markdown")}\n\n</details>`;
 }
 
 /** The summary comment for a review. */
