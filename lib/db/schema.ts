@@ -436,11 +436,17 @@ export const rules = pgTable(
 
 export const feedbackKind = pgEnum("feedback_kind", ["thumbs_up", "thumbs_down", "reply"]);
 export const patternSignal = pgEnum("pattern_signal", ["suppress", "boost", "neutral"]);
+/** `pattern`: matches findings by category and title. `category`: applies to every finding of a category (R6.10). */
+export const preferenceKind = pgEnum("preference_kind", ["pattern", "category"]);
+export const preferenceScope = pgEnum("preference_scope", ["org", "repo"]);
+/** Where a learned preference came from (R6.10). */
+export const preferenceSource = pgEnum("preference_source", ["feedback", "reply", "command", "human_rule"]);
 
 /**
- * Conventions inferred from feedback on OpenReview comments (R2.4). `suppress`
- * patterns stop recurring; `boost` patterns are prioritized. Users can edit the
- * description and signal (`userEdited` pins the signal) or delete a pattern.
+ * Learned preferences (R2.4, R6.10): conventions inferred from feedback on OpenReview findings. `suppress` patterns
+ * stop recurring; `boost` patterns are prioritized. Category preferences (`kind = category`) raise the confidence bar
+ * for a category the team rarely finds useful (`confidenceDelta`) or prioritize one it values. Users can edit the
+ * description and signal (`userEdited` pins the preference against later feedback and resets) or delete it.
  */
 export const learnedPatterns = pgTable(
   "learned_patterns",
@@ -457,10 +463,23 @@ export const learnedPatterns = pgTable(
     negative: integer("negative").notNull().default(0),
     examples: jsonb("examples").$type<{ title: string; path: string }[]>().notNull().default([]),
     userEdited: boolean("user_edited").notNull().default(false),
+    kind: preferenceKind("kind").notNull().default("pattern"),
+    /** `org` preferences have no repo; `repo` preferences apply to `repoId` only. */
+    scope: preferenceScope("scope").notNull().default("repo"),
+    source: preferenceSource("source").notNull().default("feedback"),
+    /** Added to the minimum confidence for findings this preference covers (category suppressions). */
+    confidenceDelta: real("confidence_delta").notNull().default(0),
+    /** Signals (feedback rows) folded into this preference. */
+    evidenceCount: integer("evidence_count").notNull().default(0),
+    lastSignalAt: timestamp("last_signal_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index().on(t.orgId, t.repoId)],
+  (t) => [
+    index().on(t.orgId, t.repoId),
+    // One category preference per repository and category.
+    uniqueIndex("learned_patterns_category_uq").on(t.repoId, t.category).where(sql`${t.kind} = 'category'`),
+  ],
 );
 
 /** One reaction or reply on a OpenReview inline comment (R2.4). */
@@ -1129,4 +1148,102 @@ export const usageEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.orgId, t.createdAt)],
+);
+
+// ---- feedback ----
+
+export const findingFeedbackSource = pgEnum("finding_feedback_source", [
+  "dashboard",
+  "api",
+  "mcp",
+  "cli",
+  "github_reaction",
+  "github_reply",
+  "github_command",
+]);
+export const findingFeedbackKind = pgEnum("finding_feedback_kind", ["useful", "not_useful", "resolved", "wont_fix", "false_positive"]);
+
+/**
+ * Feedback on a finding (R6.10) from the dashboard, the API, MCP, the CLI, or GitHub (reactions, replies, and
+ * commands on the finding's inline comment). Signed-in users are `userId`; GitHub authors are `externalAuthor` with
+ * the reaction or comment id in `externalId`. A user's useful / not-useful vote replaces their previous one.
+ */
+export const findingFeedback = pgTable(
+  "finding_feedback",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    findingId: integer("finding_id")
+      .notNull()
+      .references(() => findings.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    externalAuthor: text("external_author"),
+    source: findingFeedbackSource("source").notNull(),
+    kind: findingFeedbackKind("kind").notNull(),
+    note: text("note"),
+    externalId: bigint("external_id", { mode: "number" }),
+    /** The learned preference this feedback was folded into, if any. */
+    patternId: integer("pattern_id").references(() => learnedPatterns.id, { onDelete: "set null" }),
+    /** False once a preference reset discarded what was learned from it; it still counts in feedback summaries. */
+    countsForLearning: boolean("counts_for_learning").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("finding_feedback_external_uq").on(t.findingId, t.source, t.externalId).where(sql`${t.externalId} is not null`),
+    uniqueIndex("finding_feedback_user_uq").on(t.findingId, t.userId, t.kind).where(sql`${t.userId} is not null`),
+    index().on(t.orgId, t.createdAt),
+    index().on(t.findingId),
+  ],
+);
+
+// ---- conversations ----
+
+export const conversationKind = pgEnum("conversation_kind", ["issue_comment", "review_comment", "review"]);
+export const conversationRole = pgEnum("conversation_role", ["user", "assistant"]);
+
+/**
+ * A follow-up conversation with OpenReview on a pull request (R6.17): an inline review thread (keyed by its root
+ * comment id), or the PR conversation (keyed by the PR number) for issue comments and review bodies.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    /** The OpenReview finding the thread is about (review threads on a finding's inline comment). */
+    findingId: integer("finding_id").references(() => findings.id, { onDelete: "set null" }),
+    kind: conversationKind("kind").notNull(),
+    externalThreadId: bigint("external_thread_id", { mode: "number" }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("conversations_thread_uq").on(t.repoId, t.kind, t.externalThreadId), index().on(t.orgId, t.repoId, t.prNumber)],
+);
+
+/** One message in a conversation: a person's mention (`user`) or OpenReview's reply (`assistant`). */
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    conversationId: integer("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    role: conversationRole("role").notNull(),
+    author: text("author").notNull(),
+    body: text("body").notNull(),
+    externalCommentId: bigint("external_comment_id", { mode: "number" }),
+    /** Detected intent of a user message (R6.17); the intent answered for an assistant message. */
+    intent: text("intent"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("conversation_messages_external_uq").on(t.conversationId, t.role, t.externalCommentId).where(sql`${t.externalCommentId} is not null`),
+    index().on(t.conversationId, t.createdAt),
+    index().on(t.orgId),
+  ],
 );

@@ -1,14 +1,37 @@
-import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+/**
+ * Learning from feedback (R2.4, R6.10). GitHub reactions and replies on OpenReview's inline comments are collected
+ * by {@link syncFeedback}: each is kept once in `comment_feedback` (the raw GitHub ledger) and, when the comment
+ * published a finding, recorded as finding feedback (`lib/data/feedback.ts`), which updates the finding and the
+ * learned preferences (`./preferences.ts`). Comments posted before findings existed teach the patterns directly.
+ */
+import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { commentFeedback, installations, learnedPatterns, repos, reviewComments, reviews } from "@/lib/db/schema";
-import type { GitHost } from "@/lib/git/types";
+import { githubReactionFeedback, retractFeedback, submitFindingFeedback, type FeedbackKind } from "@/lib/data/feedback";
 import { scoped } from "@/lib/data/tenant";
+import type { GitHost } from "@/lib/git/types";
+import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { similarity } from "@/lib/review/text";
+import { parseFeedbackCommand } from "./commands";
+import { PATTERN_MATCH, recordPatternSignal, updatePreference, deletePreference, type PreferenceSignal } from "./preferences";
 
-/** Score at or below which a pattern is suppressed, and at or above which it is prioritized. */
-export const SUPPRESS_AT = -2;
-export const BOOST_AT = 2;
-const MATCH = 0.5;
+export {
+  BOOST_AT,
+  SUPPRESS_AT,
+  signalFor,
+  createPreference,
+  deletePreference,
+  exportPreferences,
+  ignorePatternPreference,
+  learnedPreferencesForReview,
+  listPreferences,
+  recomputeCategoryPreference,
+  resetPreferences,
+  updatePreference,
+  PreferenceError,
+  type Preference,
+  type PreferencesExport,
+} from "./preferences";
 
 const NEGATIVE = [
   /false positive/, /not (an? )?(issue|bug|problem|concern)/, /\bintend(ed|ional)\b/, /by design/, /won'?t fix/, /\bwrong\b/,
@@ -27,63 +50,42 @@ export function replySentiment(body: string): -1 | 0 | 1 {
 
 const isBot = (login: string) => login.endsWith("[bot]") || login === "";
 
-export function signalFor(positive: number, negative: number): "suppress" | "boost" | "neutral" {
-  const score = positive - negative;
-  if (score <= SUPPRESS_AT) return "suppress";
-  if (score >= BOOST_AT) return "boost";
-  return "neutral";
+/** Reactions that count as feedback: 👍 is useful; 👎 and 😕 are not useful. */
+const REACTION_KIND: Record<string, { ledger: "thumbs_up" | "thumbs_down"; kind: FeedbackKind; sentiment: 1 | -1 }> = {
+  "+1": { ledger: "thumbs_up", kind: "useful", sentiment: 1 },
+  "-1": { ledger: "thumbs_down", kind: "not_useful", sentiment: -1 },
+  confused: { ledger: "thumbs_down", kind: "not_useful", sentiment: -1 },
+};
+
+type CommentRow = { id: number; orgId: string; repoId: number; category: string; title: string; path: string; findingId: number | null };
+
+interface Incoming {
+  comment: CommentRow;
+  ledger: "thumbs_up" | "thumbs_down" | "reply";
+  externalId: number;
+  author: string;
+  body: string | null;
+  sentiment: -1 | 0 | 1;
+  kind: FeedbackKind | null;
+  source: "github_reaction" | "github_reply";
 }
 
-type CommentRow = { id: number; orgId: string; repoId: number; category: string; title: string; path: string };
-
-/** Attaches one piece of feedback to the matching pattern (creating one if needed) and updates its signal. */
-async function applyFeedback(db: Db, comment: CommentRow, sentiment: number): Promise<number | null> {
-  if (sentiment === 0) return null;
-  const candidates = await db
-    .select()
-    .from(learnedPatterns)
-    .where(scoped(learnedPatterns, comment.orgId, eq(learnedPatterns.repoId, comment.repoId), eq(learnedPatterns.category, comment.category)));
-  const match = candidates
-    .map((p) => ({ p, sim: Math.max(similarity(p.description, comment.title), ...p.examples.map((e) => similarity(e.title, comment.title))) }))
-    .filter((x) => x.sim >= MATCH)
-    .sort((a, b) => b.sim - a.sim)[0]?.p;
-
-  const positive = (match?.positive ?? 0) + (sentiment > 0 ? 1 : 0);
-  const negative = (match?.negative ?? 0) + (sentiment < 0 ? 1 : 0);
-  if (!match) {
-    const [row] = await db
-      .insert(learnedPatterns)
-      .values({
-        orgId: comment.orgId,
-        repoId: comment.repoId,
-        category: comment.category,
-        description: comment.title,
-        positive,
-        negative,
-        signal: signalFor(positive, negative),
-        examples: [{ title: comment.title, path: comment.path }],
-      })
-      .returning({ id: learnedPatterns.id });
-    return row!.id;
-  }
-  const examples = match.examples.some((e) => e.title === comment.title)
-    ? match.examples
-    : [...match.examples, { title: comment.title, path: comment.path }].slice(-10);
-  await db
-    .update(learnedPatterns)
-    .set({ positive, negative, examples, ...(match.userEdited ? {} : { signal: signalFor(positive, negative) }) })
-    .where(eq(learnedPatterns.id, match.id));
-  return match.id;
+export interface SyncFeedbackDeps {
+  db: Db;
+  host: GitHost;
+  /** Bot name; replies that are explicit commands to it are left to the conversation handler (R6.17). */
+  botMention?: string;
+  log?: Logger;
 }
 
 /**
- * Pulls reactions (👍/👎) and human replies on OpenReview's inline comments for
- * one PR, records each once, and folds new feedback into learned patterns (R2.4).
- * GitHub sends no webhooks for reactions, so this runs on reply webhooks, when a
- * PR closes, and before each re-review.
+ * Pulls reactions (👍/👎/😕) and human replies on OpenReview's inline comments for one PR, records each once, and
+ * applies it (R2.4, R6.10). A reaction that was removed on GitHub is retracted. GitHub sends no webhooks for
+ * reactions, so this runs on reply webhooks, when a PR closes, and before each re-review.
  */
-export async function syncFeedback(deps: { db: Db; host: GitHost }, job: { orgId: string; repoId: number; prNumber: number }) {
+export async function syncFeedback(deps: SyncFeedbackDeps, job: { orgId: string; repoId: number; prNumber: number }) {
   const { db } = deps;
+  const log = (deps.log ?? rootLog).child({ orgId: job.orgId, repoId: job.repoId, prNumber: job.prNumber });
   const [row] = await db
     .select({ repo: repos, installation: installations })
     .from(repos)
@@ -100,32 +102,56 @@ export async function syncFeedback(deps: { db: Db; host: GitHost }, job: { orgId
       title: reviewComments.title,
       path: reviewComments.path,
       externalId: reviewComments.externalId,
+      findingId: reviewComments.findingId,
     })
     .from(reviewComments)
     .innerJoin(reviews, eq(reviewComments.reviewId, reviews.id))
-    .where(and(eq(reviews.orgId, job.orgId), eq(reviews.repoId, job.repoId), eq(reviews.prNumber, job.prNumber), isNotNull(reviewComments.externalId)));
+    .where(and(eq(reviews.orgId, job.orgId), eq(reviewComments.orgId, job.orgId), eq(reviews.repoId, job.repoId), eq(reviews.prNumber, job.prNumber), isNotNull(reviewComments.externalId)));
   if (!ours.length) return { recorded: 0 };
   const byExternal = new Map(ours.map((c) => [c.externalId!, c]));
 
   const client = deps.host.client(row.installation.externalId);
   const repo = row.repo.fullName;
-  const incoming: { comment: CommentRow; kind: "thumbs_up" | "thumbs_down" | "reply"; externalId: number; author: string; body: string | null; sentiment: number }[] = [];
+  const incoming: Incoming[] = [];
 
   for (const c of await client.listReviewComments(repo, job.prNumber)) {
     const parent = c.inReplyTo ? byExternal.get(c.inReplyTo) : undefined;
     if (!parent || isBot(c.author)) continue;
-    incoming.push({ comment: parent, kind: "reply", externalId: c.id, author: c.author, body: c.body, sentiment: replySentiment(c.body) });
+    // "/openreview resolved" and the like are commands, handled (with an access check) by the conversation job.
+    if (deps.botMention && parseFeedbackCommand(c.body, deps.botMention)) continue;
+    const sentiment = replySentiment(c.body);
+    incoming.push({
+      comment: parent,
+      ledger: "reply",
+      externalId: c.id,
+      author: c.author,
+      body: c.body,
+      sentiment,
+      kind: sentiment > 0 ? "useful" : sentiment < 0 ? "not_useful" : null,
+      source: "github_reply",
+    });
   }
+  // Reaction ids currently on each finding's comments (to retract feedback for removed reactions).
+  const liveReactions = new Map<number, Set<number>>();
   for (const c of ours) {
-    for (const r of await client.listReviewCommentReactions(repo, c.externalId!)) {
-      if (isBot(r.user) || (r.content !== "+1" && r.content !== "-1")) continue;
+    const reactions = await client.listReviewCommentReactions(repo, c.externalId!);
+    if (c.findingId !== null) {
+      const live = liveReactions.get(c.findingId) ?? new Set<number>();
+      for (const r of reactions) live.add(r.id);
+      liveReactions.set(c.findingId, live);
+    }
+    for (const r of reactions) {
+      const mapped = REACTION_KIND[r.content];
+      if (isBot(r.user) || !mapped) continue;
       incoming.push({
         comment: c,
-        kind: r.content === "+1" ? "thumbs_up" : "thumbs_down",
+        ledger: mapped.ledger,
         externalId: r.id,
         author: r.user,
         body: null,
-        sentiment: r.content === "+1" ? 1 : -1,
+        sentiment: mapped.sentiment,
+        kind: mapped.kind,
+        source: "github_reaction",
       });
     }
   }
@@ -134,15 +160,51 @@ export async function syncFeedback(deps: { db: Db; host: GitHost }, job: { orgId
   for (const f of incoming) {
     const [inserted] = await db
       .insert(commentFeedback)
-      .values({ orgId: job.orgId, reviewCommentId: f.comment.id, kind: f.kind, externalId: f.externalId, author: f.author, body: f.body, sentiment: f.sentiment })
+      .values({ orgId: job.orgId, reviewCommentId: f.comment.id, kind: f.ledger, externalId: f.externalId, author: f.author, body: f.body, sentiment: f.sentiment })
       .onConflictDoNothing()
       .returning({ id: commentFeedback.id });
     if (!inserted) continue; // already recorded
     recorded++;
-    const patternId = await applyFeedback(db, f.comment, f.sentiment);
-    if (patternId) await db.update(commentFeedback).set({ patternId }).where(eq(commentFeedback.id, inserted.id));
+    let patternId: number | null = null;
+    if (f.comment.findingId !== null) {
+      if (!f.kind) continue;
+      try {
+        const res = await submitFindingFeedback(db, {
+          orgId: job.orgId,
+          findingId: f.comment.findingId,
+          externalAuthor: f.author,
+          externalId: f.externalId,
+          source: f.source,
+          kind: f.kind,
+          note: f.body,
+        });
+        patternId = res.patternId;
+      } catch (err) {
+        log.warn("could not record finding feedback", { findingId: f.comment.findingId, error: errorMessage(err) });
+        continue;
+      }
+    } else if (f.sentiment !== 0) {
+      // A comment from before findings existed: teach the pattern directly.
+      patternId = await recordPatternSignal(db, {
+        orgId: job.orgId,
+        repoId: f.comment.repoId,
+        category: f.comment.category,
+        title: f.comment.title,
+        path: f.comment.path,
+        sentiment: f.sentiment,
+        source: f.source === "github_reply" ? "reply" : "feedback",
+      });
+    }
+    if (patternId) await db.update(commentFeedback).set({ patternId }).where(scoped(commentFeedback, job.orgId, eq(commentFeedback.id, inserted.id)));
   }
-  return { recorded };
+
+  // Reactions people took back on GitHub no longer count.
+  let retracted = 0;
+  for (const fb of await githubReactionFeedback(db, job.orgId, [...liveReactions.keys()])) {
+    if (fb.externalId === null || liveReactions.get(fb.findingId)?.has(fb.externalId)) continue;
+    if ((await retractFeedback(db, { orgId: job.orgId, feedbackId: fb.id })).retracted) retracted++;
+  }
+  return retracted ? { recorded, retracted } : { recorded };
 }
 
 export interface LearnedPattern {
@@ -153,7 +215,7 @@ export interface LearnedPattern {
   examples: { title: string; path: string }[];
 }
 
-/** Active suppress/boost patterns for a repo (its own plus org-wide ones). */
+/** Active suppress/boost title patterns for a repo (its own plus org-wide ones); category preferences excluded. */
 export async function learnedForRepo(db: Db, orgId: string, repoId: number): Promise<LearnedPattern[]> {
   const rows = await db
     .select()
@@ -162,7 +224,8 @@ export async function learnedForRepo(db: Db, orgId: string, repoId: number): Pro
       scoped(
         learnedPatterns,
         orgId,
-        inArray(learnedPatterns.signal, ["suppress", "boost"]),
+        eq(learnedPatterns.kind, "pattern"),
+        or(eq(learnedPatterns.signal, "suppress"), eq(learnedPatterns.signal, "boost")),
         or(isNull(learnedPatterns.repoId), eq(learnedPatterns.repoId, repoId)),
       ),
     )
@@ -175,50 +238,24 @@ export function matchPattern(patterns: LearnedPattern[], f: { category: string; 
   return patterns.find(
     (p) =>
       p.category === f.category &&
-      Math.max(similarity(p.description, f.title), ...p.examples.map((e) => similarity(e.title, f.title))) >= MATCH,
+      Math.max(similarity(p.description, f.title), ...p.examples.map((e) => similarity(e.title, f.title))) >= PATTERN_MATCH,
   );
 }
 
-export function renderLearnedSection(patterns: LearnedPattern[]): string {
-  if (!patterns.length) return "";
-  const suppress = patterns.filter((p) => p.signal === "suppress");
-  const boost = patterns.filter((p) => p.signal === "boost");
-  return [
-    "## Team preferences learned from feedback",
-    ...(suppress.length ? ["The team has rejected these kinds of comments. Do not report them:", ...suppress.map((p) => `- (${p.category}) ${p.description}`)] : []),
-    ...(boost.length ? ["The team values these kinds of comments. Look for them carefully:", ...boost.map((p) => `- (${p.category}) ${p.description}`)] : []),
-  ].join("\n");
-}
-
-/** User edits from the Learned page. Changing the signal pins it against future feedback. */
-export async function updateLearnedPattern(
-  db: Db,
-  orgId: string,
-  id: number,
-  patch: { description?: string; signal?: "suppress" | "boost" | "neutral" },
-) {
-  if (patch.description !== undefined && patch.description.trim().length < 3) throw new Error("Description is too short.");
-  const [row] = await db
-    .update(learnedPatterns)
-    .set({
-      ...(patch.description !== undefined ? { description: patch.description.trim() } : {}),
-      ...(patch.signal !== undefined ? { signal: patch.signal, userEdited: true } : {}),
-    })
-    .where(scoped(learnedPatterns, orgId, eq(learnedPatterns.id, id)))
-    .returning();
-  return row;
+/** User edits from the Learned page. Any edit pins the preference against future feedback. */
+export async function updateLearnedPattern(db: Db, orgId: string, id: number, patch: { description?: string; signal?: PreferenceSignal }) {
+  return updatePreference(db, orgId, id, patch);
 }
 
 export async function deleteLearnedPattern(db: Db, orgId: string, id: number) {
-  const rows = await db.delete(learnedPatterns).where(scoped(learnedPatterns, orgId, eq(learnedPatterns.id, id))).returning({ id: learnedPatterns.id });
-  return rows.length > 0;
+  return deletePreference(db, orgId, id);
 }
 
 export async function listLearnedPatterns(db: Db, orgId: string) {
   return db
     .select({ pattern: learnedPatterns, repoFullName: repos.fullName })
     .from(learnedPatterns)
-    .leftJoin(repos, eq(learnedPatterns.repoId, repos.id))
+    .leftJoin(repos, and(eq(learnedPatterns.repoId, repos.id), eq(repos.orgId, orgId)))
     .where(scoped(learnedPatterns, orgId))
-    .orderBy(learnedPatterns.signal, learnedPatterns.id);
+    .orderBy(learnedPatterns.signal, learnedPatterns.kind, learnedPatterns.id);
 }

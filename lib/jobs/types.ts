@@ -66,6 +66,11 @@ export interface JobPayloads {
     inReplyTo?: number;
     path?: string;
     line?: number | null;
+    /**
+     * The commenter's GitHub `author_association` (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE, ...). Commands that
+     * change state (re-review, ignore pattern, feedback) need OWNER, MEMBER, or COLLABORATOR (R6.17).
+     */
+    authorAssociation?: string;
     meta?: JobMeta;
   };
 }

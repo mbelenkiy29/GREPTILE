@@ -38,10 +38,16 @@ export function teamRulesSections(rules: readonly ReviewRule[], customInstructio
     );
   }
   if (customInstructions?.trim()) sections.push(`Custom review instructions from the organization:\n${customInstructions.trim()}`);
-  const suppress = learned.filter((l) => l.signal === "suppress");
-  const boost = learned.filter((l) => l.signal === "boost");
+  const patterns = learned.filter((l) => l.appliesTo !== "category");
+  const categories = learned.filter((l) => l.appliesTo === "category");
+  const suppress = patterns.filter((l) => l.signal === "suppress");
+  const boost = patterns.filter((l) => l.signal === "boost");
   if (suppress.length) sections.push(["The team has rejected these kinds of comments; do not report them:", ...suppress.map((l) => `- (${l.category}) ${l.description}`)].join("\n"));
   if (boost.length) sections.push(["The team values these kinds of comments; look for them carefully:", ...boost.map((l) => `- (${l.category}) ${l.description}`)].join("\n"));
+  const quiet = [...new Set(categories.filter((l) => l.signal === "suppress").map((l) => l.category))];
+  const valued = [...new Set(categories.filter((l) => l.signal === "boost").map((l) => l.category))];
+  if (quiet.length) sections.push(`The team rarely finds comments in these categories useful; report only findings you are highly confident in: ${quiet.join(", ")}`);
+  if (valued.length) sections.push(`The team finds comments in these categories especially useful: ${valued.join(", ")}`);
   return sections;
 }
 

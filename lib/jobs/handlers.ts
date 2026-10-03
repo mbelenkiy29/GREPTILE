@@ -5,7 +5,7 @@ import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { syncFeedback } from "@/lib/learning";
 import { mineRules } from "@/lib/learning/mining";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
-import { answerMention } from "@/lib/review/mention";
+import { answerMention } from "@/lib/conversations";
 import { runReviewJob } from "@/lib/review/run";
 import type { JobName, JobPayloads, JobQueue } from "./types";
 

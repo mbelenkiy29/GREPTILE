@@ -89,6 +89,14 @@ export interface LearnedPreference {
   category: string;
   description: string;
   signal: "suppress" | "boost" | "neutral";
+  /**
+   * `pattern` (the default) covers findings of the category whose title matches the description; a suppress
+   * pattern drops them. `category` covers every finding of the category: a suppress raises the category's minimum
+   * confidence by `confidenceDelta` (it does not block), a boost ranks the category higher (R6.10).
+   */
+  appliesTo?: "pattern" | "category";
+  /** Category suppressions: added to `settings.minConfidence` for the category. */
+  confidenceDelta?: number;
 }
 
 export interface ContextDoc {
