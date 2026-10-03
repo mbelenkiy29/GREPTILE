@@ -68,6 +68,12 @@ const llmShape = {
   EMBEDDING_CACHE_TTL_DAYS: optionalNumber(z.number().positive().default(90)),
 };
 
+/** REST API settings (R6.18); also parsed on their own by `apiEnv()`. */
+const apiShape = {
+  /** Requests one API key (or signed-in user) may make per minute; over it the API answers 429 with retry-after. */
+  API_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(100_000).default(120)),
+};
+
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
 const siteShape = {
   /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
@@ -114,6 +120,7 @@ const fields = z.object({
 
   ...creditsShape,
   ...pipelineShape,
+  ...apiShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -204,4 +211,12 @@ let cachedAuth: AuthEnv | undefined;
 export function authEnv(): AuthEnv {
   cachedAuth ??= parseAuthEnv(process.env);
   return cachedAuth;
+}
+
+const apiSchema = z.object({ APP_URL: z.string().url().default("http://localhost:3000"), ...apiShape });
+export type ApiEnv = z.infer<typeof apiSchema>;
+
+/** REST API settings (R6.18); parsed on their own so the API does not require the GitHub App or LLM variables. */
+export function apiEnv(source: Record<string, string | undefined> = process.env): ApiEnv {
+  return apiSchema.parse({ APP_URL: source.APP_URL || undefined, API_RATE_LIMIT_PER_MINUTE: source.API_RATE_LIMIT_PER_MINUTE });
 }

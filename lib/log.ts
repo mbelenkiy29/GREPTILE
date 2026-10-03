@@ -31,6 +31,7 @@ const SECRET_VALUE: RegExp[] = [
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
   /\bsk-(ant-)?[A-Za-z0-9_-]{16,}\b/g, // Anthropic / OpenAI style keys
   /\bglpat-[A-Za-z0-9_-]{16,}\b/g, // GitLab
+  /\bor_live_[A-Za-z0-9_-]{16,}/g, // OpenReview API keys
   /\b(sk|rk)_(live|test)_[A-Za-z0-9]{16,}\b/g, // Stripe
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g, // Slack
   /\bAKIA[0-9A-Z]{16}\b/g, // AWS access key id

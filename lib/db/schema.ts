@@ -1249,3 +1249,55 @@ export const conversationMessages = pgTable(
     index().on(t.orgId),
   ],
 );
+
+// ---- api ----
+
+/**
+ * Org-scoped REST API keys (R6.18). The token (`or_live_<43 base64url chars>`) is shown once at creation; only its
+ * SHA-256 is stored. `prefix` is the first 8 characters after `or_live_`, shown in the UI to tell keys apart. A key
+ * acts as its org with its `scopes`; it is unusable once revoked or past `expiresAt`.
+ */
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    prefix: text("prefix").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    scopes: text("scopes").array().notNull().default([]),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("api_keys_token_hash_uq").on(t.tokenHash), index().on(t.orgId, t.createdAt)],
+);
+
+export const auditActorType = pgEnum("audit_actor_type", ["user", "api_key", "system"]);
+
+/**
+ * Audit trail of admin actions and review events (R4.6, R6.18): who (`actorType` + `actorId`) did what (`action`,
+ * e.g. `api_key.created`) to which object (`targetType` + `targetId`), from where (`ip`).
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    actorType: auditActorType("actor_type").notNull(),
+    actorId: text("actor_id"),
+    action: text("action").notNull(),
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    ip: text("ip"),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId, t.createdAt)],
+);
