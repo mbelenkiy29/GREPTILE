@@ -62,7 +62,7 @@ export async function rotateAlertSecretAction() {
   redirect(withToast(PATH, secret ? "usage.secret_rotated" : "usage.invalid"));
 }
 
-/** Sends an owner to Stripe Checkout for the team plan (R4.2). Requires `billing.manage`. */
+/** Sends an owner or admin to Stripe Checkout for the team plan (R4.2). Requires `billing.manage`. */
 export async function startCheckoutAction() {
   const { orgId, orgName, userId, user } = await requireOrg({ permission: "billing.manage" });
   const cfg = billingConfig();

@@ -52,7 +52,7 @@ describe("roles and permissions", () => {
     const expected: Record<Action, Role[]> = {
       "org.update": ["owner", "admin"],
       "org.delete": ["owner"],
-      "billing.manage": ["owner"],
+      "billing.manage": ["owner", "admin"],
       "members.invite": ["owner", "admin"],
       "members.remove": ["owner", "admin"],
       "members.changeRole": ["owner", "admin"],

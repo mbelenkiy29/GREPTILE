@@ -39,7 +39,7 @@ const OWNERS: readonly Role[] = ["owner"];
 const MATRIX: Record<Action, readonly Role[]> = {
   "org.update": ADMINS,
   "org.delete": OWNERS,
-  "billing.manage": OWNERS,
+  "billing.manage": ADMINS,
   "members.invite": ADMINS,
   "members.remove": ADMINS,
   "members.changeRole": ADMINS,

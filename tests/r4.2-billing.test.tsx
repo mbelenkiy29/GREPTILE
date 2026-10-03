@@ -351,7 +351,7 @@ describe("Stripe billing (R4.2)", () => {
     expect(owner).toContain("4 overage credits");
     const member = renderToStaticMarkup(<BillingSettingsView {...view} canManage={false} canBill={false} limitsForm={<p>form</p>} actions={{ checkout: noop, portal: noop, rotateSecret: noop }} />);
     expect(member).not.toContain("Manage billing");
-    expect(member).toContain("Only owners can change the plan.");
+    expect(member).toContain("Only owners and admins can change the plan.");
     expect(member).not.toContain("<p>form</p>");
   });
 

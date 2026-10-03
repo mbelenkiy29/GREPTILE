@@ -54,7 +54,7 @@ function PlanCard({ billing, canBill, actions }: { billing: BillingView; canBill
       )}
     </div>
   ) : (
-    <p className="dim">Only owners can change the plan.</p>
+    <p className="dim">Only owners and admins can change the plan.</p>
   );
   return (
     <Card title="Plan" titleId="plan-heading" footer={footer}>
