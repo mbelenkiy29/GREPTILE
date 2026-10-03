@@ -4,6 +4,10 @@ import { createElement } from "react";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { RuntimeValidationCard } from "@/components/dashboard/RuntimeValidationCard";
+import { RuntimeValidationForm } from "@/components/dashboard/RuntimeValidationForm";
+import { saveRepoSettingsForm } from "@/lib/config/settings-form";
+import { getRepo } from "@/lib/data/installations";
+import { saveRuntimeValidationForm } from "@/lib/sandbox/settings-form";
 import { parseRepoConfig } from "@/lib/config/repo-config";
 import { runtimeValidations } from "@/lib/db/schema";
 import { getReviewDetail } from "@/lib/data/reviews";
@@ -382,5 +386,66 @@ describe("runtime validation in the review job", () => {
     const err = renderSummaryMarkdown(reviewOutput({ runtimeValidation: { ...base, status: "error", reason: "Runtime validation could not run: <!-- openreview:summary -->" } }));
     expect(err).toContain("**Could not run**");
     expect(err.match(/<!-- openreview:summary -->/g)).toHaveLength(1);
+  });
+});
+
+describe("runtime validation settings", () => {
+  const form = (entries: [string, string][]) => {
+    const f = new FormData();
+    for (const [k, v] of entries) f.append(k, v);
+    return f;
+  };
+
+  test("R4.5 owners and admins set a repository's runtime validation in the dashboard; review settings saves keep it; the review job uses it", async () => {
+    const fx = await pipelineFixture();
+    fx.host.cloneUrls.set("acme/shop", fx.fixture.url);
+    const repoId = String(fx.repo.id);
+    const valid = form([
+      ["repoId", repoId],
+      ["enabled", "true"],
+      ["test", "pytest -q"],
+      ["install", "pip install -r requirements.txt"],
+      ["image", "python:3.12-slim"],
+      ["timeoutSec", "300"],
+      ["network", "none"],
+      ["env", "CI=true\n# comment\nPYTHONDONTWRITEBYTECODE=1"],
+    ]);
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_a", role: "member" }, valid)).toEqual({ status: "forbidden" });
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_b", role: "owner" }, valid)).toEqual({ status: "not_found" });
+    const badEnv = form([["repoId", repoId], ["enabled", "true"], ["test", "x"], ["env", "NOT A LINE"]]);
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_a", role: "admin" }, badEnv)).toMatchObject({ status: "invalid" });
+    const noTest = form([["repoId", repoId], ["enabled", "true"], ["test", ""]]);
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_a", role: "admin" }, noTest)).toMatchObject({ status: "invalid" });
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_a", role: "admin" }, valid)).toEqual({ status: "saved" });
+    const expected = { enabled: true, test: "pytest -q", install: "pip install -r requirements.txt", image: "python:3.12-slim", timeoutSec: 300, env: { CI: "true", PYTHONDONTWRITEBYTECODE: "1" } };
+    expect((await getRepo(fx.db, "org_a", fx.repo.id))!.settings.runtimeValidation).toEqual(expected);
+
+    // Saving the review settings form replaces its layer but keeps runtime validation.
+    await saveRepoSettingsForm(fx.db, { orgId: "org_a", role: "admin" }, form([["repoId", repoId], ["mode", "fast"]]));
+    expect((await getRepo(fx.db, "org_a", fx.repo.id))!.settings).toMatchObject({ mode: "fast", runtimeValidation: expected });
+
+    const { runner, runs } = recordingRunner();
+    await fx.review(async () => reviewOutput(), {}, { sandbox: sandboxDeps(runner, { RUNTIME_VALIDATION_ENABLED: "true", SANDBOX_TIMEOUT_SEC: "120" }) });
+    // The deployment's limit caps the repository's timeout.
+    expect(runs[0]!.spec).toMatchObject({ image: "python:3.12-slim", install: "pip install -r requirements.txt", test: "pytest -q", timeoutMs: 120_000, env: { CI: "true", PYTHONDONTWRITEBYTECODE: "1" } });
+
+    // An allowlist that does not include the image refuses it.
+    const { runner: r2, runs: runs2 } = recordingRunner();
+    const blocked = await fx.review(async () => reviewOutput(), { full: true }, { sandbox: sandboxDeps(r2, { RUNTIME_VALIDATION_ENABLED: "true", SANDBOX_ALLOWED_IMAGES: "node:*" }) });
+    expect(runs2).toHaveLength(0);
+    const [row] = await fx.db.select().from(runtimeValidations).where(eq(runtimeValidations.reviewRunId, blocked.runId));
+    expect(row).toMatchObject({ status: "error" });
+    expect(row!.reason).toMatch(/not allowed/);
+
+    // Clearing removes it.
+    expect(await saveRuntimeValidationForm(fx.db, { orgId: "org_a", role: "owner" }, form([["repoId", repoId]]))).toEqual({ status: "cleared" });
+    expect((await getRepo(fx.db, "org_a", fx.repo.id))!.settings.runtimeValidation).toBeUndefined();
+    const html = renderToStaticMarkup(
+      createElement(RuntimeValidationForm, { repoId: 1, value: expected, fromFile: true, serverEnabled: false, editable: true, returnTo: "/dashboard/repos/1", action: async () => undefined }),
+    );
+    expect(html).toContain("Runtime validation (beta)");
+    expect(html).toContain("turned off on this server");
+    expect(html).toContain("takes precedence");
+    expect(html).toContain("PYTHONDONTWRITEBYTECODE=1");
   });
 });

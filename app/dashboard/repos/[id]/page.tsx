@@ -32,13 +32,14 @@ import { getRepoDetail } from "@/lib/data/repos";
 import { listReviewPage } from "@/lib/data/reviews";
 import { listRules } from "@/lib/data/rules";
 import { getRepoSettingsView } from "@/lib/data/settings";
-import { siteEnv } from "@/lib/env";
+import { sandboxEnv, siteEnv } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
 import type { GitHost } from "@/lib/git/types";
 import { getIndexStatus, listIndexJobs } from "@/lib/indexer/jobs";
 import { formatCount, formatDate, formatDuration, formatRelative, githubCommitUrl, githubRepoUrl, shortSha } from "@/lib/ui/format";
 import { enumParam, hrefWith, intParam, queryState, type SearchParams } from "@/lib/ui/url";
-import { cancelIndex, reindexRepo, saveRepoSettings, toggleRepo } from "../actions";
+import { cancelIndex, reindexRepo, saveRepoSettings, saveRuntimeValidation, toggleRepo } from "../actions";
+import { RuntimeValidationForm } from "@/components/dashboard/RuntimeValidationForm";
 
 export const metadata: Metadata = { title: "Repository" };
 
@@ -350,6 +351,17 @@ async function SettingsTab({ orgId, repoId, editable }: { orgId: string; repoId:
           sources={view.sources}
           inherited={inherited}
           repoSettings={view.repoSettings}
+        />
+      </Card>
+      <Card>
+        <RuntimeValidationForm
+          repoId={repoId}
+          value={view.repoSettings.runtimeValidation}
+          fromFile={Boolean(view.file.settings?.runtimeValidation)}
+          serverEnabled={sandboxEnv().RUNTIME_VALIDATION_ENABLED}
+          editable={editable}
+          returnTo={`/dashboard/repos/${repoId}?tab=settings`}
+          action={saveRuntimeValidation}
         />
       </Card>
     </div>
