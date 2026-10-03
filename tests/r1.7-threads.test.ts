@@ -68,7 +68,10 @@ describe("threaded mentions", () => {
     expect(thread.at(-1)).toMatchObject({
       inReplyTo: 600,
       path: PATH,
-      body: `@li It is called from two places; both still pass one argument.\n\n${MENTION_MARKER}`,
+      // Every answer quotes the question (R6.17); "who calls" is answered from the code graph first.
+      body: expect.stringMatching(
+        /^> who calls computeTotal\?\n\n@li What depends on it, from the code graph:\n\n\*\*`computeTotal`\*\* [^\n]+\n- called by `handleCheckout` at `services\/api\/handlers\.ts:4`\n[\s\S]*\n\nIt is called from two places; both still pass one argument\.\n\n<!-- openreview:mention -->$/,
+      ),
     });
     // Nothing went to the PR conversation, and the prompt knows where the thread is.
     expect(fx.host.issueComments.get("acme/shop#7") ?? []).toEqual([]);

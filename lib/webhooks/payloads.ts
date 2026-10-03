@@ -45,7 +45,7 @@ export const pullRequestPayload = envelopeSchema.extend({
 export const issueCommentPayload = envelopeSchema.extend({
   action: z.string(),
   issue: z.object({ number: z.number(), pull_request: z.record(z.string(), z.unknown()).nullish() }),
-  comment: z.object({ id: z.number(), body: z.string().nullish(), user: actor }),
+  comment: z.object({ id: z.number(), body: z.string().nullish(), user: actor, author_association: z.string().nullish() }),
 });
 
 export const reviewCommentPayload = envelopeSchema.extend({
@@ -59,13 +59,14 @@ export const reviewCommentPayload = envelopeSchema.extend({
     line: z.number().nullish(),
     original_line: z.number().nullish(),
     in_reply_to_id: z.number().nullish(),
+    author_association: z.string().nullish(),
   }),
 });
 
 export const reviewPayload = envelopeSchema.extend({
   action: z.string(),
   pull_request: z.object({ number: z.number() }),
-  review: z.object({ id: z.number(), body: z.string().nullish(), user: actor }),
+  review: z.object({ id: z.number(), body: z.string().nullish(), user: actor, author_association: z.string().nullish() }),
 });
 
 export const pushPayload = envelopeSchema.extend({

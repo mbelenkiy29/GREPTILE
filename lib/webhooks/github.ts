@@ -37,6 +37,7 @@ import {
   type Actor,
 } from "./payloads";
 import { verifyGitHubSignature } from "./signature";
+import { addressesBot, mentionsBot } from "@/lib/learning/commands";
 
 export interface WebhookDeps {
   db: Db;
@@ -80,10 +81,7 @@ const PR_ACTIONS = new Set<ReviewTrigger>(["opened", "synchronize", "reopened", 
 const accepted = (jobs: string[] = []): RouteOutcome => ({ status: "accepted", jobs });
 const ignored = (reason: string): RouteOutcome => ({ status: "ignored", reason });
 
-export function mentionsBot(body: string, bot: string): boolean {
-  const name = bot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^\\w/@-])@${name}(?![\\w-])`, "i").test(body);
-}
+export { mentionsBot };
 
 /** True for GitHub bot accounts and for this app's own `<slug>[bot]` user. */
 export function isBotActor(actor: Actor | null | undefined, appSlug?: string): boolean {
@@ -246,7 +244,8 @@ async function onReviewComment(deps: RouteDeps, payload: unknown, ctx: DeliveryC
     }
   }
 
-  const mentioned = mentionsBot(body, deps.botMention);
+  // A mention, or a `/openreview <command>` (R6.17).
+  const mentioned = addressesBot(body, deps.botMention);
   if (mentioned) {
     // Answer in the same thread: replies attach to the thread's top-level comment (R1.7). Review-comment ids are a
     // separate sequence from issue-comment ids, so they get their own job id namespace.
@@ -264,6 +263,7 @@ async function onReviewComment(deps: RouteDeps, payload: unknown, ctx: DeliveryC
         inReplyTo: comment.in_reply_to_id ?? comment.id,
         ...(comment.path ? { path: comment.path } : {}),
         line: comment.line ?? comment.original_line ?? null,
+        ...(comment.author_association ? { authorAssociation: comment.author_association } : {}),
         meta: ctx.meta,
       },
       { jobId },
@@ -296,7 +296,7 @@ async function onReview(deps: RouteDeps, payload: unknown, ctx: DeliveryContext)
   const review = p.review;
   if (isBotActor(review.user, deps.appSlug) || isBotActor(p.sender, deps.appSlug)) return ignored("review by a bot");
   const body = review.body ?? "";
-  if (!mentionsBot(body, deps.botMention)) return ignored("no mention");
+  if (!addressesBot(body, deps.botMention)) return ignored("no mention");
   const prNumber = p.pull_request.number;
   setPr(ctx, prNumber);
   const found = await connectedRepo(deps.db, deps.host, ctx, p.installation?.id, p.repository?.id);
@@ -313,6 +313,7 @@ async function onReview(deps: RouteDeps, payload: unknown, ctx: DeliveryContext)
       body,
       author: review.user?.login ?? "",
       kind: "review",
+      ...(review.author_association ? { authorAssociation: review.author_association } : {}),
       meta: ctx.meta,
     },
     { jobId },
@@ -328,7 +329,7 @@ async function onIssueComment(deps: RouteDeps, payload: unknown, ctx: DeliveryCo
   if (!p.issue.pull_request) return ignored("comment is not on a pull request");
   if (isBotActor(comment.user, deps.appSlug) || isBotActor(p.sender, deps.appSlug)) return ignored("comment by a bot");
   const body = comment.body ?? "";
-  if (!mentionsBot(body, deps.botMention)) return ignored("no mention");
+  if (!addressesBot(body, deps.botMention)) return ignored("no mention");
   setPr(ctx, p.issue.number);
   const found = await connectedRepo(deps.db, deps.host, ctx, p.installation?.id, p.repository?.id);
   if (!found) return ignored("repository not connected");
@@ -344,6 +345,7 @@ async function onIssueComment(deps: RouteDeps, payload: unknown, ctx: DeliveryCo
       body,
       author: comment.user?.login ?? "",
       kind: "issue_comment",
+      ...(comment.author_association ? { authorAssociation: comment.author_association } : {}),
       meta: ctx.meta,
     },
     { jobId },
