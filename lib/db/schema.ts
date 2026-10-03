@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -15,7 +17,6 @@ import {
   text,
   timestamp,
   uniqueIndex,
-  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /** Embedding width stored in pgvector. Shorter provider vectors are zero-padded (cosine-preserving). */
@@ -51,12 +52,30 @@ const updatedAt = () =>
     .defaultNow()
     .$onUpdate(() => new Date());
 
-/** A Clerk organization. Every tenant-owned row references this id. */
-export const orgs = pgTable("orgs", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdAt: createdAt(),
-});
+/**
+ * An organization (workspace). Every tenant-owned row references this id; new ids are `org_` + a random token.
+ * Every user has one `personal` workspace (R6.1). `slug` is derived from the name when the app creates the org;
+ * rows inserted without one (the install flow's upsert, rows from before built-in auth) get a random `org-…` slug
+ * from the column default.
+ */
+export const orgs = pgTable(
+  "orgs",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug")
+      .notNull()
+      .default(sql`('org-' || substr(md5(random()::text || clock_timestamp()::text), 1, 12))`),
+    personal: boolean("personal").notNull().default(false),
+    createdBy: text("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("orgs_slug_uq").on(t.slug),
+    // At most one personal workspace per user.
+    uniqueIndex("orgs_personal_creator_uq").on(t.createdBy).where(sql`${t.personal}`),
+  ],
+);
 
 /** A GitHub App installation, owned by exactly one org (R1.1). */
 export const installations = pgTable(
@@ -701,4 +720,115 @@ export const llmResponseCache = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (t) => [index().on(t.expiresAt), index().on(t.orgId)],
+);
+
+// ---- auth ----
+
+export const memberRole = pgEnum("member_role", ["owner", "admin", "member"]);
+export const inviteRole = pgEnum("invite_role", ["admin", "member"]);
+
+/** A person who signs in (R6.1). Ids are `usr_` + a random token. */
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    /** Primary verified email from the identity provider, lowercased; null when the provider shares none. */
+    email: text("email"),
+    avatarUrl: text("avatar_url"),
+    githubId: bigint("github_id", { mode: "number" }),
+    githubLogin: text("github_login"),
+    createdAt: createdAt(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("users_github_id_uq").on(t.githubId), index().on(t.email), index().on(t.githubLogin)],
+);
+
+/**
+ * A linked identity: `github` today, `oidc` / `saml` later (`dev` for local development sign-in). The GitHub user
+ * access token is stored encrypted (lib/crypto) and used only to verify which App installations the user can access.
+ */
+export const authAccounts = pgTable(
+  "auth_accounts",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    login: text("login"),
+    email: text("email"),
+    accessTokenEnc: text("access_token_enc"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("auth_accounts_provider_account_uq").on(t.provider, t.providerAccountId), index().on(t.userId)],
+);
+
+/** A signed-in browser. `id` is the SHA-256 of the cookie token; the raw token is never stored. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    activeOrgId: text("active_org_id").references(() => orgs.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index().on(t.userId), index().on(t.expiresAt)],
+);
+
+/** A user's role in an org (R6.1). */
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: memberRole("role").notNull().default("member"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("memberships_org_user_uq").on(t.orgId, t.userId), index().on(t.userId)],
+);
+
+/**
+ * An invitation to join an org, optionally restricted to one email or GitHub login (stored lowercased). Only the
+ * SHA-256 of the link token is stored. Pending = not accepted, not revoked, and not expired (7 days).
+ */
+export const invitations = pgTable(
+  "invitations",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    email: text("email"),
+    githubLogin: text("github_login"),
+    role: inviteRole("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull(),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: text("accepted_by").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("invitations_token_hash_uq").on(t.tokenHash),
+    index().on(t.orgId),
+    index().on(t.email),
+    index().on(t.githubLogin),
+    check("invitations_target_lowercase", sql`${t.email} = lower(${t.email}) AND ${t.githubLogin} = lower(${t.githubLogin})`),
+  ],
 );

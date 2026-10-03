@@ -1,13 +1,9 @@
-import { NextResponse } from "next/server";
-import { requireOrg } from "@/lib/auth";
+import { authConfig } from "@/lib/auth/config";
+import { createInstallStartHandler } from "@/lib/auth/install";
+import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { signInstallState } from "@/lib/github/install-state";
 
-/** Starts the GitHub App install for the active org (R1.1). */
-export async function GET() {
-  const { orgId } = await requireOrg();
-  const e = env();
-  const url = new URL(`https://github.com/apps/${e.GITHUB_APP_SLUG}/installations/new`);
-  url.searchParams.set("state", signInstallState(e.APP_SECRET, orgId));
-  return NextResponse.redirect(url);
-}
+export const dynamic = "force-dynamic";
+
+/** Starts the GitHub App install for the active org; requires `repos.manage` (R1.1). */
+export const GET = createInstallStartHandler(() => ({ db: db(), config: { ...authConfig(), appSlug: env().GITHUB_APP_SLUG } }));
