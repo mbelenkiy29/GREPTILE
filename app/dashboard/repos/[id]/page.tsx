@@ -313,7 +313,7 @@ async function SettingsTab({ orgId, repoId, editable }: { orgId: string; repoId:
 }
 
 async function RulesTab({ orgId, repoId }: { orgId: string; repoId: number }) {
-  const rows = await listRules(db(), orgId, { status: ["active"] });
+  const rows = await listRules(db(), orgId, { status: ["active"], enabled: true });
   const applicable = rows.filter((r) => r.rule.repoId === null || r.rule.repoId === repoId).map((r) => ({ ...r.rule, repoFullName: r.repoFullName }));
   return (
     <div className="stack-md">

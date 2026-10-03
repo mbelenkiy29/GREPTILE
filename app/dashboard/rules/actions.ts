@@ -1,45 +1,76 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { createRule, deleteRule, parsePathsInput, updateRule } from "@/lib/data/rules";
+import { applyRuleTemplate, deleteRule, reviewCandidateRule, RuleValidationError, saveRuleForm, setRuleEnabled } from "@/lib/data/rules";
+import type { RuleFormState } from "@/lib/rules/form-state";
+import { safeReturnPath, withToast } from "@/lib/ui/toast";
 
-function repoIdFrom(formData: FormData) {
-  const v = String(formData.get("repoId") ?? "");
-  return v ? Number(v) : null;
+/*
+ * Rules (R2.1, R2.5, R6.11). Every action needs `rules.manage`; the org comes from the session and every rule id is
+ * looked up within it.
+ */
+
+const RULES = "/dashboard/rules";
+
+function ruleIdOf(formData: FormData): number | null {
+  const n = Number(formData.get("ruleId"));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-export async function addRule(formData: FormData) {
-  const { orgId, userId } = await requireOrg({ permission: "rules.manage" });
-  await createRule(db(), orgId, {
-    text: String(formData.get("text") ?? ""),
-    repoId: repoIdFrom(formData),
-    paths: parsePathsInput(String(formData.get("paths") ?? "")),
-    createdBy: userId,
-  });
-  revalidatePath("/dashboard/rules");
+function back(formData: FormData) {
+  return safeReturnPath(formData.get("returnTo"), RULES);
 }
 
-export async function editRule(formData: FormData) {
+/** Creates a rule, or updates `ruleId` (create/edit form). Validation errors come back to the form inline. */
+export async function saveRule(_prev: RuleFormState, formData: FormData): Promise<RuleFormState> {
+  const ctx = await requireOrg({ permission: "rules.manage" });
+  const state = await saveRuleForm(db(), ctx, formData);
+  if (state.status !== "saved") return state;
+  revalidatePath(RULES);
+  redirect(withToast(RULES, formData.get("ruleId") ? "rule.saved" : "rule.created"));
+}
+
+/** Turns a rule on or off. */
+export async function toggleRule(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "rules.manage" });
-  await updateRule(db(), orgId, Number(formData.get("ruleId")), {
-    text: String(formData.get("text") ?? ""),
-    paths: parsePathsInput(String(formData.get("paths") ?? "")),
-  });
-  revalidatePath("/dashboard/rules");
+  const ruleId = ruleIdOf(formData);
+  const enabled = formData.get("enabled") === "true";
+  const row = ruleId === null ? undefined : await setRuleEnabled(db(), orgId, ruleId, enabled);
+  revalidatePath(RULES);
+  redirect(withToast(back(formData), !row ? "rule.not_found" : enabled ? "rule.enabled" : "rule.disabled"));
 }
 
 export async function removeRule(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "rules.manage" });
-  await deleteRule(db(), orgId, Number(formData.get("ruleId")));
-  revalidatePath("/dashboard/rules");
+  const ruleId = ruleIdOf(formData);
+  const deleted = ruleId !== null && (await deleteRule(db(), orgId, ruleId));
+  revalidatePath(RULES);
+  redirect(withToast(RULES, deleted ? "rule.deleted" : "rule.not_found"));
 }
 
-export async function setRuleStatus(formData: FormData) {
+/** Approves or dismisses a rule mined from teammates' review comments (R2.5). */
+export async function reviewCandidate(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "rules.manage" });
-  const status = String(formData.get("status"));
-  if (status !== "active" && status !== "rejected") return;
-  await updateRule(db(), orgId, Number(formData.get("ruleId")), { status });
-  revalidatePath("/dashboard/rules");
+  const ruleId = ruleIdOf(formData);
+  const decision = formData.get("decision") === "approve" ? "approve" : "reject";
+  const row = ruleId === null ? undefined : await reviewCandidateRule(db(), orgId, ruleId, decision);
+  revalidatePath(RULES);
+  redirect(withToast(back(formData), !row ? "rule.not_found" : decision === "approve" ? "rule.approved" : "rule.dismissed"));
+}
+
+/** Adds a starter template as an org-wide rule (or for `repoId`). */
+export async function addTemplate(formData: FormData) {
+  const { orgId, userId } = await requireOrg({ permission: "rules.manage" });
+  const repoRaw = String(formData.get("repoId") ?? "").trim();
+  try {
+    await applyRuleTemplate(db(), orgId, { templateId: String(formData.get("templateId") ?? ""), repoId: repoRaw ? Number(repoRaw) : null, createdBy: userId });
+  } catch (err) {
+    if (err instanceof RuleValidationError) redirect(withToast(RULES, "rule.invalid"));
+    throw err;
+  }
+  revalidatePath(RULES);
+  redirect(withToast(RULES, "rule.template_added"));
 }

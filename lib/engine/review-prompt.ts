@@ -6,7 +6,7 @@
 import { truncateToTokens } from "@/lib/llm/budget";
 import type { ContextBundle, ContextItem } from "@/lib/retrieval";
 import { renderDiff, type FileDiff } from "@/lib/review/diff";
-import type { ReviewRule } from "@/lib/rules";
+import { renderRuleLine, type ReviewRule } from "@/lib/rules";
 import type { SecretHit } from "./classify";
 import { dataBlock, teamRulesBlock } from "./prompt";
 import type { ChangeClassification, LearnedPreference, ReviewRequest } from "./types";
@@ -32,8 +32,8 @@ export function teamRulesSections(rules: readonly ReviewRule[], customInstructio
   if (rules.length) {
     sections.push(
       [
-        "Team rules. Report violations in changed lines; set ruleId to the rule's id. A rule applies only to files matching its paths.",
-        ...rules.map((r) => `- [${r.id}]${r.paths.length ? ` (applies to: ${r.paths.join(", ")})` : ""} ${r.text.replace(/\s*\n\s*/g, " ")}`),
+        "Team rules. Report violations in changed lines; set ruleId to the rule's id. A rule applies only to files matching its paths. Use at least the rule's severity for a violation; follow a rule's instructions when judging it.",
+        ...rules.map(renderRuleLine),
       ].join("\n"),
     );
   }

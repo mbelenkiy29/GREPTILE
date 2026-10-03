@@ -30,8 +30,8 @@ describe("custom rules", () => {
 
     const active = await activeRulesForRepo(db, "org_a", fx.repo.id);
     expect(active).toEqual([
-      { id: `rule:${orgWide.id}`, text: "Never log access tokens.", paths: [], scope: "org" },
-      { id: `rule:${billing.id}`, text: "Money math must use integer cents.", paths: ["services/billing/**"], scope: "repo" },
+      { id: `rule:${orgWide.id}`, text: "Never log access tokens.", paths: [], scope: "org", category: "rules", severity: "medium" },
+      { id: `rule:${billing.id}`, text: "Money math must use integer cents.", paths: ["services/billing/**"], scope: "repo", category: "rules", severity: "medium" },
     ]);
     expect(applicableRules(active, ["web/cart/summary.ts"]).map((r) => r.id)).toEqual([`rule:${orgWide.id}`]);
     expect(applicableRules(active, ["services/billing/tax.ts"])).toHaveLength(2);
@@ -80,8 +80,8 @@ describe("custom rules", () => {
     for (const call of reviewCalls(llm)) {
       const prompt = call.req.prompt;
       expect(prompt).toMatch(/<team_rules nonce="[0-9a-f]{16}">\nTeam rules\./);
-      expect(prompt).toContain(`- [rule:${cents.id}] (applies to: services/billing/**) Money math must use integer cents, never floats.`);
-      expect(prompt).toContain(`- [rule:${logs.id}] Every exported function needs a doc comment.`);
+      expect(prompt).toContain(`- [rule:${cents.id}] (category: rules; severity: medium; applies to: services/billing/**) Money math must use integer cents, never floats.`);
+      expect(prompt).toContain(`- [rule:${logs.id}] (category: rules; severity: medium) Every exported function needs a doc comment.`);
       expect(prompt).not.toContain("UI strings must be localized");
     }
     expect(reviewCalls(llm).map((c) => c.req.meta?.agent)).toContain("rules");
