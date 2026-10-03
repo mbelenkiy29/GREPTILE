@@ -36,7 +36,8 @@ export const pullRequestPayload = envelopeSchema.extend({
   pull_request: z.object({
     number: z.number(),
     draft: z.boolean().nullish(),
-    head: z.object({ sha: z.string() }).optional(),
+    head: z.object({ sha: z.string(), ref: z.string().optional() }).optional(),
+    base: z.object({ sha: z.string(), ref: z.string() }).optional(),
     user: actor,
   }),
 });

@@ -6,8 +6,20 @@ export interface JobMeta {
   requestedBy?: string;
 }
 
-/** What caused a review: the `pull_request` action, or a manual request. */
-export type ReviewTrigger = "opened" | "synchronize" | "reopened" | "ready_for_review" | "manual";
+/**
+ * What caused a review run (R6.6): a `pull_request` webhook action, a person (dashboard re-review, `@mention`
+ * command, REST API, CLI), or restart recovery re-queuing an abandoned run.
+ */
+export type ReviewTrigger =
+  | "opened"
+  | "synchronize"
+  | "reopened"
+  | "ready_for_review"
+  | "manual"
+  | "mention"
+  | "api"
+  | "cli"
+  | "recovery";
 
 /** Where a mention was written; decides where the answer is posted. */
 export type MentionKind = "issue_comment" | "review_comment" | "review";
@@ -25,10 +37,16 @@ export interface JobPayloads {
     meta?: JobMeta;
   };
   "review-pr": {
+    /**
+     * The tracked `review_runs` row (R6.6) created by `requestReview`. Jobs queued before runs existed carry only
+     * the PR fields below; the job creates a run for them.
+     */
+    runId?: number;
     orgId: string;
     repoId: number;
     prNumber: number;
-    headSha: string;
+    /** Head the run was requested for, when known (the run reviews the PR's head at start otherwise). */
+    headSha?: string;
     trigger?: ReviewTrigger;
     meta?: JobMeta;
   };
@@ -72,14 +90,34 @@ export const JOB_PRIORITY: Record<JobName, number> = {
   "mine-rules": 5,
 };
 
+/**
+ * Where a queued job is: `pending` (waiting, delayed, or running), `failed` (gave up after its attempts), `done`
+ * (completed), or `missing` (unknown to the queue, e.g. lost or already removed).
+ */
+export type QueuedJobState = "pending" | "failed" | "done" | "missing";
+
 export interface JobQueue {
   /** `jobId` dedupes: adding a job whose id is already queued or running is a no-op. */
   add<N extends JobName>(name: N, data: JobPayloads[N], opts: JobOptions): Promise<void>;
+  /** Looks a job up by id (restart recovery uses it to leave runs whose job is only waiting alone). */
+  jobState?(jobId: string): Promise<QueuedJobState>;
 }
 
 /** In-process queue used by tests and local scripts. */
 export class MemoryQueue implements JobQueue {
   readonly jobs: { name: JobName; data: JobPayloads[JobName]; jobId: string; priority: number; delay?: number }[] = [];
+  /** Jobs a test marked as finished (`settle`); every other added job counts as pending. */
+  readonly settled = new Map<string, "done" | "failed">();
+
+  settle(jobId: string, state: "done" | "failed") {
+    this.settled.set(jobId, state);
+  }
+
+  async jobState(jobId: string): Promise<QueuedJobState> {
+    const settled = this.settled.get(jobId);
+    if (settled) return settled;
+    return this.jobs.some((j) => j.jobId === jobId) ? "pending" : "missing";
+  }
 
   async add<N extends JobName>(name: N, data: JobPayloads[N], opts: JobOptions) {
     if (this.jobs.some((j) => j.jobId === opts.jobId)) return;

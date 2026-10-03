@@ -28,7 +28,11 @@ export async function saveRepoSettings(formData: FormData) {
   const { orgId } = await requireOrg({ permission: "settings.manage" });
   const repoId = Number(formData.get("repoId"));
   const commentTypes = formData.getAll("commentTypes").map(String) as ("logic" | "security" | "style")[];
+  const repo = await getRepo(db(), orgId, repoId);
+  if (!repo) return;
+  // The form edits these keys only; other review settings (R6.14) are kept.
   await updateRepoSettings(db(), orgId, repoId, {
+    ...repo.settings,
     strictness: String(formData.get("strictness")) as "low" | "medium" | "high",
     commentTypes: commentTypes.length ? commentTypes : undefined,
     ignore: lines(formData.get("ignore")),

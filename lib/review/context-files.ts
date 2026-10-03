@@ -55,13 +55,3 @@ export async function loadContextDocs(
   if (paths.length > MAX_FILES) notices.push(`Only the first ${MAX_FILES} context files are included.`);
   return { docs, notices };
 }
-
-export function renderContextSection(docs: ContextDoc[]): string {
-  if (!docs.length) return "";
-  return [
-    "## Project guidelines (context files)",
-    "These documents are the team's own conventions and decisions. Hold the change to them, and when a finding relies on",
-    "one, name the document path in the finding body.",
-    ...docs.map((d) => `### ${d.path}${d.truncated ? " (truncated)" : ""}\n${d.content}`),
-  ].join("\n\n");
-}

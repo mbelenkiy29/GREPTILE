@@ -214,7 +214,7 @@ describe("repository events", () => {
     const pr = { action: "opened", installation: { id: 11 }, repository: { id: 1 }, pull_request: { number: 3, head: { sha: "s1" } } };
     expect(await send("pull_request", pr)).toEqual({ status: "ignored", reason: "repository archived" });
     const skipped = await runReviewJob({ db, host, llm: new FakeLlm() }, { orgId: "org_a", repoId: repo.id, prNumber: 3, headSha: "s1" });
-    expect(skipped).toEqual({ status: "skipped" });
+    expect(skipped).toMatchObject({ status: "skipped", reason: "repository archived" });
 
     await setRepoEnabled(db, "org_a", repo.id, false);
     await send("repository", repoEvent("unarchived", { archived: false }));

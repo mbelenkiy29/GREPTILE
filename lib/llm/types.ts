@@ -32,6 +32,8 @@ export interface CallMeta {
   repoId?: number | null;
   reviewRunId?: number | null;
   agentRunId?: number | null;
+  /** The review engine stage or specialized agent that made the call (e.g. `security`, `verifier`); logging only. */
+  agent?: string | null;
 }
 
 interface RequestBase {

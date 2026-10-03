@@ -4,18 +4,16 @@ import { RulesList } from "@/components/dashboard/RulesList";
 import { completeInstallation } from "@/lib/data/installations";
 import { RuleValidationError, activeRulesForRepo, createRule, deleteRule, listRules, updateRule } from "@/lib/data/rules";
 import { reviewComments } from "@/lib/db/schema";
-import { FakeLlm, type FakeCall } from "@/lib/llm/fake";
-import type { RawFinding } from "@/lib/review/findings";
+import type { Candidate } from "@/lib/engine";
 import { runReviewJob } from "@/lib/review/run";
 import { applicableRules, globMatch } from "@/lib/rules";
-import { reviewFixture } from "./helpers/review-fixture";
+import { candidateAt, engineLlm, reviewCalls } from "./helpers/engine";
+import { HEAD_PRICING, reviewFixture } from "./helpers/review-fixture";
 
 type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
-const PRICING = "services/billing/pricing.ts";
 
 describe("custom rules", () => {
   test("R2.1 rules are scoped org-wide or per repo with glob paths", async () => {
@@ -62,27 +60,31 @@ describe("custom rules", () => {
     const web = await createRule(db, "org_a", { text: "UI strings must be localized.", paths: ["web/**"] });
     const logs = await createRule(db, "org_a", { text: "Every exported function needs a doc comment." });
 
-    const finding = (over: Partial<RawFinding>): RawFinding => ({
-      path: PRICING, line: 5, endLine: null, severity: "medium", title: "t", body: "b", suggestion: null, confidence: 4, ...over,
-    });
-    const llm = new FakeLlm((call) => {
-      if (agentOf(call) === "summary") return { whatChanged: ["x"], riskLevel: "low", riskRationale: "r", confidence: 4 };
-      if (agentOf(call) !== "logic") return { findings: [] };
-      return {
-        findings: [
-          finding({ title: "Tax computed with float multiplication", body: "0.2 * amount yields fractional cents.", ruleId: `[rule:${cents.id}]` }),
-          finding({ line: 3, title: "Exported function lacks documentation", body: "No doc comment on computeTotal.", ruleId: `rule:${logs.id}` }),
-          finding({ line: 4, title: "Strings not localized here", body: "Claims a web rule on a billing file.", ruleId: `rule:${web.id}` }),
-        ],
-      };
+    const finding = (line: number, over: Partial<Candidate>): Candidate => candidateAt(HEAD_PRICING, line, { severity: "medium", confidence: 0.8, ...over });
+    // The correctness reviewer cites team rules too; a citation is kept only for a rule that applies to the file.
+    const llm = engineLlm({
+      review: (agent) => ({
+        findings:
+          agent === "correctness"
+            ? [
+                finding(5, { title: "Tax computed with float multiplication", description: "0.2 * amount yields fractional cents.", ruleId: `[rule:${cents.id}]` }),
+                finding(3, { title: "Exported function lacks documentation", description: "No doc comment on computeTotal.", ruleId: `rule:${logs.id}` }),
+                finding(4, { title: "Strings not localized here", description: "Claims a web rule on a billing file.", ruleId: `rule:${web.id}` }),
+              ]
+            : [],
+      }),
     });
     await runReviewJob({ db, host: fx.host, llm, embedder: fx.embedder }, { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, headSha: fx.head });
 
-    const prompt = llm.calls.find((c) => agentOf(c) === "logic")!.req.prompt;
-    expect(prompt).toContain("## Team rules");
-    expect(prompt).toContain(`- [rule:${cents.id}] (applies to: services/billing/**) Money math must use integer cents, never floats.`);
-    expect(prompt).toContain(`- [rule:${logs.id}] Every exported function needs a doc comment.`);
-    expect(prompt).not.toContain("UI strings must be localized");
+    // Every reviewer sees the rules in scope for the changed files, in the instructions block.
+    for (const call of reviewCalls(llm)) {
+      const prompt = call.req.prompt;
+      expect(prompt).toMatch(/<team_rules nonce="[0-9a-f]{16}">\nTeam rules\./);
+      expect(prompt).toContain(`- [rule:${cents.id}] (applies to: services/billing/**) Money math must use integer cents, never floats.`);
+      expect(prompt).toContain(`- [rule:${logs.id}] Every exported function needs a doc comment.`);
+      expect(prompt).not.toContain("UI strings must be localized");
+    }
+    expect(reviewCalls(llm).map((c) => c.req.meta?.agent)).toContain("rules");
 
     const comments = fx.host.reviews[0]!.comments;
     const byLine = (l: number) => comments.find((c) => c.line === l)!.body;

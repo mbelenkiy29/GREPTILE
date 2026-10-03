@@ -15,7 +15,21 @@ const optional = z
   .optional()
   .transform((v) => (v ? v : undefined));
 
+/** Credits one review consumes in each mode (R4.1). */
+const creditsShape = {
+  CREDITS_FAST: optionalNumber(z.number().min(0).default(1)),
+  CREDITS_STANDARD: optionalNumber(z.number().min(0).default(2)),
+  CREDITS_DEEP: optionalNumber(z.number().min(0).default(4)),
+};
+
 const indexMaxFileBytes = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().default(524_288));
+/** Review pipeline settings (R6.6, R6.16); also parsed on their own by `pipelineEnv()`. */
+const pipelineShape = {
+  /** Delay before a review queued by a push starts, so bursts of pushes are reviewed once. */
+  REVIEW_DEBOUNCE_MS: optionalNumber(z.number().int().min(0).max(3_600_000).default(15_000)),
+  /** Heartbeat age after which a non-terminal review run is considered abandoned and re-queued. */
+  REVIEW_STALE_MS: optionalNumber(z.number().int().min(60_000).default(600_000)),
+};
 /** Model gateway settings (R6.15, R6.16); also parsed on their own by `llmEnvSchema`. */
 const llmShape = {
   LLM_PROVIDER: z.enum(["anthropic", "openai", "openrouter", "openai-compatible", "fake"]).default("anthropic"),
@@ -89,6 +103,9 @@ const fields = z.object({
   WEBHOOK_DELIVERY_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
   /** Files larger than this many bytes are skipped by the indexer (R6.3). */
   INDEX_MAX_FILE_BYTES: indexMaxFileBytes,
+
+  ...creditsShape,
+  ...pipelineShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -126,6 +143,19 @@ export function infraEnv() {
 /** Indexer settings; parsed on their own so indexing does not require the full app env. */
 export function indexerEnv() {
   return z.object({ INDEX_MAX_FILE_BYTES: indexMaxFileBytes }).parse(process.env);
+}
+
+/** Review credit costs per mode (R4.1); parsed on their own so the engine does not require the full app env. */
+export function creditsEnv(source: Record<string, string | undefined> = process.env) {
+  return z.object(creditsShape).parse(source);
+}
+
+const pipelineSchema = z.object(pipelineShape);
+export type PipelineEnv = z.infer<typeof pipelineSchema>;
+
+/** Review pipeline settings; parsed on their own so reviews (and tests) do not require the full app env. */
+export function pipelineEnv(source: Record<string, string | undefined> = process.env): PipelineEnv {
+  return pipelineSchema.parse(source);
 }
 
 const authSchema = fields

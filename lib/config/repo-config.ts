@@ -1,17 +1,29 @@
 import { z } from "zod";
-import type { RepoSettings } from "@/lib/db/schema";
+import type { OrgSettings, RepoSettings } from "@/lib/db/schema";
 import type { GitClient } from "@/lib/git/types";
 import type { ReviewRule } from "@/lib/rules";
+import {
+  COMMENT_TYPES,
+  STRICTNESS,
+  resolveEffectiveSettings,
+  reviewSettingsShape,
+  type CommentType,
+  type EffectiveSettings,
+  type SettingKey,
+  type SettingSource,
+  type Strictness,
+} from "./settings";
+
+export { COMMENT_TYPES, STRICTNESS, type CommentType, type Strictness };
 
 export const CONFIG_FILE = "openreview.json";
-export const COMMENT_TYPES = ["logic", "security", "style"] as const;
-export const STRICTNESS = ["low", "medium", "high"] as const;
-export type Strictness = (typeof STRICTNESS)[number];
-export type CommentType = (typeof COMMENT_TYPES)[number];
 
 const glob = z.string().trim().min(1);
 
-/** Schema of `openreview.json` in a repository root (R2.2). Unknown keys are rejected to catch typos. */
+/**
+ * Schema of `openreview.json` in a repository root (R2.2): rules plus every review setting (R6.14). Unknown keys are
+ * rejected to catch typos.
+ */
 export const repoConfigSchema = z
   .object({
     $schema: z.string().optional(),
@@ -19,15 +31,14 @@ export const repoConfigSchema = z
       .array(z.union([z.string().trim().min(5), z.object({ rule: z.string().trim().min(5), paths: z.array(glob).optional() }).strict()]))
       .max(100)
       .optional(),
-    ignore: z.array(glob).max(200).optional(),
-    strictness: z.enum(STRICTNESS).optional(),
-    commentTypes: z.array(z.enum(COMMENT_TYPES)).min(1).optional(),
-    /** Docs (paths or globs) always included as review context (R2.3). */
-    context: z.array(glob).max(50).optional(),
+    ...z.object(reviewSettingsShape).partial().shape,
   })
   .strict();
 
 export type RepoConfigFile = z.infer<typeof repoConfigSchema>;
+
+type LegacyKey = "strictness" | "commentTypes" | "ignore" | "context";
+type LegacySource = "default" | "dashboard" | "file";
 
 export interface EffectiveConfig {
   strictness: Strictness;
@@ -36,8 +47,11 @@ export interface EffectiveConfig {
   context: string[];
   /** Rules declared in openreview.json, in addition to dashboard rules. */
   rules: ReviewRule[];
-  /** Where each setting came from, for display. */
-  sources: Record<"strictness" | "commentTypes" | "ignore" | "context", "default" | "dashboard" | "file">;
+  /** Where each legacy setting came from, for display ("dashboard" = org or repo settings). */
+  sources: Record<LegacyKey, LegacySource>;
+  /** Every effective review setting (R6.14) and the layer it came from. */
+  settings: EffectiveSettings;
+  settingSources: Record<SettingKey, SettingSource>;
   notices: string[];
 }
 
@@ -46,13 +60,6 @@ export const DEFAULTS = {
   commentTypes: [...COMMENT_TYPES] as CommentType[],
   ignore: [] as string[],
   context: [] as string[],
-};
-
-/** Review thresholds each strictness level maps to. */
-export const STRICTNESS_LEVELS: Record<Strictness, { minConfidence: number; maxComments: number; minSeverity: "low" | "medium" | "high" }> = {
-  low: { minConfidence: 4, maxComments: 10, minSeverity: "medium" },
-  medium: { minConfidence: 2, maxComments: 20, minSeverity: "low" },
-  high: { minConfidence: 1, maxComments: 40, minSeverity: "low" },
 };
 
 export function parseRepoConfig(text: string): { config?: RepoConfigFile; error?: string } {
@@ -71,29 +78,53 @@ export function parseRepoConfig(text: string): { config?: RepoConfigFile; error?
   return { config: res.data };
 }
 
-/** Defaults ← dashboard settings ← openreview.json, key by key: the repo file wins. */
-export function resolveConfig(dashboard: RepoSettings | null | undefined, file: RepoConfigFile | undefined, notices: string[] = []): EffectiveConfig {
-  const pick = <K extends "strictness" | "commentTypes" | "ignore" | "context">(key: K) => {
-    if (file?.[key] !== undefined) return { value: file[key]!, source: "file" as const };
-    if (dashboard?.[key] !== undefined) return { value: dashboard[key]!, source: "dashboard" as const };
-    return { value: DEFAULTS[key], source: "default" as const };
+/** The review-settings part of an `openreview.json` (everything except `$schema` and `rules`). */
+function settingsOf(file: RepoConfigFile): RepoSettings {
+  const settings: Record<string, unknown> = { ...file };
+  delete settings.$schema;
+  delete settings.rules;
+  return settings as RepoSettings;
+}
+
+/**
+ * Defaults ← org settings ← repo (dashboard) settings ← openreview.json, key by key: the repo file wins (R2.2,
+ * R6.14).
+ */
+export function resolveConfig(
+  dashboard: RepoSettings | null | undefined,
+  file: RepoConfigFile | undefined,
+  notices: string[] = [],
+  org?: OrgSettings | null,
+): EffectiveConfig {
+  const fileSettings: RepoSettings | undefined = file ? settingsOf(file) : undefined;
+  const fileRules = file?.rules;
+  const { settings, sources } = resolveEffectiveSettings(org, dashboard, fileSettings);
+  const legacy = <K extends LegacyKey>(key: K): { value: NonNullable<RepoSettings[K]>; source: LegacySource } => {
+    if (file?.[key] !== undefined) return { value: file[key]!, source: "file" };
+    if (dashboard?.[key] !== undefined) return { value: dashboard[key]!, source: "dashboard" };
+    if (org?.[key] !== undefined) return { value: org[key]!, source: "dashboard" };
+    return { value: DEFAULTS[key] as NonNullable<RepoSettings[K]>, source: "default" };
   };
-  const strictness = pick("strictness");
-  const commentTypes = pick("commentTypes");
-  const ignore = pick("ignore");
-  const context = pick("context");
-  const rules: ReviewRule[] = (file?.rules ?? []).map((r, i) =>
+  const commentTypes = legacy("commentTypes");
+  const rules: ReviewRule[] = (fileRules ?? []).map((r, i) =>
     typeof r === "string"
       ? { id: `config:${i + 1}`, text: r, paths: [], scope: "config" }
       : { id: `config:${i + 1}`, text: r.rule, paths: r.paths ?? [], scope: "config" },
   );
   return {
-    strictness: strictness.value as Strictness,
-    commentTypes: commentTypes.value as CommentType[],
-    ignore: ignore.value as string[],
-    context: context.value as string[],
+    strictness: settings.strictness,
+    commentTypes: commentTypes.value,
+    ignore: settings.ignore,
+    context: settings.context,
     rules,
-    sources: { strictness: strictness.source, commentTypes: commentTypes.source, ignore: ignore.source, context: context.source },
+    sources: {
+      strictness: legacy("strictness").source,
+      commentTypes: commentTypes.source,
+      ignore: legacy("ignore").source,
+      context: legacy("context").source,
+    },
+    settings,
+    settingSources: sources,
     notices,
   };
 }
@@ -108,9 +139,10 @@ export async function loadEffectiveConfig(
   repo: string,
   ref: string,
   dashboard: RepoSettings | null | undefined,
+  org?: OrgSettings | null,
 ): Promise<EffectiveConfig> {
   const text = await client.getFileContent(repo, CONFIG_FILE, ref);
-  if (text === null) return resolveConfig(dashboard, undefined);
+  if (text === null) return resolveConfig(dashboard, undefined, [], org);
   const { config, error } = parseRepoConfig(text);
-  return resolveConfig(dashboard, config, error ? [`${error}. Using dashboard settings instead.`] : []);
+  return resolveConfig(dashboard, config, error ? [`${error}. Using dashboard settings instead.`] : [], org);
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "model_calls" ADD CONSTRAINT "model_calls_review_run_id_review_runs_id_fk" FOREIGN KEY ("review_run_id") REFERENCES "public"."review_runs"("id") ON DELETE set null ON UPDATE no action;

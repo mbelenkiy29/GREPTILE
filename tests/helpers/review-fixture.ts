@@ -55,6 +55,15 @@ export async function reviewFixture(opts: { baseExtra?: Record<string, string>; 
       return null;
     }
   };
+  host.compareAt = (_repo, from, to) =>
+    fixture
+      .git("diff", "--name-status", from, to)
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [code, path] = line.split("\t") as [string, string];
+        return { path, status: code === "A" ? ("added" as const) : code === "D" ? ("removed" as const) : ("modified" as const) };
+      });
   host.addInstallation(11, "acme", [{ id: 1, fullName: "acme/shop", defaultBranch: "main", private: true }]);
   host.cloneUrls.set("acme/shop", fixture.url);
   const { repos } = await completeInstallation(db, host, { orgId: "org_a", orgName: "Acme", installationId: 11 });
