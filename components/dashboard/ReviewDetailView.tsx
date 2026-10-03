@@ -8,7 +8,8 @@ import { Table } from "@/components/ui/Table";
 import { runDurationMs } from "@/lib/data/lifecycle";
 import type { ReviewDetail, ReviewRunItem } from "@/lib/data/reviews";
 import type { ReviewSummary } from "@/lib/engine/types";
-import { formatCount, formatDate, formatDuration, formatRelative, formatUsd, githubBlobUrl, githubCommitUrl, shortSha } from "@/lib/ui/format";
+import { formatCount, formatDate, formatDuration, formatRelative, formatUsd, shortSha } from "@/lib/ui/format";
+import { blobUrl, commitUrl, repoWeb, type RepoWeb } from "@/lib/git/web-url";
 import { FixWithAiMenu } from "@/components/fix/FixWithAi";
 import { FindingCard, verificationNote } from "./FindingCard";
 import { RunLifecycle } from "./RunLifecycle";
@@ -95,14 +96,14 @@ function SummarySection({ summary, fallback }: { summary: ReviewSummary | null; 
 function RunHistory({
   runs,
   repoFullName,
-  githubUrl,
+  web,
   now,
   selectedId,
   reviewId,
 }: {
   runs: ReviewRunItem[];
   repoFullName: string;
-  githubUrl?: string;
+  web: RepoWeb;
   now: Date;
   selectedId: number | undefined;
   reviewId: number;
@@ -162,7 +163,7 @@ function RunHistory({
             </td>
             <td>
               {r.headSha ? (
-                <a className="mono" href={githubCommitUrl(repoFullName, r.headSha, githubUrl)} target="_blank" rel="noreferrer">
+                <a className="mono" href={commitUrl(web, repoFullName, r.headSha)} target="_blank" rel="noreferrer">
                   {shortSha(r.headSha)}
                 </a>
               ) : (
@@ -207,6 +208,7 @@ export function ReviewDetailView({
   now?: Date;
 }) {
   const latest = review.runHistory.find((r) => r.id === runId) ?? review.runHistory[0];
+  const web = repoWeb(review.provider, review.hostWebUrl, githubUrl);
   const summary = review.runHistory.find((r) => r.summary)?.summary ?? null;
   return (
     <div className="stack">
@@ -336,7 +338,7 @@ export function ReviewDetailView({
       {review.runHistory.length > 0 && (
         <section className="stack-sm" aria-labelledby="runs-heading">
           <h2 id="runs-heading">Run history</h2>
-          <RunHistory runs={review.runHistory} repoFullName={review.repoFullName} githubUrl={githubUrl} now={now} selectedId={latest?.id} reviewId={review.id} />
+          <RunHistory runs={review.runHistory} repoFullName={review.repoFullName} web={web} now={now} selectedId={latest?.id} reviewId={review.id} />
         </section>
       )}
 
@@ -354,7 +356,7 @@ export function ReviewDetailView({
               finding={f}
               repoFullName={review.repoFullName}
               prNumber={review.prNumber}
-              githubUrl={githubUrl}
+              web={web}
               actions={<FixWithAiMenu findingId={f.id} />}
               footer={findingActions?.(f)}
             />
@@ -375,7 +377,7 @@ export function ReviewDetailView({
                 <div className="row-tight">
                   <StatusPill kind="severity" value={c.severity} />
                   <span className="dim">{c.category}</span>
-                  <a className="mono" href={githubBlobUrl(review.repoFullName, c.headSha, c.path, c.line, githubUrl)} rel="noreferrer" target="_blank">
+                  <a className="mono" href={blobUrl(web, review.repoFullName, c.headSha, c.path, c.line)} rel="noreferrer" target="_blank">
                     {c.path}:{c.line}
                   </a>
                 </div>

@@ -12,6 +12,7 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { id: "general", label: "General", href: "/dashboard/settings" },
   { id: "review", label: "Review defaults", href: "/dashboard/settings/review" },
   { id: "github", label: "GitHub", href: "/dashboard/settings/github" },
+  { id: "git-providers", label: "Git providers", href: "/dashboard/settings/git-providers" },
   { id: "api-keys", label: "API keys", href: "/dashboard/settings/api-keys" },
   { id: "usage", label: "Usage & billing", href: "/dashboard/settings/usage" },
 ];

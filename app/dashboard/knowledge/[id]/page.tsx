@@ -15,7 +15,9 @@ import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { getKnowledgeEntry, knowledgeEnabled } from "@/lib/data/knowledge";
 import { siteEnv } from "@/lib/env";
-import { formatCount, formatDate, githubBlobUrl, githubCommitUrl, shortSha } from "@/lib/ui/format";
+import { formatCount, formatDate, shortSha } from "@/lib/ui/format";
+import { blobUrl, commitUrl } from "@/lib/git/web-url";
+import { repoWebFor } from "@/lib/data/repos";
 import { decideKnowledgeProposal, regenerateKnowledge, saveKnowledgeDescription } from "../actions";
 
 export const metadata: Metadata = { title: "Knowledge entry" };
@@ -27,10 +29,10 @@ export default async function KnowledgeEntryPage({ params }: { params: Promise<{
   if (!detail) notFound();
   const { entry, repo } = detail;
   const admin = can(role, "repos.manage");
-  const githubUrl = siteEnv().GITHUB_WEB_URL;
-  // Files link to GitHub at the commit the entry was generated from (else the indexed commit).
+  const web = await repoWebFor(db(), orgId, repo.id, siteEnv().GITHUB_WEB_URL);
+  // Files link to the repository's host at the commit the entry was generated from (else the indexed commit).
   const sha = entry.lastCommitSha ?? repo.indexedSha;
-  const fileHref = (path: string) => (sha ? githubBlobUrl(repo.fullName, sha, path, undefined, githubUrl) : null);
+  const fileHref = (path: string) => (sha ? blobUrl(web, repo.fullName, sha, path) : null);
   const path = `/dashboard/knowledge/${entry.id}`;
   const roles = new Map(entry.keyFiles.map((k) => [k.path, k.role]));
   const others = entry.relatedFiles.filter((p) => !roles.has(p));
@@ -52,7 +54,7 @@ export default async function KnowledgeEntryPage({ params }: { params: Promise<{
               {entry.lastCommitSha ? (
                 <>
                   Updated {formatDate(entry.lastUpdatedAt)} from{" "}
-                  <a className="mono" href={githubCommitUrl(repo.fullName, entry.lastCommitSha, githubUrl)} target="_blank" rel="noreferrer">
+                  <a className="mono" href={commitUrl(web, repo.fullName, entry.lastCommitSha)} target="_blank" rel="noreferrer">
                     {shortSha(entry.lastCommitSha)}
                   </a>
                 </>

@@ -4,6 +4,7 @@ import { resolveEffectiveSettings, type SettingSource } from "@/lib/config/setti
 import type { Db } from "@/lib/db";
 import { findings, installations, orgs, repos, reviews } from "@/lib/db/schema";
 import { escapeLike } from "@/lib/indexer/sql";
+import { repoWeb, type RepoWeb } from "@/lib/git/web-url";
 import { activeIndexJobs, type RepoIndexState } from "./overview";
 import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
 import { scoped } from "./tenant";
@@ -15,6 +16,9 @@ export interface RepoListItem {
   accountLogin: string;
   accountType: string | null;
   installationId: number;
+  /** Git host of the repository and its web origin (null = the provider's default), for links (R3.6). */
+  provider: string;
+  hostWebUrl: string | null;
   defaultBranch: string;
   private: boolean;
   enabled: boolean;
@@ -46,7 +50,7 @@ export async function listRepoOverview(db: Db, orgId: string, filter: RepoListFi
   const where = scoped(repos, orgId, q ? ilike(repos.fullName, `%${escapeLike(q)}%`) : undefined);
   const [rows, [total], [org]] = await Promise.all([
     db
-      .select({ repo: repos, accountLogin: installations.accountLogin, accountType: installations.accountType })
+      .select({ repo: repos, accountLogin: installations.accountLogin, accountType: installations.accountType, provider: installations.provider, hostWebUrl: installations.webUrl })
       .from(repos)
       .innerJoin(installations, and(eq(installations.id, repos.installationId), eq(installations.orgId, orgId)))
       .where(where)
@@ -58,7 +62,7 @@ export async function listRepoOverview(db: Db, orgId: string, filter: RepoListFi
   ]);
   const ids = rows.map((r) => r.repo.id);
   const [jobs, open, last] = await Promise.all([activeIndexJobs(db, orgId, ids), openFindingsByRepo(db, orgId, ids), lastReviewByRepo(db, orgId, ids)]);
-  const items = rows.map(({ repo, accountLogin, accountType }) => {
+  const items = rows.map(({ repo, accountLogin, accountType, provider, hostWebUrl }) => {
     const { settings, sources } = resolveEffectiveSettings(org?.settings, repo.settings, undefined);
     return {
       id: repo.id,
@@ -66,6 +70,8 @@ export async function listRepoOverview(db: Db, orgId: string, filter: RepoListFi
       accountLogin,
       accountType,
       installationId: repo.installationId,
+      provider,
+      hostWebUrl,
       defaultBranch: repo.defaultBranch,
       private: repo.private,
       enabled: repo.enabled,
@@ -110,7 +116,16 @@ async function lastReviewByRepo(db: Db, orgId: string, repoIds: number[]) {
 
 export interface RepoDetail {
   repo: typeof repos.$inferSelect;
-  installation: { id: number; accountLogin: string; accountType: string | null; suspended: boolean; missingPermissions: string[] };
+  installation: {
+    id: number;
+    accountLogin: string;
+    accountType: string | null;
+    suspended: boolean;
+    missingPermissions: string[];
+    /** Git host (R3.6) and its web origin (null = the provider's default). */
+    provider: string;
+    webUrl: string | null;
+  };
   reviewMode: string;
   stats: { reviews: number; openFindings: number; resolvedFindings: number };
 }
@@ -143,6 +158,8 @@ export async function getRepoDetail(db: Db, orgId: string, repoId: number): Prom
       accountType: row.installation.accountType,
       suspended: row.installation.suspended,
       missingPermissions: row.installation.missingPermissions,
+      provider: row.installation.provider,
+      webUrl: row.installation.webUrl,
     },
     reviewMode: settings.mode,
     stats: { reviews: Number(reviewCount?.n ?? 0), openFindings: by("open"), resolvedFindings: by("resolved") },
@@ -171,4 +188,14 @@ export async function unhealthyInstallations(db: Db, orgId: string) {
     .from(installations)
     .where(scoped(installations, orgId, sql`(${installations.suspended} or cardinality(${installations.missingPermissions}) > 0)`))
     .orderBy(installations.accountLogin);
+}
+
+/** Where one of the org's repositories lives on the web (its git host and origin), for links (R3.6). */
+export async function repoWebFor(db: Db, orgId: string, repoId: number, githubUrl?: string): Promise<RepoWeb> {
+  const [row] = await db
+    .select({ provider: installations.provider, webUrl: installations.webUrl })
+    .from(repos)
+    .innerJoin(installations, and(eq(installations.id, repos.installationId), eq(installations.orgId, orgId)))
+    .where(scoped(repos, orgId, eq(repos.id, repoId)));
+  return repoWeb(row?.provider, row?.webUrl, githubUrl);
 }

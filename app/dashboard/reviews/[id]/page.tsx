@@ -17,7 +17,7 @@ import { TERMINAL_RUN_STATUSES } from "@/lib/data/lifecycle";
 import { getReviewDetail } from "@/lib/data/reviews";
 import { siteEnv } from "@/lib/env";
 import { REVIEW_MODES } from "@/lib/llm/types";
-import { githubPrUrl } from "@/lib/ui/format";
+import { prUrl as hostPrUrl, PROVIDER_LABEL, repoWeb } from "@/lib/git/web-url";
 import { intParam, type SearchParams } from "@/lib/ui/url";
 import { giveFindingFeedback, retractFindingFeedback } from "../../findings/actions";
 import { cancelReviewRun, rerunReview } from "../actions";
@@ -38,7 +38,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
   const trigger = can(role, "reviews.trigger");
   const storedUrl = review.pullRequest?.url;
   // The stored URL came from the git host; only an http(s) link is used as is.
-  const prUrl = storedUrl && /^https?:\/\//i.test(storedUrl) ? storedUrl : githubPrUrl(review.repoFullName, review.prNumber, githubUrl);
+  const prUrl = storedUrl && /^https?:\/\//i.test(storedUrl) ? storedUrl : hostPrUrl(repoWeb(review.provider, review.hostWebUrl, githubUrl), review.repoFullName, review.prNumber);
 
   const fixAll = review.findings.total > 0 ? <FixAllMenu reviewId={review.id} /> : null;
   const actions = trigger ? (
@@ -114,7 +114,7 @@ export default async function ReviewPage({ params, searchParams }: { params: Pro
               )}
             </span>
             <a href={prUrl} rel="noreferrer" target="_blank">
-              Open on GitHub <Icon name="external" size={12} />
+              Open on {PROVIDER_LABEL[review.provider] ?? review.provider} <Icon name="external" size={12} />
             </a>
           </>
         }

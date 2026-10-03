@@ -2,7 +2,8 @@ import { humanize, StatusPill } from "@/components/ui/Badge";
 import { CellTitle, Table } from "@/components/ui/Table";
 import { runDurationMs } from "@/lib/data/lifecycle";
 import type { ReviewPageItem } from "@/lib/data/reviews";
-import { formatDuration, formatRelative, formatUsd, githubCommitUrl, githubPrUrl, shortSha } from "@/lib/ui/format";
+import { formatDuration, formatRelative, formatUsd, shortSha } from "@/lib/ui/format";
+import { commitUrl, prUrl, PROVIDER_LABEL, repoWeb } from "@/lib/git/web-url";
 
 /** The model(s) a run used, compactly: the review model, or the distinct models joined. */
 export function modelLabel(models: Record<string, string> | null | undefined): string {
@@ -45,8 +46,8 @@ export function ReviewsTable({ reviews, githubUrl, now = new Date() }: { reviews
                     <>
                       {r.prTitle || "Untitled"}
                       {r.prAuthor && <> · @{r.prAuthor}</>} ·{" "}
-                      <a href={githubPrUrl(r.repoFullName, r.prNumber, githubUrl)} target="_blank" rel="noreferrer">
-                        GitHub
+                      <a href={prUrl(repoWeb(r.provider, r.hostWebUrl, githubUrl), r.repoFullName, r.prNumber)} target="_blank" rel="noreferrer">
+                        {PROVIDER_LABEL[r.provider] ?? r.provider}
                       </a>
                     </>
                   }
@@ -72,7 +73,7 @@ export function ReviewsTable({ reviews, githubUrl, now = new Date() }: { reviews
                 </div>
               </td>
               <td>
-                <a className="mono" href={githubCommitUrl(r.repoFullName, r.headSha, githubUrl)} target="_blank" rel="noreferrer">
+                <a className="mono" href={commitUrl(repoWeb(r.provider, r.hostWebUrl, githubUrl), r.repoFullName, r.headSha)} target="_blank" rel="noreferrer">
                   {shortSha(r.headSha)}
                 </a>
               </td>

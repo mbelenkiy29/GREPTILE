@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, count, desc, eq, gte, inArray, lt, ne, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { findingFeedback, findings, repos, reviewComments, reviews } from "@/lib/db/schema";
+import { findingFeedback, findings, installations, repos, reviewComments, reviews } from "@/lib/db/schema";
 import type { EngineFinding, HistoricalFinding, PriorFinding, RejectedCandidate } from "@/lib/engine/types";
 import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
 import { scoped } from "./tenant";
@@ -422,6 +422,9 @@ function usefulnessCondition(u: FindingUsefulness | undefined): SQL | undefined 
 
 export interface FindingListItem extends FindingRow {
   repoFullName: string;
+  /** Git host of the repository and its web origin (null = the provider's default), for links (R3.6). */
+  provider: string;
+  hostWebUrl: string | null;
   prAuthor: string;
   prTitle: string;
 }
@@ -454,10 +457,11 @@ export async function searchFindings(db: Db, orgId: string, f: FindingSearch = {
         : [dir(findings.createdAt)];
   const [rows, [total]] = await Promise.all([
     db
-      .select({ finding: findings, repoFullName: repos.fullName, prAuthor: reviews.prAuthor, prTitle: reviews.prTitle })
+      .select({ finding: findings, repoFullName: repos.fullName, provider: installations.provider, hostWebUrl: installations.webUrl, prAuthor: reviews.prAuthor, prTitle: reviews.prTitle })
       .from(findings)
       .innerJoin(reviews, and(eq(reviews.id, findings.reviewId), eq(reviews.orgId, orgId)))
       .innerJoin(repos, and(eq(repos.id, findings.repoId), eq(repos.orgId, orgId)))
+      .innerJoin(installations, eq(installations.id, repos.installationId))
       .where(where)
       .orderBy(...order, desc(findings.id))
       .limit(win.pageSize)
@@ -468,7 +472,7 @@ export async function searchFindings(db: Db, orgId: string, f: FindingSearch = {
       .innerJoin(reviews, and(eq(reviews.id, findings.reviewId), eq(reviews.orgId, orgId)))
       .where(where),
   ]);
-  const items = rows.map((r) => ({ ...r.finding, repoFullName: r.repoFullName, prAuthor: r.prAuthor, prTitle: r.prTitle }));
+  const items = rows.map((r) => ({ ...r.finding, repoFullName: r.repoFullName, provider: r.provider, hostWebUrl: r.hostWebUrl, prAuthor: r.prAuthor, prTitle: r.prTitle }));
   return toPage(items, Number(total?.n ?? 0), win);
 }
 

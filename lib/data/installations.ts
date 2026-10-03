@@ -247,6 +247,9 @@ export async function getInstallationHealth(db: Db, orgId: string) {
     const status: InstallationStatus = i.suspended ? "suspended" : i.missingPermissions.length ? "missing_permissions" : "ok";
     return {
       id: i.id,
+      /** `github`, `gitlab`, or `bitbucket` (R3.6); GitLab / Bitbucket health lives on their connection. */
+      provider: i.provider,
+      scmCredentialId: i.scmCredentialId,
       externalId: i.externalId,
       accountLogin: i.accountLogin,
       accountType: i.accountType,

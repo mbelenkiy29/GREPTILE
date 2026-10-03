@@ -34,6 +34,8 @@ export type IconName =
   | "pause"
   | "stop"
   | "github"
+  | "gitlab"
+  | "bitbucket"
   | "plus"
   | "code"
   | "clock"
@@ -218,6 +220,18 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M9 19c-4 1.3-4-2-6-2.5" />
       <path d="M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.3 4.3 0 0 0-.1-3.2s-1-.3-3.4 1.3a11.6 11.6 0 0 0-6.2 0C6.6 2.8 5.6 3.1 5.6 3.1a4.3 4.3 0 0 0-.1 3.2A4.6 4.6 0 0 0 4.2 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21" />
+    </>
+  ),
+  // Simple generic glyphs for the other git hosts (not their logos): a crowned shield and a pail.
+  gitlab: (
+    <>
+      <path d="M12 20.5 3.5 13 5.5 4l3 6h7l3-6 2 9z" />
+    </>
+  ),
+  bitbucket: (
+    <>
+      <path d="M4 5h16l-2.2 14a1.5 1.5 0 0 1-1.5 1.2H7.7a1.5 1.5 0 0 1-1.5-1.2z" />
+      <path d="M9.5 10.5h5l-.8 4.5h-3.4z" />
     </>
   ),
   plus: (

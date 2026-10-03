@@ -3,10 +3,18 @@ import type { ReactNode } from "react";
 import { Badge, humanize, StatusPill } from "@/components/ui/Badge";
 import { CellTitle, Table } from "@/components/ui/Table";
 import type { RepoListItem } from "@/lib/data/repos";
-import { formatRelative, githubCommitUrl, githubRepoUrl, shortSha } from "@/lib/ui/format";
+import { Icon } from "@/components/ui/icons";
+import { commitUrl, PROVIDER_LABEL, repoUrl, repoWeb } from "@/lib/git/web-url";
+import { formatRelative, shortSha } from "@/lib/ui/format";
 import { IndexStatus } from "./IndexStatus";
 
 export type RepoRow = RepoListItem;
+
+/** The repository's git host as a small labelled icon (R3.6). */
+export function ProviderIcon({ provider }: { provider: string }) {
+  const name = provider === "gitlab" ? "gitlab" : provider === "bitbucket" ? "bitbucket" : "github";
+  return <Icon name={name} size={12} title={PROVIDER_LABEL[provider] ?? provider} />;
+}
 
 function ReviewsState({ repo }: { repo: Pick<RepoRow, "enabled" | "archived"> }) {
   if (repo.archived) return <Badge tone="muted">Archived</Badge>;
@@ -61,9 +69,9 @@ export function ReposTable({
                 href={`/dashboard/repos/${r.id}`}
                 sub={
                   <>
-                    {r.accountLogin} · <span className="mono">{r.defaultBranch}</span> · {r.private ? "private" : "public"} ·{" "}
-                    <a href={githubRepoUrl(r.fullName, githubUrl)} target="_blank" rel="noreferrer">
-                      GitHub
+                    <ProviderIcon provider={r.provider} /> {r.accountLogin} · <span className="mono">{r.defaultBranch}</span> · {r.private ? "private" : "public"} ·{" "}
+                    <a href={repoUrl(repoWeb(r.provider, r.hostWebUrl, githubUrl), r.fullName)} target="_blank" rel="noreferrer">
+                      {PROVIDER_LABEL[r.provider] ?? r.provider}
                     </a>
                   </>
                 }
@@ -80,7 +88,7 @@ export function ReposTable({
             <td className="nowrap">
               {r.indexedSha ? (
                 <>
-                  <a className="mono" href={githubCommitUrl(r.fullName, r.indexedSha, githubUrl)} target="_blank" rel="noreferrer">
+                  <a className="mono" href={commitUrl(repoWeb(r.provider, r.hostWebUrl, githubUrl), r.fullName, r.indexedSha)} target="_blank" rel="noreferrer">
                     {shortSha(r.indexedSha)}
                   </a>
                   <div className="dim">{formatRelative(r.indexedAt, now)}</div>

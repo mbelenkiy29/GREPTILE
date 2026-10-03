@@ -36,7 +36,8 @@ import { siteEnv } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
 import type { GitHost } from "@/lib/git/types";
 import { getIndexStatus, listIndexJobs } from "@/lib/indexer/jobs";
-import { formatCount, formatDate, formatDuration, formatRelative, githubCommitUrl, githubRepoUrl, shortSha } from "@/lib/ui/format";
+import { formatCount, formatDate, formatDuration, formatRelative, shortSha } from "@/lib/ui/format";
+import { commitUrl, PROVIDER_LABEL, repoUrl, repoWeb } from "@/lib/git/web-url";
 import { enumParam, hrefWith, intParam, queryState, type SearchParams } from "@/lib/ui/url";
 import { cancelIndex, reindexRepo, saveRepoSettings, toggleRepo } from "../actions";
 
@@ -85,8 +86,8 @@ export default async function RepoPage({ params, searchParams }: { params: Promi
             <Badge tone="outline">{humanize(detail.reviewMode)} mode</Badge>
             <span className="dim">
               {detail.installation.accountLogin} · <span className="mono">{repo.defaultBranch}</span> ·{" "}
-              <a href={githubRepoUrl(repo.fullName, githubUrl)} target="_blank" rel="noreferrer">
-                GitHub
+              <a href={repoUrl(repoWeb(detail.installation.provider, detail.installation.webUrl, githubUrl), repo.fullName)} target="_blank" rel="noreferrer">
+                {PROVIDER_LABEL[detail.installation.provider] ?? detail.installation.provider}
               </a>
             </span>
           </>
@@ -158,7 +159,7 @@ async function OverviewTab({
             <dt>Indexed commit</dt>
             <dd>
               {repo.indexedSha ? (
-                <a className="mono" href={githubCommitUrl(repo.fullName, repo.indexedSha, githubUrl)} target="_blank" rel="noreferrer">
+                <a className="mono" href={commitUrl(repoWeb(detail.installation.provider, detail.installation.webUrl, githubUrl), repo.fullName, repo.indexedSha)} target="_blank" rel="noreferrer">
                   {shortSha(repo.indexedSha)}
                 </a>
               ) : (
@@ -386,7 +387,7 @@ async function ActivityTab({ orgId, repoId, page, state, path }: { orgId: string
         </>
       ) : (
         <EmptyState icon="activity" title="No webhook deliveries for this repository" headingLevel={3}>
-          <p>GitHub events about this repository (pull requests, pushes, comments) appear here with what OpenReview did about them.</p>
+          <p>Webhook events about this repository (pull requests, pushes, comments) appear here with what OpenReview did about them.</p>
         </EmptyState>
       )}
     </div>

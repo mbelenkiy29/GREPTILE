@@ -176,6 +176,8 @@ export function WorkspaceStep({
 
 export interface InstallationSummary {
   id: number;
+  /** `github`, `gitlab`, or `bitbucket` (R3.6). */
+  provider?: string;
   externalId: number;
   accountLogin: string;
   status: "ok" | "missing_permissions" | "suspended";
@@ -203,8 +205,8 @@ export function InstallStep({
   return (
     <div className="stack" data-step-panel="install">
       <p className="dim">
-        OpenReview reads code and posts reviews through a GitHub App. Install it on your GitHub account or organization and choose which
-        repositories it can see.
+        OpenReview reads code and posts reviews on your git host: install the GitHub App on a GitHub account or organization, or connect
+        GitLab or Bitbucket Cloud with an access token.
       </p>
       {message && <Alert tone="info">{message}</Alert>}
       {!canManage && <AdminOnly step="install" role={role} />}
@@ -215,7 +217,7 @@ export function InstallStep({
             {installations.map((i) => (
               <li key={i.id} className="comment" data-installation={i.externalId} data-status={i.status}>
                 <div className="row">
-                  <Icon name="github" size={16} />
+                  <Icon name={i.provider === "gitlab" ? "gitlab" : i.provider === "bitbucket" ? "bitbucket" : "github"} size={16} />
                   <span className="strong">{i.accountLogin}</span>
                   <span className="spacer" />
                   <Badge tone={i.status === "ok" ? "ok" : i.status === "suspended" ? "bad" : "warn"}>
@@ -234,9 +236,13 @@ export function InstallStep({
                   </p>
                 )}
                 {i.status === "suspended" && <p className="error-text">This installation is suspended on GitHub, so nothing is reviewed until it&apos;s unsuspended.</p>}
-                <a href={i.manageUrl} target="_blank" rel="noreferrer">
-                  Manage on GitHub <Icon name="external" size={12} />
-                </a>
+                {(i.provider ?? "github") === "github" ? (
+                  <a href={i.manageUrl} target="_blank" rel="noreferrer">
+                    Manage on GitHub <Icon name="external" size={12} />
+                  </a>
+                ) : (
+                  <Link href={i.manageUrl}>Choose repositories</Link>
+                )}
               </li>
             ))}
           </ul>
@@ -246,6 +252,12 @@ export function InstallStep({
         <div className="row">
           <ButtonLink href="/api/github/install?from=onboarding" variant={connected ? "default" : "primary"} icon="github">
             {connected ? "Install on another account" : "Install the GitHub App"}
+          </ButtonLink>
+          <ButtonLink href="/dashboard/settings/git-providers" icon="gitlab">
+            Connect GitLab
+          </ButtonLink>
+          <ButtonLink href="/dashboard/settings/git-providers" icon="bitbucket">
+            Connect Bitbucket
           </ButtonLink>
         </div>
       )}
@@ -304,7 +316,20 @@ export interface RepoGroup {
   repos: { id: number; fullName: string; enabled: boolean; archived: boolean; private: boolean }[];
 }
 
-export function RepoSelectStep({ canManage, role, groups, action }: { canManage: boolean; role: Role; groups: RepoGroup[]; action: Action }) {
+export function RepoSelectStep({
+  canManage,
+  role,
+  groups,
+  action,
+  otherHosts = 0,
+}: {
+  canManage: boolean;
+  role: Role;
+  groups: RepoGroup[];
+  action: Action;
+  /** Connected GitLab / Bitbucket hosts, whose repositories are chosen on Settings → Git providers. */
+  otherHosts?: number;
+}) {
   const total = groups.reduce((n, g) => n + g.repos.length, 0);
   return (
     <div className="stack" data-step-panel="repos">
@@ -316,6 +341,12 @@ export function RepoSelectStep({ canManage, role, groups, action }: { canManage:
           up here within a minute.
         </p>
       </Alert>
+      {otherHosts > 0 && (
+        <p className="dim">
+          GitLab and Bitbucket repositories are enabled on <Link href="/dashboard/settings/git-providers">Settings → Git providers</Link>, which also
+          creates their webhooks.
+        </p>
+      )}
       {total === 0 ? (
         <EmptyState icon="repo" title="No repositories yet" headingLevel={3} actions={<StepNav back="install" />}>
           <p>The installation doesn&apos;t include any repositories. Add some on GitHub, then reload this page.</p>
