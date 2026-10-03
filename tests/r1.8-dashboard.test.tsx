@@ -3,8 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ReposTable } from "@/components/dashboard/ReposTable";
 import { ReviewDetailView } from "@/components/dashboard/ReviewDetailView";
 import { ReviewsTable } from "@/components/dashboard/ReviewsTable";
-import { completeInstallation, listRepos } from "@/lib/data/installations";
-import { getReviewDetail, listReviews } from "@/lib/data/reviews";
+import { completeInstallation } from "@/lib/data/installations";
+import { listRepoOverview } from "@/lib/data/repos";
+import { getReviewDetail, listReviewPage, listReviews } from "@/lib/data/reviews";
 import { repos } from "@/lib/db/schema";
 import { creditsFor } from "@/lib/engine";
 import { runReviewJob } from "@/lib/review/run";
@@ -36,17 +37,18 @@ describe("dashboard", () => {
   test("R1.8 repos list shows each repository's index status", async () => {
     fx = await reviewedFixture();
     await fx.db.insert(repos).values({ orgId: "org_a", installationId: fx.repo.installationId, externalId: 3, fullName: "acme/broken", indexStatus: "failed", indexError: "clone failed: 404" });
-    const rows = await listRepos(fx.db, "org_a");
+    const rows = (await listRepoOverview(fx.db, "org_a")).items;
     expect(rows.map((r) => [r.fullName, r.indexStatus])).toEqual([
       ["acme/broken", "failed"],
       ["acme/shop", "ready"],
     ]);
+    expect(rows[1]).toMatchObject({ fileCount: 5, symbolCount: 5, openFindings: 1 });
+    expect((await listRepoOverview(fx.db, "org_b")).items.map((r) => r.fullName)).toEqual(["globex/core"]);
     const html = renderToStaticMarkup(<ReposTable repos={rows} />);
     expect(html).toContain('data-repo="acme/shop"');
-    expect(html).toMatch(/acme\/shop.*badge badge-ok">ready<.*<td class="num">5<\/td><td class="num">5<\/td>/s);
-    expect(html).toContain('badge badge-bad">failed</span><div class="error-text">clone failed: 404</div>');
+    expect(html).toMatch(/data-repo="acme\/shop".*data-index-status="ready"><span class="badge badge-ok badge-dot" data-status="ready">Ready<\/span>/s);
+    expect(html).toMatch(/data-status="failed">Failed<\/span><div class="error-text break">clone failed: 404<\/div>/);
     expect(html).toContain(fx.base.slice(0, 7));
-    expect(renderToStaticMarkup(<ReposTable repos={[]} />)).toContain("Connect GitHub");
   });
 
   test("R1.8 reviews list shows PR, status, comment count, and credits used for the org only", async () => {
@@ -56,13 +58,16 @@ describe("dashboard", () => {
     expect(list[0]).toMatchObject({ repoFullName: "acme/shop", prNumber: 7, prTitle: "Add tax to totals", prAuthor: "dev", status: "completed", riskLevel: "high", commentCount: 1, creditsUsed: CREDITS });
     expect(await listReviews(fx.db, "org_b")).toEqual([]);
 
-    const html = renderToStaticMarkup(<ReviewsTable reviews={list} />);
+    const page = await listReviewPage(fx.db, "org_a");
+    expect(page.items[0]).toMatchObject({ prNumber: 7, commentCount: 1, creditsUsed: CREDITS, findings: 1, highestSeverity: "high" });
+    const html = renderToStaticMarkup(<ReviewsTable reviews={page.items} />);
     expect(html).toContain(`href="/dashboard/reviews/${list[0]!.id}"`);
     expect(html).toContain("acme/shop#7");
     expect(html).toContain("Add tax to totals");
     expect(html).toContain('href="https://github.com/acme/shop/pull/7"');
-    expect(html).toContain('badge badge-ok">completed<');
-    expect(html).toContain(`<td class="num">1</td><td class="num">${CREDITS}</td>`);
+    expect(html).toContain('data-status="completed">Completed<');
+    expect(html).toContain('data-col="comments">1 comment<');
+    expect(html).toContain(`data-col="credits">${CREDITS} credit${CREDITS === 1 ? "" : "s"}<`);
   });
 
   test("R1.8 review detail shows the outcome, usage, and every inline comment; other orgs get nothing", async () => {
@@ -77,10 +82,11 @@ describe("dashboard", () => {
     const html = renderToStaticMarkup(<ReviewDetailView review={detail} />);
     expect(html).toContain("Confidence 2/5");
     expect(html).toContain("<li>Adds tax</li><li>Adds region parameter</li>");
-    expect(html).toContain("Inline comments (1)");
+    expect(html).toContain("Findings (1)");
     expect(html).toContain(`href="https://github.com/acme/shop/blob/${fx.head}/services/billing/pricing.ts#L3"`);
     expect(html).toContain("Two callers pass one argument.");
     expect(html).toContain(`<dt>Credits used</dt><dd>${CREDITS}</dd>`);
+    expect(html).toMatch(/data-state="ok" data-step="completed"/);
 
   });
 });

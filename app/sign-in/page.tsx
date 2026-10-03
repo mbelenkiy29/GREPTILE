@@ -3,9 +3,12 @@ import { getSession } from "@/lib/auth";
 import { authConfig, devLoginAllowed } from "@/lib/auth/config";
 import { signInErrorMessage } from "@/lib/auth/messages";
 import { safeNextPath } from "@/lib/auth/redirect";
+import { Brand } from "@/components/shell/Brand";
+import { Alert } from "@/components/ui/Alert";
+import { Icon } from "@/components/ui/icons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sign in · OpenReview" };
+export const metadata = { title: "Sign in" };
 
 type Params = Record<string, string | string[] | undefined>;
 
@@ -24,27 +27,25 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const startUrl = `/api/auth/github?${new URLSearchParams({ next }).toString()}`;
 
   return (
-    <main className="shell auth-page">
+    <main className="auth-page">
       <div className="auth-card">
-        <div className="stack-sm">
-          <span className="brand">OpenReview</span>
-          <h1>Sign in</h1>
-          <p className="dim">Use your GitHub account. We only read your profile, your verified email, and which App installations you can access.</p>
+        <div className="stack-md">
+          <Brand href="/" />
+          <div className="stack-sm">
+            <h1>Sign in</h1>
+            <p className="dim">Use your GitHub account. We only read your profile, your verified email, and which App installations you can access.</p>
+          </div>
         </div>
-        {error && (
-          <p className="notice notice-bad" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <Alert tone="error">{error}</Alert>}
         {githubReady ? (
-          <a className="button button-primary button-block" href={startUrl}>
+          <a className="button button-primary button-block button-lg" href={startUrl}>
+            <Icon name="github" size={18} />
             Continue with GitHub
           </a>
         ) : (
-          <p className="notice">
-            GitHub sign-in isn&apos;t configured yet. Set <code>GITHUB_APP_CLIENT_ID</code> and <code>GITHUB_APP_CLIENT_SECRET</code> to
-            the GitHub App&apos;s OAuth credentials.
-          </p>
+          <Alert tone="info" title="GitHub sign-in isn't configured yet">
+            Set <code>GITHUB_APP_CLIENT_ID</code> and <code>GITHUB_APP_CLIENT_SECRET</code> to the GitHub App&apos;s OAuth credentials.
+          </Alert>
         )}
         {devLogin && (
           <form method="post" action="/api/auth/dev" className="stack-sm">

@@ -4,6 +4,8 @@ import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { listLearnedPatterns } from "@/lib/learning";
 import { editPattern, removePattern } from "./actions";
+import { RulesNav } from "@/components/dashboard/RulesNav";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 export default async function LearnedPage() {
   const { orgId, role } = await requireOrg();
@@ -11,10 +13,9 @@ export default async function LearnedPage() {
   const rows = await listLearnedPatterns(db(), orgId);
   const items = rows.map((r) => ({ ...r.pattern, repoFullName: r.repoFullName }));
   return (
-    <div className="stack">
-      <div className="page-head">
-        <h1>Learned</h1>
-      </div>
+    <>
+      <PageHeader title="Learned" />
+      <RulesNav current="learned" />
       <p className="dim">
         Conventions inferred from reactions and replies on OpenReview comments. Suppressed patterns are no longer
         reported; prioritized ones rank higher. Edit a description to generalize it, or change the signal to override
@@ -46,6 +47,6 @@ export default async function LearnedPage() {
             : undefined
         }
       />
-    </div>
+    </>
   );
 }

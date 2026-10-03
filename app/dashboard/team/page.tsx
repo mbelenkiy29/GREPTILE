@@ -7,8 +7,14 @@ import { listMembers, listOrgInvitations } from "@/lib/data/members";
 import { ORG_ERROR_MESSAGES, orgErrorCode } from "@/lib/data/orgs";
 import { changeRole, inviteMember, leaveCurrentOrg, removeFromOrg, revokeInvite } from "./actions";
 import { InviteForm } from "./InviteForm";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SubmitButton } from "@/components/ui/SubmitButton";
+import { Table } from "@/components/ui/Table";
 
-export const metadata = { title: "Team · OpenReview" };
+export const metadata = { title: "Team" };
 
 /** Roles `actor` may move a member with role `from` to (always including the current role). */
 function roleOptions(actor: Role, from: Role): Role[] {
@@ -30,21 +36,11 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
   const ownWorkspace = members.some((m) => m.userId === ctx.userId && m.workspaceCreator);
 
   return (
-    <div className="stack">
-      <div className="page-head">
-        <h1>Team</h1>
-        <span className="dim">
-          {members.length} member{members.length === 1 ? "" : "s"} in {ctx.orgName}
-        </span>
-      </div>
-      {errorText && (
-        <p className="notice notice-bad" role="alert">
-          {errorText}
-        </p>
-      )}
+    <>
+      <PageHeader title="Team" description={`${members.length} member${members.length === 1 ? "" : "s"} in ${ctx.orgName}. Roles decide who can change repositories, rules, and settings.`} />
+      {errorText && <Alert tone="error">{errorText}</Alert>}
 
-      <div className="table-wrap">
-        <table className="table">
+      <Table caption="Members">
           <thead>
             <tr>
               <th scope="col">Member</th>
@@ -80,31 +76,29 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
                   </td>
                   <td>
                     {options.length > 1 ? (
-                      <form action={changeRole} className="row">
+                      <form action={changeRole} className="inline-form">
                         <input type="hidden" name="userId" value={m.userId} />
-                        <select name="role" defaultValue={m.role} aria-label={`Role for ${m.name}`}>
+                        <select name="role" className="select" style={{ width: "auto", minHeight: 30, padding: "3px 8px" }} defaultValue={m.role} aria-label={`Role for ${m.name}`}>
                           {options.map((r) => (
                             <option key={r} value={r}>
                               {ROLE_LABEL[r]}
                             </option>
                           ))}
                         </select>
-                        <button className="button" type="submit">
-                          Save
-                        </button>
+                        <SubmitButton size="sm">Save</SubmitButton>
                       </form>
                     ) : (
-                      <span className="badge badge-muted">{ROLE_LABEL[m.role]}</span>
+                      <Badge>{ROLE_LABEL[m.role]}</Badge>
                     )}
                   </td>
                   <td>{formatDate(m.joinedAt)}</td>
-                  <td className="actions">
+                  <td>
                     {removable && (
-                      <form action={removeFromOrg}>
+                      <form action={removeFromOrg} className="actions">
                         <input type="hidden" name="userId" value={m.userId} />
-                        <button className="button" type="submit">
+                        <SubmitButton size="sm" variant="danger">
                           Remove
-                        </button>
+                        </SubmitButton>
                       </form>
                     )}
                   </td>
@@ -112,16 +106,14 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
               );
             })}
           </tbody>
-        </table>
-      </div>
+      </Table>
 
       {canInvite && (
         <section className="stack-sm" aria-labelledby="invite-heading">
           <h2 id="invite-heading">Invite people</h2>
           <InviteForm action={inviteMember} />
           {invitations.length > 0 && (
-            <div className="table-wrap">
-              <table className="table">
+            <Table caption="Pending invitations">
                 <thead>
                   <tr>
                     <th scope="col">Pending invitation</th>
@@ -140,25 +132,23 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
                       <td>{ROLE_LABEL[inv.role]}</td>
                       <td>{inv.invitedByName ?? "—"}</td>
                       <td>{formatDate(inv.expiresAt)}</td>
-                      <td className="actions">
-                        <form action={revokeInvite}>
+                      <td>
+                        <form action={revokeInvite} className="actions">
                           <input type="hidden" name="invitationId" value={inv.id} />
-                          <button className="button" type="submit">
+                          <SubmitButton size="sm" variant="danger">
                             Revoke
-                          </button>
+                          </SubmitButton>
                         </form>
                       </td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+            </Table>
           )}
         </section>
       )}
 
-      <section className="stack-sm" aria-labelledby="leave-heading">
-        <h2 id="leave-heading">Leave {ctx.orgName}</h2>
+      <Card title={`Leave ${ctx.orgName}`} titleId="leave-heading">
         {ownWorkspace ? (
           <p className="dim">This is your personal workspace. It stays yours, so you can&apos;t leave it.</p>
         ) : lastOwner ? (
@@ -166,12 +156,10 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
         ) : (
           <form action={leaveCurrentOrg} className="row">
             <span className="dim">You&apos;ll lose access until someone invites you again.</span>
-            <button className="button" type="submit">
-              Leave organization
-            </button>
+            <SubmitButton variant="danger">Leave organization</SubmitButton>
           </form>
         )}
-      </section>
-    </div>
+      </Card>
+    </>
   );
 }
