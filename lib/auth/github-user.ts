@@ -4,6 +4,7 @@ import { decryptSecret } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
 import { authAccounts } from "@/lib/db/schema";
 import { errorMessage, log } from "@/lib/log";
+import { outboundFetch } from "@/lib/net/fetch";
 
 /**
  * GitHub user-to-server helpers (R6.1, R1.1): the OAuth code exchange, the signed-in user's profile, and the
@@ -38,7 +39,7 @@ function apiBase(deps: GitHubUserDeps) {
 }
 
 async function userGet(token: string, url: string, deps: GitHubUserDeps): Promise<Response> {
-  const res = await (deps.fetch ?? fetch)(url, {
+  const res = await (deps.fetch ?? outboundFetch)(url, {
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${token}`,
@@ -71,7 +72,7 @@ export async function exchangeOAuthCode(
 ): Promise<UserToken> {
   let res: Response;
   try {
-    res = await (deps.fetch ?? fetch)(`${deps.webUrl.replace(/\/$/, "")}/login/oauth/access_token`, {
+    res = await (deps.fetch ?? outboundFetch)(`${deps.webUrl.replace(/\/$/, "")}/login/oauth/access_token`, {
       method: "POST",
       headers: { accept: "application/json", "content-type": "application/json", "user-agent": "openreview" },
       body: JSON.stringify({

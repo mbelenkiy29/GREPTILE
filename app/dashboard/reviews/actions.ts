@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { db } from "@/lib/db";
 import { reviews } from "@/lib/db/schema";
 import { scoped } from "@/lib/data/tenant";
@@ -31,7 +32,9 @@ export async function rerunReview(formData: FormData) {
   if (!review) redirect(withToast("/dashboard/reviews", "review.not_found"));
   const modeRaw = String(formData.get("mode") ?? "");
   const mode = (REVIEW_MODES as readonly string[]).includes(modeRaw) ? (modeRaw as ReviewMode) : undefined;
-  await requestReview(
+  const focus = formData.get("focus") === "security" ? "security" : undefined;
+  const full = formData.get("full") === "true";
+  const requested = await requestReview(
     { db: db(), queue: bullQueue },
     {
       orgId,
@@ -39,10 +42,19 @@ export async function rerunReview(formData: FormData) {
       prNumber: review.prNumber,
       trigger: "manual",
       ...(mode ? { mode } : {}),
-      ...(formData.get("focus") === "security" ? { focus: "security" as const } : {}),
-      full: formData.get("full") === "true",
+      ...(focus ? { focus } : {}),
+      full,
       requestedBy: userId,
       meta: { requestedBy: userId },
+    },
+  );
+  await auditDashboard(
+    { orgId, userId },
+    {
+      action: "review.requested",
+      targetType: "review_run",
+      targetId: requested.runId,
+      metadata: { repositoryId: review.repoId, prNumber: review.prNumber, mode: mode ?? null, focus: focus ?? null, full, deduped: requested.deduped },
     },
   );
   revalidatePath(reviewPath(reviewId));
@@ -57,6 +69,9 @@ export async function cancelReviewRun(formData: FormData) {
   const back = Number.isSafeInteger(reviewId) ? reviewPath(reviewId) : "/dashboard/reviews";
   if (!Number.isSafeInteger(runId)) redirect(withToast(back, "review.not_found"));
   const outcome = await cancelReview(db(), orgId, runId, userId);
+  if (outcome.status === "cancelled" || outcome.status === "cancel_requested") {
+    await auditDashboard({ orgId, userId }, { action: "review.cancelled", targetType: "review_run", targetId: runId, metadata: { outcome: outcome.status } });
+  }
   revalidatePath(back);
   const code =
     outcome.status === "cancelled"

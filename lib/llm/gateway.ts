@@ -10,7 +10,8 @@ import { OpenAiCompatibleProvider } from "./openai";
 import { estimateCost, pricingTable, type PricingTable } from "./pricing";
 import { recordSafely, type ModelCallRecorder, type ModelCallStatus } from "./recorder";
 import { defaultSleep, type BackoffOptions } from "./retry";
-import { providerTarget, resolveRoute, type OrgLlmOverride } from "./routing";
+import { createOutboundFetch } from "@/lib/net/fetch";
+import { providerTarget, resolveRoute, type OrgLlmOverride, type ProviderTarget } from "./routing";
 import {
   addUsage,
   LlmAbortError,
@@ -179,6 +180,17 @@ export class ModelGateway implements LlmProvider {
     await this.endpointCheck;
   }
 
+  /**
+   * HTTP transport for a provider: the injected fetch, or for an org's own endpoint an allowlist-checked fetch that
+   * also admits that endpoint's host (a configured per-org endpoint). Undefined lets providers use `outboundFetch`.
+   */
+  private transport(target: ProviderTarget): typeof fetch | undefined {
+    if (this.opts.fetch) return this.opts.fetch;
+    if (!target.fromOrg || target.matchesEnv) return undefined;
+    const host = target.baseURL ? new URL(target.baseURL).host : target.provider === "anthropic" ? "api.anthropic.com" : undefined;
+    return host ? createOutboundFetch({ allow: [host] }) : undefined;
+  }
+
   private providerFor(route: ResolvedRoute): LlmProvider {
     if (this.opts.provider) return this.opts.provider;
     const existing = this.providers.get(route.provider);
@@ -199,7 +211,7 @@ export class ModelGateway implements LlmProvider {
           orgScoped: target.fromOrg && (!target.matchesEnv || target.apiKey !== this.env.LLM_API_KEY),
           timeoutMs: this.env.LLM_TIMEOUT_MS,
           messages: this.opts.anthropic,
-          fetch: this.opts.fetch,
+          fetch: this.transport(target),
         });
         break;
       case "openai":
@@ -216,7 +228,7 @@ export class ModelGateway implements LlmProvider {
           baseURL: target.baseURL,
           apiKey: target.apiKey,
           appUrl: this.env.APP_URL,
-          fetch: this.opts.fetch,
+          fetch: this.transport(target),
         });
         break;
       case "fake":

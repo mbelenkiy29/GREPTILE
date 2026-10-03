@@ -1,3 +1,5 @@
+import { SSO_SIGN_IN_ERRORS } from "@/lib/sso/errors";
+
 /** Readable messages for `/sign-in?error=<code>` (R6.1). Unknown codes get a generic message. */
 export const SIGN_IN_ERRORS: Record<string, string> = {
   access_denied: "GitHub sign-in was cancelled. You can try again whenever you're ready.",
@@ -9,6 +11,7 @@ export const SIGN_IN_ERRORS: Record<string, string> = {
   github_not_configured:
     "GitHub sign-in isn't configured on this server. An administrator needs to set GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET.",
   server_error: "Something went wrong while signing you in. Please try again.",
+  ...SSO_SIGN_IN_ERRORS,
 };
 
 /**

@@ -15,6 +15,8 @@ export interface JobDeps {
   host: GitHost;
   queue: JobQueue;
   llm: LlmProvider;
+  /** The model gateway for an org (`gatewayForOrg`); when set, it replaces `llm` for each job's org (R4.6). */
+  llmForOrg?: (orgId: string) => Promise<LlmProvider>;
   embedder: EmbeddingProvider;
   cacheDir: string;
   botMention: string;
@@ -48,10 +50,16 @@ export const handlers: Handlers = {
   "refresh-knowledge": (deps, data) => refreshKnowledge(deps, data),
 };
 
-export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta) {
+/**
+ * Runs one job. With `deps.llmForOrg`, the job's model calls use its org's gateway (R4.6 bring-your-own model):
+ * every job payload carries the `orgId` it acts for.
+ */
+export async function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta): Promise<unknown> {
   const handler = handlers[name] as (deps: JobDeps, data: JobPayloads[N], meta?: RunMeta) => Promise<unknown>;
   if (!handler) throw new Error(`unknown job ${name}`);
-  return handler(deps, data, meta);
+  const orgId = (data as { orgId?: unknown }).orgId;
+  const orgDeps = deps.llmForOrg && typeof orgId === "string" ? { ...deps, llm: await deps.llmForOrg(orgId) } : deps;
+  return handler(orgDeps, data, meta);
 }
 
 /**

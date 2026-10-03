@@ -38,7 +38,8 @@ export type OrgErrorCode =
   | "invalid_slug"
   | "slug_taken"
   | "confirm_mismatch"
-  | "personal_delete";
+  | "personal_delete"
+  | "rate_limited";
 
 export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   forbidden: "You don't have permission to do that.",
@@ -59,6 +60,7 @@ export const ORG_ERROR_MESSAGES: Record<OrgErrorCode, string> = {
   slug_taken: "Another organization already uses that slug.",
   confirm_mismatch: "Type the organization's slug exactly to confirm.",
   personal_delete: "A personal workspace can't be deleted. Remove its repositories instead, or create another organization.",
+  rate_limited: "Too many attempts. Wait a minute and try again.",
 };
 
 /** The error code named by an untrusted value (e.g. `?error=` in a URL), or null. Only own keys match, never `constructor`. */

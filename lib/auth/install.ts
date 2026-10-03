@@ -9,7 +9,7 @@ import { clearUserGitHubToken, getUserGitHubToken, GitHubUserTokenError, userCan
 import { pathWithQuery, redirectTo } from "./http";
 import { can } from "./permissions";
 import { signInPath } from "./redirect";
-import { resolveOrgContext, type OrgContext } from "./request";
+import { resolveOrgContext, ssoStartPath, type OrgContext } from "./request";
 import { sessionFromRequest } from "./sessions";
 
 /**
@@ -39,6 +39,7 @@ async function requireRepoManager(deps: Pick<InstallDeps, "db" | "config">, req:
   const res = await resolveOrgContext(db, await sessionFromRequest(db, req, { now, ttlDays: config.sessionTtlDays }));
   if (res.status === "signed_out") return { ok: false, response: redirectTo(appUrl(config, signInPath(pathWithQuery(req)))) };
   if (res.status === "no_org") return { ok: false, response: redirectTo(appUrl(config, "/orgs")) };
+  if (res.status === "sso_required") return { ok: false, response: redirectTo(appUrl(config, ssoStartPath(res.connectionId, pathWithQuery(req)))) };
   if (!can(res.ctx.role, "repos.manage")) {
     return { ok: false, response: redirectTo(appUrl(config, "/dashboard/repos?install=forbidden")) };
   }

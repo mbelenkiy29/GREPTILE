@@ -856,6 +856,11 @@ export const sessions = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     ip: text("ip"),
     userAgent: text("user_agent"),
+    /**
+     * Orgs this session signed in to through the org's SSO connection (R4.6). An org whose connection enforces SSO
+     * is only usable from a session that lists it here.
+     */
+    ssoOrgIds: text("sso_org_ids").array().notNull().default([]),
   },
   (t) => [index().on(t.userId), index().on(t.expiresAt)],
 );
@@ -1464,3 +1469,82 @@ export const auditLog = pgTable(
   },
   (t) => [index().on(t.orgId, t.createdAt)],
 );
+
+// ---- enterprise ----
+
+export const ssoProtocol = pgEnum("sso_protocol", ["oidc", "saml"]);
+
+/**
+ * An org's single sign-on connection (R4.6). OIDC: `issuer` is the issuer URL (discovery at
+ * `<issuer>/.well-known/openid-configuration`), with `clientId` and the encrypted `clientSecretEnc`. SAML: `issuer` is
+ * the IdP entity id, `samlSsoUrl` its SSO (HTTP-Redirect) endpoint, and `samlCertificates` its signing certificates
+ * (PEM). Sign-in is limited to emails in `allowedDomains`; new members join with `defaultRole`. With `enforce`,
+ * members must have signed in through this connection to use the org.
+ */
+export const ssoConnections = pgTable(
+  "sso_connections",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    protocol: ssoProtocol("protocol").notNull(),
+    name: text("name").notNull(),
+    issuer: text("issuer").notNull(),
+    clientId: text("client_id"),
+    clientSecretEnc: text("client_secret_enc"),
+    samlSsoUrl: text("saml_sso_url"),
+    samlCertificates: text("saml_certificates").array().notNull().default([]),
+    allowedDomains: text("allowed_domains").array().notNull().default([]),
+    defaultRole: inviteRole("default_role").notNull().default("member"),
+    enforce: boolean("enforce").notNull().default(false),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.orgId)],
+);
+
+/**
+ * Outstanding SAML authentication requests (R4.6), so the ACS endpoint can check `InResponseTo` from any web
+ * process. Rows are single-use and expire after a few minutes.
+ */
+export const ssoSamlRequests = pgTable(
+  "sso_saml_requests",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    connectionId: text("connection_id")
+      .notNull()
+      .references(() => ssoConnections.id, { onDelete: "cascade" }),
+    /** Where to go after signing in (a validated same-origin path). */
+    next: text("next").notNull().default("/dashboard"),
+    /** The user who was signed in when the request started: the SAML identity is linked to them. */
+    linkUserId: text("link_user_id").references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index().on(t.expiresAt)],
+);
+
+export const orgLlmProvider = pgEnum("org_llm_provider", ["anthropic", "openai", "openrouter", "openai-compatible"]);
+
+/**
+ * An org's own model provider (R4.6, bring-your-own LLM): model calls made for the org run against it. The API key is
+ * encrypted (lib/crypto); `taskModels` maps a task (review, verify, summary, ...) to a model.
+ */
+export const orgLlmSettings = pgTable("org_llm_settings", {
+  orgId: text("org_id")
+    .primaryKey()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  provider: orgLlmProvider("provider").notNull(),
+  baseUrl: text("base_url"),
+  apiKeyEnc: text("api_key_enc"),
+  model: text("model"),
+  taskModels: jsonb("task_models").$type<Record<string, string>>().notNull().default({}),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});

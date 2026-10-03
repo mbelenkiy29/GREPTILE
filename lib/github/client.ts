@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createAppJwt, normalizePem } from "./app";
 import { log as rootLog, type Logger } from "@/lib/log";
+import { outboundFetch } from "@/lib/net/fetch";
 import type {
   ChangedFile,
   CheckRun,
@@ -192,7 +193,7 @@ export class GitHubHost implements GitHost {
   constructor(private readonly config: GitHubAppConfig) {
     this.apiUrl = (config.apiUrl ?? "https://api.github.com").replace(/\/+$/, "");
     this.webUrl = (config.webUrl ?? "https://github.com").replace(/\/+$/, "");
-    this.fetchImpl = config.fetch ?? fetch;
+    this.fetchImpl = config.fetch ?? outboundFetch;
     this.sleep = config.sleep ?? defaultSleep;
     this.now = config.now ?? Date.now;
     this.log = config.log ?? rootLog.child({ component: "github" });

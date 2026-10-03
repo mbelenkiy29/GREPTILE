@@ -30,6 +30,8 @@ export interface ActiveSession {
   id: string;
   userId: string;
   activeOrgId: string | null;
+  /** Orgs this session signed in to through the org's SSO connection (R4.6). */
+  ssoOrgIds: string[];
   expiresAt: Date;
   user: SessionUser;
   /** Whether this lookup extended the session (lastSeenAt/expiresAt were written). */
@@ -53,7 +55,7 @@ export async function pruneExpiredSessions(db: Db, now: Date, limit: number = SE
 /** Issues a new session and returns the raw token for the cookie. Prunes expired sessions first. */
 export async function createSession(
   db: Db,
-  input: { userId: string; activeOrgId: string | null; ip?: string | null; userAgent?: string | null } & SessionClock,
+  input: { userId: string; activeOrgId: string | null; ip?: string | null; userAgent?: string | null; ssoOrgIds?: string[] } & SessionClock,
 ): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = randomToken(32);
   const id = hashToken(token);
@@ -68,6 +70,7 @@ export async function createSession(
     expiresAt,
     ip: input.ip?.slice(0, 64) ?? null,
     userAgent: input.userAgent?.slice(0, 512) ?? null,
+    ssoOrgIds: input.ssoOrgIds ?? [],
   });
   return { token, id, expiresAt };
 }
@@ -100,7 +103,7 @@ export async function validateSessionToken(db: Db, token: string | undefined | n
     await db.update(sessions).set({ lastSeenAt: clock.now, expiresAt }).where(eq(sessions.id, id));
     renewed = true;
   }
-  return { id, userId: row.session.userId, activeOrgId: row.session.activeOrgId, expiresAt, user: row.user, renewed };
+  return { id, userId: row.session.userId, activeOrgId: row.session.activeOrgId, ssoOrgIds: row.session.ssoOrgIds, expiresAt, user: row.user, renewed };
 }
 
 /** The session carried by a request's cookie, for route handlers. */

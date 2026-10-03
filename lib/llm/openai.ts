@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { outboundFetch } from "@/lib/net/fetch";
 import { estimateTokens } from "./budget";
 import { httpError } from "./retry";
 import {
@@ -37,7 +38,7 @@ interface HttpConfig {
 async function post(cfg: HttpConfig, path: string, body: unknown, signal: AbortSignal | undefined, what: string): Promise<unknown> {
   let res: Response;
   try {
-    res = await (cfg.fetch ?? fetch)(`${cfg.baseURL.replace(/\/+$/, "")}${path}`, {
+    res = await (cfg.fetch ?? outboundFetch)(`${cfg.baseURL.replace(/\/+$/, "")}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",

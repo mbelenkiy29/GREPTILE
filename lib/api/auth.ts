@@ -105,6 +105,7 @@ export async function authenticateRequest(deps: AuthDeps, req: Request): Promise
   const resolution = await resolveOrgContext(deps.db, session);
   if (resolution.status === "signed_out") throw unauthorized("Authentication required: send an API key as `Authorization: Bearer <key>`.");
   if (resolution.status === "no_org") throw new ApiError(403, "forbidden", "Choose an organization in the dashboard first.");
+  if (resolution.status === "sso_required") throw new ApiError(403, "forbidden", "This organization requires single sign-on. Sign in through SSO in the dashboard first.");
   if (!["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase()) && !isSameOrigin(req, deps.appUrl)) {
     throw new ApiError(403, "csrf_failed", "Cross-origin request refused. Use an API key for programmatic access.");
   }

@@ -7,6 +7,7 @@ import { setActiveOrg } from "@/lib/auth/sessions";
 import { db } from "@/lib/db";
 import { acceptInvitation } from "@/lib/data/members";
 import { OrgError, type OrgErrorCode } from "@/lib/data/orgs";
+import { checkRateLimit } from "@/lib/security/rate-limit";
 
 /**
  * Accepts an invitation link (R6.1). Needs a signed-in user, not an org role: the data layer checks the token hash,
@@ -15,6 +16,8 @@ import { OrgError, type OrgErrorCode } from "@/lib/data/orgs";
 export async function acceptInviteAction(formData: FormData) {
   const session = await requireUser();
   const token = String(formData.get("token") ?? "");
+  // Invitation acceptance is rate limited per user (R6.20).
+  if (await checkRateLimit("invite.accept", session.userId)) redirect(`/invite/${encodeURIComponent(token)}?error=rate_limited`);
   let result: { orgId: string } | { error: OrgErrorCode };
   try {
     result = await acceptInvitation(db(), {

@@ -6,7 +6,7 @@ import { authEnv } from "@/lib/env";
 import { PATH_HEADER, SESSION_COOKIE } from "@/lib/auth/cookies";
 import { can, type Action } from "@/lib/auth/permissions";
 import { signInPath } from "@/lib/auth/redirect";
-import { authorizeRequest, resolveOrgContext, type OrgContext } from "@/lib/auth/request";
+import { authorizeRequest, resolveOrgContext, ssoStartPath, type OrgContext } from "@/lib/auth/request";
 import { validateSessionToken, type ActiveSession } from "@/lib/auth/sessions";
 
 /**
@@ -34,6 +34,11 @@ async function signInRedirect(): Promise<never> {
   redirect(signInPath((await headers()).get(PATH_HEADER)));
 }
 
+/** The active org enforces SSO (R4.6): sign in through its connection, then come back to this page. */
+async function ssoRedirect(connectionId: string): Promise<never> {
+  redirect(ssoStartPath(connectionId, (await headers()).get(PATH_HEADER)));
+}
+
 /** The signed-in user's session; redirects to `/sign-in?next=` when signed out. */
 export async function requireUser(): Promise<ActiveSession> {
   const session = await getSession();
@@ -49,6 +54,7 @@ export async function requireOrg(opts: { permission?: Action } = {}): Promise<Or
   const res = await getOrgResolution();
   if (res.status === "signed_out") return signInRedirect();
   if (res.status === "no_org") redirect("/orgs");
+  if (res.status === "sso_required") return ssoRedirect(res.connectionId);
   if (opts.permission && !can(res.ctx.role, opts.permission)) forbidden();
   return res.ctx;
 }
@@ -61,6 +67,7 @@ export async function requireUserOrg(): Promise<{ session: ActiveSession; ctx: O
   const res = await getOrgResolution();
   if (res.status === "signed_out") return signInRedirect();
   if (res.status === "no_org") return { session: res.session, ctx: null };
+  if (res.status === "sso_required") return ssoRedirect(res.connectionId);
   const session = await getSession();
   if (!session) return signInRedirect();
   return { session, ctx: res.ctx };

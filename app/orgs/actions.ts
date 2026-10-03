@@ -7,6 +7,7 @@ import { setActiveOrg } from "@/lib/auth/sessions";
 import { db } from "@/lib/db";
 import { acceptInvitationById } from "@/lib/data/members";
 import { createOrg, OrgError, type OrgErrorCode } from "@/lib/data/orgs";
+import { checkRateLimit } from "@/lib/security/rate-limit";
 
 /*
  * Org selection (R6.1). These act on the signed-in user's own memberships rather than on an org's data, so they
@@ -46,6 +47,7 @@ export async function createOrgAction(formData: FormData) {
 /** Accepts an invitation addressed to the user's email or GitHub login and switches to that org. */
 export async function acceptListedInvitation(formData: FormData) {
   const session = await requireUser();
+  if (await checkRateLimit("invite.accept", session.userId)) redirect("/orgs?error=rate_limited");
   const result = await attempt(() =>
     acceptInvitationById(db(), {
       invitationId: Number(formData.get("invitationId")),

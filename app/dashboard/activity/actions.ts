@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { webhookGitHost } from "@/lib/git/host";
@@ -31,6 +32,7 @@ export async function replayDeliveryAction(formData: FormData) {
     deliveryId,
     { requestedBy: userId },
   );
+  await auditDashboard({ orgId, userId }, { action: "delivery.replayed", targetType: "webhook_delivery", targetId: deliveryId, metadata: { outcome: result.status } });
   revalidatePath("/dashboard/activity");
   const code =
     result.status === "not_found"
