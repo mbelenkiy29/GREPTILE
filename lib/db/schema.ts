@@ -1464,3 +1464,128 @@ export const auditLog = pgTable(
   },
   (t) => [index().on(t.orgId, t.createdAt)],
 );
+
+// ---- usage ----
+
+/**
+ * Usage caps and alerts (R4.3), one row per org (absent = no caps, default thresholds). `monthlyCreditCap` and
+ * `monthlyCostCapUsd` are hard caps for the usage period (null = none). `alertThresholds` are percentages of each
+ * limit; crossing one shows a dashboard banner and, when `alertWebhookUrl` is set, sends one signed POST per
+ * threshold per period. `alertWebhookSecret` is the HMAC signing secret, encrypted at rest (`lib/crypto.ts`).
+ */
+export const usageSettings = pgTable("usage_settings", {
+  orgId: text("org_id")
+    .primaryKey()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  monthlyCreditCap: integer("monthly_credit_cap"),
+  monthlyCostCapUsd: numeric("monthly_cost_cap_usd", { precision: 12, scale: 2, mode: "number" }),
+  alertThresholds: integer("alert_thresholds").array().notNull().default([50, 80, 100]),
+  alertWebhookUrl: text("alert_webhook_url"),
+  alertWebhookSecret: text("alert_webhook_secret"),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * Usage alerts that fired (R4.3): at most one per (org, period, metric, threshold), which makes the alert webhook
+ * fire once per threshold per period. `deliveredAt` / `error` record the webhook outcome (both null without one).
+ */
+export const usageAlerts = pgTable(
+  "usage_alerts",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    /** `credits` (credit cap), `cost` (cost cap), or `included` (the plan's included credits). */
+    metric: text("metric").notNull(),
+    threshold: integer("threshold").notNull(),
+    value: numeric("value", { precision: 14, scale: 4, mode: "number" }).notNull(),
+    limit: numeric("limit", { precision: 14, scale: 4, mode: "number" }).notNull(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("usage_alerts_once_uq").on(t.orgId, t.periodStart, t.metric, t.threshold), index().on(t.orgId, t.createdAt)],
+);
+
+/** One-time PR comments explaining that a review was skipped by a usage limit (R4.3, R4.2), per PR, reason, and period. */
+export const usageLimitNotices = pgTable(
+  "usage_limit_notices",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    /** `usage_cap` or `free_plan`. */
+    reason: text("reason").notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    commentId: bigint("comment_id", { mode: "number" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("usage_limit_notices_once_uq").on(t.orgId, t.repoId, t.prNumber, t.reason, t.periodStart)],
+);
+
+/**
+ * Stripe billing state per org (R4.2), mirrored from Stripe webhooks. Only used when Stripe is configured; without a
+ * row (or after the subscription ends) a billed org is on the free plan. `lastEventAt` is the creation time of the
+ * newest Stripe event applied, so an older event delivered late never overwrites newer state.
+ */
+export const billingAccounts = pgTable(
+  "billing_accounts",
+  {
+    orgId: text("org_id")
+      .primaryKey()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    /** Subscription item carrying the per-seat price (its quantity is the seat count). */
+    stripeSeatItemId: text("stripe_seat_item_id"),
+    /** `free` or `team` (see lib/billing/plans.ts). */
+    plan: text("plan").notNull().default("free"),
+    /** Stripe subscription status (`active`, `trialing`, `past_due`, `canceled`, ...) or `none`. */
+    status: text("status").notNull().default("none"),
+    seats: integer("seats").notNull().default(0),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAt: timestamp("cancel_at", { withTimezone: true }),
+    paymentFailedAt: timestamp("payment_failed_at", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("billing_accounts_customer_uq").on(t.stripeCustomerId)],
+);
+
+/** Processed Stripe webhook events (R4.2): the event id is the key, so a redelivered event is applied once. */
+export const billingEvents = pgTable(
+  "billing_events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").references(() => orgs.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    /** What processing decided (`applied`, `ignored: <why>`). */
+    outcome: text("outcome").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId, t.createdAt)],
+);
+
+/** Overage credits already reported to Stripe per billing period (R4.2), so hourly reporting sends only the delta. */
+export const billingUsageReports = pgTable(
+  "billing_usage_reports",
+  {
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    reportedCredits: integer("reported_credits").notNull().default(0),
+    updatedAt: updatedAt(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.periodStart] })],
+);

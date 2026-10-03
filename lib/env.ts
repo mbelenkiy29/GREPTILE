@@ -85,6 +85,28 @@ const apiShape = {
   API_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(100_000).default(120)),
 };
 
+/**
+ * Plans, usage limits, and optional Stripe billing (R4.2, R4.3); also parsed on their own by `billingEnv()`. Billing is
+ * on only when all four STRIPE_* variables are set; otherwise every org is on the unlimited self-hosted plan.
+ */
+const billingShape = {
+  STRIPE_SECRET_KEY: optional,
+  STRIPE_WEBHOOK_SECRET: optional,
+  /** Recurring per-seat price of the team plan. */
+  STRIPE_PRICE_TEAM_SEAT: optional,
+  /** Metered price (attached to a Stripe billing meter) for overage credits. */
+  STRIPE_PRICE_OVERAGE: optional,
+  /** Credits the free plan includes per billing period. */
+  FREE_MONTHLY_CREDITS: optionalNumber(z.number().int().min(0).default(50)),
+  /** Credits the team plan includes per seat per billing period; usage beyond is billed as overage. */
+  TEAM_INCLUDED_CREDITS_PER_SEAT: optionalNumber(z.number().int().min(0).default(200)),
+  /** Display prices (USD) shown on billing and pricing pages; keep them equal to the Stripe prices. */
+  TEAM_SEAT_PRICE_USD: optionalNumber(z.number().min(0).default(24)),
+  OVERAGE_CREDIT_PRICE_USD: optionalNumber(z.number().min(0).default(0.2)),
+  /** Let usage alert webhooks target http and private / loopback / link-local addresses (SSRF guard off). */
+  USAGE_ALERT_ALLOW_PRIVATE_URLS: flag,
+};
+
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
 const siteShape = {
   /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
@@ -133,6 +155,7 @@ const fields = z.object({
   ...pipelineShape,
   ...knowledgeShape,
   ...apiShape,
+  ...billingShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -239,4 +262,12 @@ export type ApiEnv = z.infer<typeof apiSchema>;
 /** REST API settings (R6.18); parsed on their own so the API does not require the GitHub App or LLM variables. */
 export function apiEnv(source: Record<string, string | undefined> = process.env): ApiEnv {
   return apiSchema.parse({ APP_URL: source.APP_URL || undefined, API_RATE_LIMIT_PER_MINUTE: source.API_RATE_LIMIT_PER_MINUTE });
+}
+
+const billingSchema = z.object({ APP_URL: z.string().url().default("http://localhost:3000"), ...billingShape });
+export type BillingEnv = z.infer<typeof billingSchema>;
+
+/** Plan, usage-limit, and Stripe settings (R4.2, R4.3); parsed on their own so billing needs no GitHub or LLM variables. */
+export function billingEnv(source: Record<string, string | undefined> = process.env): BillingEnv {
+  return billingSchema.parse({ ...source, APP_URL: source.APP_URL || undefined });
 }

@@ -58,6 +58,7 @@ const REVIEW_ERRORS: Record<string, string> = {
   not_found: "That repository isn't connected to this workspace.",
   disabled: "Reviews are turned off for that repository. Turn them on in the repository selection step.",
   forbidden: "You can't request reviews in this workspace.",
+  limited: "This workspace reached a usage cap or plan limit, so the review wasn't queued. See Settings → Usage & billing.",
 };
 
 /** The onboarding wizard (R6.2). It resumes at the first unfinished step; `?step=` revisits an earlier one. */

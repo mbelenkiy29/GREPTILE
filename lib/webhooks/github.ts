@@ -23,6 +23,7 @@ import type { GitHost } from "@/lib/git/types";
 import { enqueueIndexForNewRepos } from "@/lib/jobs/enqueue";
 import type { JobMeta, JobQueue, ReviewTrigger } from "@/lib/jobs/types";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
+import { postLimitNotice } from "@/lib/billing/notices";
 import { requestReview } from "@/lib/pipeline/request";
 import {
   envelopeSchema,
@@ -205,6 +206,7 @@ async function onPullRequest(deps: RouteDeps, payload: unknown, ctx: DeliveryCon
       prNumber: pr.number,
       headSha: pr.head.sha,
       trigger: p.action as Exclude<ReviewTrigger, "recovery">,
+      ...(pr.user?.login ? { author: pr.user.login } : {}),
       meta: ctx.meta,
       // `reviewDrafts: true` in openreview.json must be able to take effect: when the file could not be read, the
       // draft decision is left to the job (it reads the file and skips the run if drafts are not reviewed).
@@ -212,6 +214,16 @@ async function onPullRequest(deps: RouteDeps, payload: unknown, ctx: DeliveryCon
     },
   );
   if ("gated" in requested) return ignored(requested.reason);
+  if ("limited" in requested) {
+    // Over a usage cap or the free plan's limits (R4.3, R4.2): the run was recorded as skipped; tell the PR once.
+    await postLimitNotice(
+      db,
+      host.client(installation.externalId),
+      { orgId: repo.orgId, repoId: repo.id, repoFullName: repo.fullName, prNumber: pr.number, code: requested.code, reason: requested.reason, period: requested.period },
+      ctx.log,
+    );
+    return ignored(`${requested.code}: review run ${requested.runId} skipped`);
+  }
   return accepted([requested.jobId]);
 }
 

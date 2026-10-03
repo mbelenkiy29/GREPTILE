@@ -33,6 +33,7 @@ import { canRunCommands, stripAddress } from "@/lib/learning/commands";
 import { ignorePatternPreference } from "@/lib/learning/preferences";
 import type { EmbeddingProvider, LlmProvider, Usage } from "@/lib/llm";
 import { log as rootLog, type Logger } from "@/lib/log";
+import { checkUsageLimits, UsageLimitError, type LimitDeps } from "@/lib/billing/limits";
 import { requestReview } from "@/lib/pipeline/request";
 import { retrieveForQuestion } from "@/lib/retrieval";
 import { questionTerms } from "@/lib/retrieval/signals";
@@ -65,6 +66,8 @@ export interface ConversationDeps {
   /** Needed for re-review and security review requests. */
   queue?: JobQueue;
   log?: Logger;
+  /** Billing configuration and clock for usage limits (R4.3); default from the environment. */
+  limits?: LimitDeps;
 }
 
 export type MentionJob = JobPayloads["answer-mention"];
@@ -383,6 +386,25 @@ export async function answerMention(deps: ConversationDeps, job: MentionJob): Pr
 
   // The thread: review-thread replies attach to the thread's root comment; everything else to the PR.
   const threadRoot = sourceKind === "review_comment" ? (job.inReplyTo ?? job.commentId) : undefined;
+
+  // Usage caps (R4.3): over a cap, the reply explains why instead of calling the model.
+  const limit = await checkUsageLimits(db, job.orgId, { kind: "chat" }, deps.limits);
+  if (!limit.ok) {
+    const asked = stripAddress(job.body, deps.botMention) || "Summarize this pull request.";
+    const text = `I can't answer right now. ${limit.reason}`;
+    const limitedBody = `${quote(asked)}\n\n@${handle(job.author)} ${text}\n\n${MENTION_MARKER}`;
+    const reply =
+      threadRoot !== undefined
+        ? await client.replyToReviewComment(repoName, job.prNumber, threadRoot, limitedBody)
+        : await client.createIssueComment(repoName, job.prNumber, limitedBody);
+    await db
+      .insert(mentionReplies)
+      .values({ orgId: job.orgId, repoId: job.repoId, prNumber: job.prNumber, sourceCommentId: job.commentId, sourceKind, question: asked, answer: text, replyCommentId: reply.id })
+      .onConflictDoNothing();
+    log.info("mention not answered: usage limit reached", { code: limit.code });
+    return { status: "refused", replyCommentId: reply.id };
+  }
+
   const finding = threadRoot !== undefined ? await threadFinding(db, job, threadRoot) : null;
   const conversation = await getOrCreateConversation(db, {
     orgId: job.orgId,
@@ -478,19 +500,26 @@ async function requestRun(deps: ConversationDeps, job: MentionJob, intent: "rere
   if (!deps.queue) throw new Error("a job queue is required to request reviews");
   const pr = await client.getPullRequest(repoName, job.prNumber);
   if (pr.state !== "open") return `this pull request is ${pr.merged ? "merged" : "closed"}, so there is nothing to review.`;
-  const requested = await requestReview(
-    { db: deps.db, queue: deps.queue, log: deps.log },
-    {
-      orgId: job.orgId,
-      repoId: job.repoId,
-      prNumber: job.prNumber,
-      trigger: "mention",
-      mode: "standard",
-      ...(intent === "security_review" ? { focus: "security" as const } : {}),
-      requestedBy: `github:${job.author}`,
-      ...(job.meta ? { meta: job.meta } : {}),
-    },
-  );
+  let requested;
+  try {
+    requested = await requestReview(
+      { db: deps.db, queue: deps.queue, log: deps.log, ...(deps.limits ? { limits: deps.limits } : {}) },
+      {
+        orgId: job.orgId,
+        repoId: job.repoId,
+        prNumber: job.prNumber,
+        trigger: "mention",
+        mode: "standard",
+        ...(intent === "security_review" ? { focus: "security" as const } : {}),
+        requestedBy: `github:${job.author}`,
+        author: pr.author,
+        ...(job.meta ? { meta: job.meta } : {}),
+      },
+    );
+  } catch (err) {
+    if (err instanceof UsageLimitError) return `I couldn't start a review. ${err.message}`;
+    throw err;
+  }
   return intent === "security_review"
     ? `started a security-focused review of \`${pr.headSha.slice(0, 7)}\` (run #${requested.runId}). Findings will be posted on this pull request.`
     : `started a re-review of \`${pr.headSha.slice(0, 7)}\` (run #${requested.runId}). Findings will be posted on this pull request.`;

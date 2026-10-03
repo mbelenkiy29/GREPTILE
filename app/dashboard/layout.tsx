@@ -6,15 +6,27 @@ import { AppShell } from "@/components/shell/AppShell";
 import { ShellFooter } from "@/components/shell/ShellFooter";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { Toaster } from "@/components/ui/Toast";
+import { UsageBanners } from "@/components/usage/UsageBanners";
+import { usageBanners, usageStatus } from "@/lib/billing/alerts";
 import { requireOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { listUserOrgs } from "@/lib/data/orgs";
 import { siteEnv } from "@/lib/env";
+import { errorMessage, log } from "@/lib/log";
 import { parseTheme, THEME_COOKIE } from "@/lib/ui/theme";
 import { APP_VERSION } from "@/lib/version";
 import { switchOrg } from "../orgs/actions";
 
 export const dynamic = "force-dynamic";
+
+/** Usage alert banners across the dashboard (R4.3); a failure to compute them never breaks the page. */
+async function OrgUsageBanners({ orgId }: { orgId: string }) {
+  const banners = await usageStatus(db(), orgId).then(usageBanners, (err: unknown) => {
+    log.warn("usage banners unavailable", { orgId, error: errorMessage(err) });
+    return [];
+  });
+  return <UsageBanners banners={banners} />;
+}
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const ctx = await requireOrg();
@@ -35,6 +47,9 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       tools={<ThemeToggle initial={theme} />}
       footer={<ShellFooter sourceUrl={siteEnv().SOURCE_CODE_URL} version={APP_VERSION} />}
     >
+      <Suspense fallback={null}>
+        <OrgUsageBanners orgId={ctx.orgId} />
+      </Suspense>
       {children}
       <Suspense fallback={null}>
         <Toaster />

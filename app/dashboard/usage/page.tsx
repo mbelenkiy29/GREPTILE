@@ -1,52 +1,33 @@
 import type { Metadata } from "next";
+import { UsageView } from "@/components/usage/UsageView";
 import { ButtonLink } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { BarChart } from "@/components/ui/Chart";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Stat } from "@/components/ui/Stat";
 import { requireOrg } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { reviewActivity, usageThisMonth } from "@/lib/data/overview";
-import { siteEnv } from "@/lib/env";
-import { formatCount, formatUsd } from "@/lib/ui/format";
+import { loadUsagePage } from "@/lib/data/usage";
+import { hrefWith, queryState, type SearchParams } from "@/lib/ui/url";
 
 export const metadata: Metadata = { title: "Usage" };
 
-export default async function UsagePage() {
+/** Usage (R4.3): credits, tokens, and estimated model cost for a period, per day, repository, author, model, task, and kind. */
+export default async function UsagePage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const { orgId } = await requireOrg();
-  const now = new Date();
-  const [usage, activity] = await Promise.all([usageThisMonth(db(), orgId, now), reviewActivity(db(), orgId, { days: 30, now })]);
-  const points = activity.map((d) => ({ label: d.day, value: d.runs }));
-  const docs = `${siteEnv().SOURCE_CODE_URL}/blob/main/docs/OPENREVIEW_SPEC.md`;
+  const sp = await searchParams;
+  const data = await loadUsagePage(db(), orgId, sp);
+  const state = queryState(sp);
+  const exportState = { ...(state.period ? { period: state.period } : {}), ...(state.from ? { from: state.from } : {}), ...(state.to ? { to: state.to } : {}) };
   return (
     <>
-      <PageHeader title="Usage" description={`Metered work this month (since ${usage.since.toISOString().slice(0, 10)}, UTC).`} />
-      <div className="grid-kpi">
-        <Stat label="Reviews" value={formatCount(usage.reviews)} />
-        <Stat label="Input tokens" value={formatCount(usage.inputTokens)} />
-        <Stat label="Output tokens" value={formatCount(usage.outputTokens)} />
-        <Stat label="Estimated cost" value={formatUsd(usage.costUsd)} hint="Priced model calls only" />
-        <Stat label="Credits" value={formatCount(usage.credits)} />
-      </div>
-      <Card title="Review runs" titleId="runs-heading" description="Per day, last 30 days (UTC)">
-        <BarChart points={points} height={110} label="Review runs per day, last 30 days" unit="runs" />
-      </Card>
-      <EmptyState
-        icon="usage"
-        title="Per-repository and per-model breakdowns appear here"
-        headingLevel={3}
+      <PageHeader
+        title="Usage"
+        description="Metered work, tokens, and estimated model cost. Times are UTC."
         actions={
-          <ButtonLink href={docs} external variant="ghost">
-            How usage is metered
+          <ButtonLink href="/dashboard/settings/usage" icon="settings" variant="ghost">
+            Caps, alerts & billing
           </ButtonLink>
         }
-      >
-        <p>
-          This page will break usage down by repository, model, and pull request author, with budgets and exports. The totals above already
-          include every review, index, and chat call recorded this month.
-        </p>
-      </EmptyState>
+      />
+      <UsageView data={data} state={state} exportHref={hrefWith("/api/orgs/current/usage/export", exportState)} />
     </>
   );
 }

@@ -12,6 +12,7 @@
  * description is stored as a proposal for a person to accept or reject.
  */
 import { asc, eq, inArray, lt, sql } from "drizzle-orm";
+import { checkUsageLimits, type LimitDeps } from "@/lib/billing/limits";
 import { isUniqueViolation } from "@/lib/data/orgs";
 import { scoped } from "@/lib/data/tenant";
 import type { Db } from "@/lib/db";
@@ -53,6 +54,8 @@ export interface KnowledgeDeps {
   now?: () => Date;
   /** Defaults to the process env (`knowledgeEnv()`). */
   env?: KnowledgeEnv;
+  /** Billing configuration and clock for usage limits (R4.3); default from the environment. */
+  limits?: LimitDeps;
 }
 
 export interface QueueRefreshInput {
@@ -192,6 +195,9 @@ export async function refreshKnowledge(deps: KnowledgeDeps, job: { orgId: string
   if (!repo.indexedSha) return skip("the repository has not been indexed yet");
   const llmProblem = llmUnavailableReason(deps.llm);
   if (llmProblem) return skip(`the organization's model is not configured: ${llmProblem}`);
+  // Usage caps (R4.3): over a cap, the refresh waits for the next period (stale entries stay marked stale).
+  const limit = await checkUsageLimits(db, job.orgId, { kind: "knowledge" }, deps.limits);
+  if (!limit.ok) return skip(`${limit.code}: ${limit.reason}`);
 
   // Claim: at most one running run per repository (partial unique index).
   await failAbandonedRuns(db, job.orgId, job.repoId, now());

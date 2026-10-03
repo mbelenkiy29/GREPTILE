@@ -22,7 +22,10 @@
 import { count, eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import { loadEffectiveConfig } from "@/lib/config/repo-config";
-import { reviewGate } from "@/lib/config/settings";
+import { checkUsageAlerts, type AlertDeps } from "@/lib/billing/alerts";
+import { checkUsageLimits, type LimitDeps } from "@/lib/billing/limits";
+import { postLimitNotice } from "@/lib/billing/notices";
+import { AUTOMATIC_TRIGGERS, reviewGate } from "@/lib/config/settings";
 import type { Db } from "@/lib/db";
 import {
   agentRuns,
@@ -90,6 +93,10 @@ export interface ReviewJobDeps {
   heartbeatMs?: number;
   /** How long to wait for the PR's publishing slot while another run of the PR publishes. */
   publishLock?: { waitMs?: number; pollMs?: number };
+  /** Billing configuration and clock for usage limits (R4.3, R4.2); default from the environment. */
+  limits?: LimitDeps;
+  /** Delivery of usage alerts crossed by the review (R4.3): fetch, DNS resolver, clock. */
+  alerts?: AlertDeps;
 }
 
 export type ReviewJobPayload = JobPayloads["review-pr"];
@@ -348,6 +355,15 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
   const settings = config.settings;
   const gate = reviewGate(settings, { trigger: run.trigger, draft: pr.draft, baseRef: pr.baseRef, headRef: pr.headRef });
   if (gate) throw new RunSkipped(gate);
+  // Usage caps and plan limits (R4.3, R4.2) again, now that the PR author is known: a cap may have been reached
+  // while the run waited in the queue.
+  const limit = await checkUsageLimits(db, run.orgId, { kind: "review", author: pr.author }, deps.limits);
+  if (!limit.ok) {
+    if (AUTOMATIC_TRIGGERS.has(run.trigger)) {
+      await postLimitNotice(db, client, { orgId: run.orgId, repoId: repo.id, repoFullName: repo.fullName, prNumber: pr.number, code: limit.code, reason: limit.reason, period: limit.period }, log);
+    }
+    throw new RunSkipped(`${limit.code}: ${limit.reason}`);
+  }
 
   // Stage 1: ingestion.
   const [files, commits, issueComments, inlineComments, prReviews, checks] = await Promise.all([
@@ -562,7 +578,7 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
   );
 
   // Store what was published and complete the run, in one short transaction.
-  return db.transaction(async (tx) => {
+  const completed = await db.transaction(async (tx) => {
     await persistPublication(tx, scope, published.records);
     // Tokens and cost come from the same source: the gateway's records for the whole run (every attempt), or the
     // engine's own report when the gateway recorded nothing.
@@ -645,4 +661,9 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
       findings: output.findings.length,
     };
   });
+  // The credits just recorded may cross a usage alert threshold (R4.3); alerting never fails the review.
+  await checkUsageAlerts(db, run.orgId, { ...deps.alerts, ...(deps.limits?.cfg ? { cfg: deps.limits.cfg } : {}), log }).catch((err) =>
+    log.warn("usage alert check failed", { error: errorMessage(err) }),
+  );
+  return completed;
 }

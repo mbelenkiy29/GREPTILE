@@ -4,9 +4,11 @@
  * and enqueues the `review-pr` job for it. A newer run for the same PR supersedes older ones.
  */
 import { desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import type { UsagePeriod } from "@/lib/billing/account";
+import { checkUsageLimits, UsageLimitError, type LimitCode, type LimitDeps } from "@/lib/billing/limits";
 import { reviewGate, type EffectiveSettings } from "@/lib/config/settings";
 import type { Db } from "@/lib/db";
-import { repos, reviewRuns, reviews } from "@/lib/db/schema";
+import { pullRequests, repos, reviewRuns, reviews } from "@/lib/db/schema";
 import { scoped } from "@/lib/data/tenant";
 import type { ReviewFocus, ReviewMode } from "@/lib/engine/types";
 import { pipelineEnv } from "@/lib/env";
@@ -30,6 +32,8 @@ export interface RequestReviewInput {
   /** Review everything again, ignoring the incremental baseline (manual "full" re-review). */
   full?: boolean;
   requestedBy?: string;
+  /** Pull request author when the caller knows it (webhooks), for the free plan's active-developer rule (R4.2). */
+  author?: string;
   meta?: JobMeta;
 }
 
@@ -51,12 +55,27 @@ export interface GatedRequest {
   reason: string;
 }
 
+/**
+ * A webhook request that a usage limit turned away (R4.3, R4.2): a `skipped` run was recorded with the reason, nothing
+ * was queued or superseded, and the caller posts the one-time PR notice.
+ */
+export interface LimitedRequest {
+  limited: true;
+  code: LimitCode;
+  reason: string;
+  period: UsagePeriod;
+  runId: number;
+  reviewId: number;
+}
+
 export interface RequestReviewDeps {
   db: Db;
   queue: JobQueue;
   /** Delay for push-triggered runs; defaults to REVIEW_DEBOUNCE_MS. */
   debounceMs?: number;
   log?: Logger;
+  /** Billing configuration and clock for usage limits; default from the environment. */
+  limits?: LimitDeps;
 }
 
 export interface RequestedRun {
@@ -169,15 +188,26 @@ export async function createRun(db: Db, input: RequestReviewInput, log: Logger =
  * already has a run in flight returns that run (and re-adds its job, which the queue dedupes). With `gate`, a
  * webhook request the settings turn away returns {@link GatedRequest} without recording a run.
  */
-export async function requestReview(deps: RequestReviewDeps, input: RequestReviewInput & { gate: RequestGate }): Promise<RequestedRun | GatedRequest>;
+export async function requestReview(deps: RequestReviewDeps, input: RequestReviewInput & { gate: RequestGate }): Promise<RequestedRun | GatedRequest | LimitedRequest>;
 export async function requestReview(deps: RequestReviewDeps, input: RequestReviewInput): Promise<RequestedRun>;
-export async function requestReview(deps: RequestReviewDeps, input: RequestReviewInput & { gate?: RequestGate }): Promise<RequestedRun | GatedRequest> {
+export async function requestReview(deps: RequestReviewDeps, input: RequestReviewInput & { gate?: RequestGate }): Promise<RequestedRun | GatedRequest | LimitedRequest> {
+  const log = deps.log ?? rootLog;
   if (input.gate) {
     const reason = reviewGate(input.gate.settings, { trigger: input.trigger, draft: input.gate.draft, baseRef: input.gate.baseRef, headRef: input.gate.headRef });
     if (reason) {
-      (deps.log ?? rootLog).info("review request gated by settings", { orgId: input.orgId, repoId: input.repoId, prNumber: input.prNumber, trigger: input.trigger, reason });
+      log.info("review request gated by settings", { orgId: input.orgId, repoId: input.repoId, prNumber: input.prNumber, trigger: input.trigger, reason });
       return { gated: true, reason };
     }
+  }
+  // Usage caps and plan limits (R4.3, R4.2) are checked before anything is recorded or queued. Webhook requests
+  // (with a gate) record a skipped run; people asking directly (dashboard, API, CLI, mentions) get the error.
+  const author = input.author ?? (await knownAuthor(deps.db, input));
+  const verdict = await checkUsageLimits(deps.db, input.orgId, { kind: "review", author }, deps.limits);
+  if (!verdict.ok) {
+    log.info("review request refused by a usage limit", { orgId: input.orgId, repoId: input.repoId, prNumber: input.prNumber, trigger: input.trigger, code: verdict.code });
+    if (!input.gate) throw new UsageLimitError(verdict.code, verdict.reason, verdict.period);
+    const skipped = await recordLimitedRun(deps.db, input, `${verdict.code}: ${verdict.reason}`);
+    return { limited: true, code: verdict.code, reason: verdict.reason, period: verdict.period, ...skipped };
   }
   const { run, deduped } = await createRun(deps.db, input, deps.log);
   const jobId = run.jobId ?? runJobId(run);
@@ -198,6 +228,53 @@ export async function requestReview(deps: RequestReviewDeps, input: RequestRevie
     );
   }
   return { runId: run.id, reviewId: run.reviewId, jobId, deduped };
+}
+
+/** The PR's author as last seen by a review, when the request did not name one. */
+async function knownAuthor(db: Db, input: RequestReviewInput): Promise<string | undefined> {
+  const [pr] = await db
+    .select({ author: pullRequests.author })
+    .from(pullRequests)
+    .where(scoped(pullRequests, input.orgId, eq(pullRequests.repoId, input.repoId), eq(pullRequests.number, input.prNumber)));
+  return pr?.author || undefined;
+}
+
+/**
+ * Records a run that a usage limit turned away, already `skipped` with the reason. It neither queues a job nor
+ * supersedes the PR's runs in flight: work that already started finishes.
+ */
+async function recordLimitedRun(db: Db, input: RequestReviewInput, reason: string): Promise<{ runId: number; reviewId: number }> {
+  const [repo] = await db.select({ id: repos.id }).from(repos).where(scoped(repos, input.orgId, eq(repos.id, input.repoId)));
+  if (!repo) throw new ReviewRequestError(`repository ${input.repoId} not found`);
+  return db.transaction(async (tx) => {
+    const [review] = await tx
+      .insert(reviews)
+      .values({ orgId: input.orgId, repoId: input.repoId, prNumber: input.prNumber, headSha: input.headSha ?? "", status: "skipped" })
+      .onConflictDoUpdate({ target: [reviews.repoId, reviews.prNumber], set: { updatedAt: new Date() } })
+      .returning();
+    if (!review || review.orgId !== input.orgId) throw new ReviewRequestError("review belongs to another org");
+    const now = new Date();
+    const [run] = await tx
+      .insert(reviewRuns)
+      .values({
+        orgId: input.orgId,
+        repoId: input.repoId,
+        reviewId: review.id,
+        prNumber: input.prNumber,
+        headSha: input.headSha ?? null,
+        trigger: input.trigger,
+        mode: input.mode ?? null,
+        focus: input.focus ?? null,
+        full: input.full ?? false,
+        requestedBy: input.requestedBy ?? null,
+        status: "skipped",
+        statusReason: reason,
+        stageTimings: { skipped: { startedAt: now.toISOString() } },
+        finishedAt: now,
+      })
+      .returning({ id: reviewRuns.id });
+    return { runId: run!.id, reviewId: review.id };
+  });
 }
 
 export type CancelOutcome =

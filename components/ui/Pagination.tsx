@@ -15,7 +15,7 @@ export function pageList(page: number, pageCount: number, window = 1): (number |
   return out;
 }
 
-/** URL-driven pagination (`?page=`), keeping the other query parameters. */
+/** URL-driven pagination (`?page=`, or `?<param>=` when a page has several lists), keeping the other query parameters. */
 export function Pagination({
   pathname,
   state,
@@ -24,6 +24,8 @@ export function Pagination({
   total,
   pageSize,
   noun = "items",
+  param = "page",
+  label = "Pagination",
 }: {
   pathname: string;
   state: QueryState;
@@ -32,12 +34,16 @@ export function Pagination({
   total: number;
   pageSize: number;
   noun?: string;
+  /** Query parameter holding this list's page. */
+  param?: string;
+  /** Accessible name of the navigation landmark (distinct per list when a page has several). */
+  label?: string;
 }) {
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
-  const href = (p: number) => hrefWith(pathname, state, { page: p === 1 ? undefined : p });
+  const href = (p: number) => hrefWith(pathname, state, { [param]: p === 1 ? undefined : p });
   return (
-    <nav className="pagination" aria-label="Pagination">
+    <nav className="pagination" aria-label={label}>
       <span className="num">
         {total === 0 ? `No ${noun}` : `${from.toLocaleString("en-US")}–${to.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} ${noun}`}
       </span>

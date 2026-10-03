@@ -16,6 +16,7 @@ import type { GitHost } from "@/lib/git/types";
 import { getIndexStatus, type IndexStatus } from "@/lib/indexer/jobs";
 import type { JobQueue } from "@/lib/jobs/types";
 import { errorMessage, log } from "@/lib/log";
+import { UsageLimitError } from "@/lib/billing/limits";
 import { requestReview, ReviewRequestError } from "@/lib/pipeline/request";
 import { claimPendingInstallation, InstallationOwnershipError, listPendingInstallations, PendingInstallationNotFoundError } from "./installations";
 import { scoped } from "./tenant";
@@ -285,7 +286,7 @@ export const manualReviewSchema = z.object({
   prNumber: z.coerce.number().int({ message: "Enter a pull request number." }).positive({ message: "Enter a pull request number." }).max(1_000_000_000),
 });
 
-export type ManualReviewOutcome = { status: "queued"; reviewId: number; runId: number } | { status: "invalid" | "not_found" | "disabled" | "forbidden"; message: string };
+export type ManualReviewOutcome = { status: "queued"; reviewId: number; runId: number } | { status: "invalid" | "not_found" | "disabled" | "forbidden" | "limited"; message: string };
 
 /**
  * "Review an existing pull request" (R6.2): validates the form and requests a `manual` review of a pull request in
@@ -317,6 +318,7 @@ export async function requestManualReview(
     return { status: "queued", reviewId: run.reviewId, runId: run.runId };
   } catch (err) {
     if (err instanceof ReviewRequestError) return { status: "not_found", message: "That repository isn't connected to this organization." };
+    if (err instanceof UsageLimitError) return { status: "limited", message: err.message };
     throw err;
   }
 }

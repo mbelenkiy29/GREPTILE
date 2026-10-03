@@ -7,6 +7,7 @@ import { syncFeedback } from "@/lib/learning";
 import { mineRules } from "@/lib/learning/mining";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { answerMention } from "@/lib/conversations";
+import { reportUsage } from "@/lib/billing/report";
 import { runReviewJob } from "@/lib/review/run";
 import type { JobName, JobPayloads, JobQueue } from "./types";
 
@@ -46,6 +47,7 @@ export const handlers: Handlers = {
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
   "mine-rules": (deps, data) => mineRules(deps, data),
   "refresh-knowledge": (deps, data) => refreshKnowledge(deps, data),
+  "report-usage": (deps) => reportUsage({ db: deps.db, log: deps.log }),
 };
 
 export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta) {
