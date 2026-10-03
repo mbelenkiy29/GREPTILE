@@ -22,6 +22,7 @@ import { buildFixPrompts, cursorDeepLink, FIX_AGENTS, type FixAgent } from "@/li
 import { REVIEW_MODES } from "@/lib/llm/types";
 import { getRun } from "@/lib/pipeline/state";
 import { cancelReview, requestReview } from "@/lib/pipeline/request";
+import { UsageLimitError } from "@/lib/billing/limits";
 import { requestMetadata } from "@/lib/auth/sessions";
 import { actorLabel, auditActor, type ApiPrincipal } from "./auth";
 import { apiJson, apiText, noContent, notFound, paginated, ApiError } from "./http";
@@ -246,7 +247,7 @@ const createReview = defineRoute({
     /** Review everything again, ignoring the incremental baseline. */
     full: z.boolean().optional(),
   }),
-  responses: { 202: { description: "The queued run.", schema: z.object({ run: runSchema }) }, 409: { description: "The repository is archived.", schema: errorSchema }, ...ERRORS, ...NOT_FOUND },
+  responses: { 202: { description: "The queued run.", schema: z.object({ run: runSchema }) }, 402: { description: "A usage cap or plan limit was reached (`usage_limit`); nothing was queued.", schema: errorSchema }, 409: { description: "The repository is archived.", schema: errorSchema }, ...ERRORS, ...NOT_FOUND },
   async handler({ deps, req, principal, body, log }) {
     const repo = await repoOf(deps, principal.orgId, body.repositoryId);
     if (repo.archived) throw new ApiError(409, "conflict", "The repository is archived on GitHub and can't be reviewed.");
@@ -264,7 +265,11 @@ const createReview = defineRoute({
         requestedBy,
         meta: { requestedBy },
       },
-    );
+    ).catch((err: unknown) => {
+      // Over a usage cap or plan limit (R4.3, R4.2): nothing was queued.
+      if (err instanceof UsageLimitError) throw new ApiError(402, "usage_limit", err.message, { reason: err.code, periodEnd: err.period.end.toISOString() });
+      throw err;
+    });
     await audit(deps, req, principal, {
       action: "review.requested",
       targetType: "review",

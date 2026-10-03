@@ -29,8 +29,8 @@ export const bullQueue: JobQueue = {
       job: name,
       jobId: opts.jobId,
       priority,
-      orgId: data.orgId,
-      repoId: data.repoId,
+      orgId: "orgId" in data ? data.orgId : undefined,
+      repoId: "repoId" in data ? data.repoId : undefined,
       deliveryId: data.meta?.deliveryId,
     });
   },
@@ -44,6 +44,14 @@ export const bullQueue: JobQueue = {
     return "pending";
   },
 };
+
+/**
+ * Runs `name` every `everyMs` on the shared queue (a BullMQ job scheduler): however many workers start, one job per
+ * interval is created. Upserting an existing schedule only updates it.
+ */
+export async function scheduleRepeatingJob<N extends JobName>(name: N, everyMs: number, data: JobPayloads[N]): Promise<void> {
+  await bull().upsertJobScheduler(`schedule-${name}`, { every: everyMs }, { name, data, opts: { priority: JOB_PRIORITY[name] } });
+}
 
 /** Adds a job to the shared queue. `jobId` must be deterministic so retries and redeliveries do not duplicate work. */
 export function enqueue<N extends JobName>(name: N, data: JobPayloads[N], opts: JobOptions): Promise<void> {

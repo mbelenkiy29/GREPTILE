@@ -13,6 +13,7 @@ export const API_ERROR_CODES = [
   "not_found",
   "conflict",
   "rate_limited",
+  "usage_limit",
   "internal_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

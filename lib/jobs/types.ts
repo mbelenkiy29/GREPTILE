@@ -75,6 +75,11 @@ export interface JobPayloads {
     authorAssociation?: string;
     meta?: JobMeta;
   };
+  /**
+   * Hourly usage sweep (R4.2, R4.3), scheduled by the worker: Stripe seat sync and overage reporting (when billing is
+   * on) and usage alert checks for every org with limits.
+   */
+  "report-usage": { meta?: JobMeta };
 }
 
 export type JobName = keyof JobPayloads;
@@ -96,6 +101,7 @@ export const JOB_PRIORITY: Record<JobName, number> = {
   "index-repo": 4,
   "mine-rules": 5,
   "refresh-knowledge": 6,
+  "report-usage": 7,
 };
 
 /**

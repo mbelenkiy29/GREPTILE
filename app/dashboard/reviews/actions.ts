@@ -9,6 +9,7 @@ import { reviews } from "@/lib/db/schema";
 import { scoped } from "@/lib/data/tenant";
 import { bullQueue } from "@/lib/jobs/queue";
 import { REVIEW_MODES, type ReviewMode } from "@/lib/llm/types";
+import { UsageLimitError } from "@/lib/billing/limits";
 import { cancelReview, requestReview } from "@/lib/pipeline/request";
 import { withToast } from "@/lib/ui/toast";
 
@@ -31,22 +32,29 @@ export async function rerunReview(formData: FormData) {
   if (!review) redirect(withToast("/dashboard/reviews", "review.not_found"));
   const modeRaw = String(formData.get("mode") ?? "");
   const mode = (REVIEW_MODES as readonly string[]).includes(modeRaw) ? (modeRaw as ReviewMode) : undefined;
-  await requestReview(
-    { db: db(), queue: bullQueue },
-    {
-      orgId,
-      repoId: review.repoId,
-      prNumber: review.prNumber,
-      trigger: "manual",
-      ...(mode ? { mode } : {}),
-      ...(formData.get("focus") === "security" ? { focus: "security" as const } : {}),
-      full: formData.get("full") === "true",
-      requestedBy: userId,
-      meta: { requestedBy: userId },
-    },
-  );
+  let limited = false;
+  try {
+    await requestReview(
+      { db: db(), queue: bullQueue },
+      {
+        orgId,
+        repoId: review.repoId,
+        prNumber: review.prNumber,
+        trigger: "manual",
+        ...(mode ? { mode } : {}),
+        ...(formData.get("focus") === "security" ? { focus: "security" as const } : {}),
+        full: formData.get("full") === "true",
+        requestedBy: userId,
+        meta: { requestedBy: userId },
+      },
+    );
+  } catch (err) {
+    // Over a usage cap or plan limit (R4.3, R4.2): nothing was queued; the banner and Usage & billing say why.
+    if (!(err instanceof UsageLimitError)) throw err;
+    limited = true;
+  }
   revalidatePath(reviewPath(reviewId));
-  redirect(withToast(reviewPath(reviewId), "review.queued"));
+  redirect(withToast(reviewPath(reviewId), limited ? "review.usage_limit" : "review.queued"));
 }
 
 /** Cancels a queued or running review run (R6.16). */

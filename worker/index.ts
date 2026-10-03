@@ -11,7 +11,7 @@ import { gitHost } from "@/lib/git/host";
 import { retryAfterMs, runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
 import { startHeartbeat } from "@/lib/jobs/heartbeat";
 import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
-import { QUEUE_NAME, bullQueue } from "@/lib/jobs/queue";
+import { QUEUE_NAME, bullQueue, scheduleRepeatingJob } from "@/lib/jobs/queue";
 import { embeddings, llm } from "@/lib/llm";
 import { errorMessage, log, redactText } from "@/lib/log";
 import { RECOVERY_INTERVAL_MS, recoverStaleRuns } from "@/lib/pipeline/recovery";
@@ -98,6 +98,9 @@ async function recover() {
 void recover();
 const recoveryTimer = setInterval(() => void recover(), RECOVERY_INTERVAL_MS);
 recoveryTimer.unref();
+
+/** Usage sweep (R4.2, R4.3): seat sync, overage reporting, and usage alerts, hourly as one queued job across workers. */
+scheduleRepeatingJob("report-usage", 3_600_000, {}).catch((err) => wlog.warn("could not schedule the usage report job", { error: errorMessage(err) }));
 
 let stopping = false;
 async function shutdown(signal: string) {
