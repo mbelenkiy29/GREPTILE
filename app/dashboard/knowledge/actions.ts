@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { db } from "@/lib/db";
 import { editKnowledgeDescription, getKnowledgeEntry, knowledgeEnabled, KnowledgeEditError, latestKnowledgeRuns, resolveKnowledgeProposal } from "@/lib/data/knowledge";
 import { getRepo } from "@/lib/data/installations";
@@ -48,6 +49,7 @@ export async function regenerateKnowledge(formData: FormData) {
     meta: { requestedBy: userId },
   });
   log.info("knowledge regeneration queued", { orgId, repoId: repo.id, knowledgeRunId: run.id, slug: entry?.entry.slug, requestedBy: userId });
+  await auditDashboard({ orgId, userId }, { action: "knowledge.regeneration_requested", targetType: "repository", targetId: repo.id, metadata: { knowledgeRunId: run.id, slug: entry?.entry.slug ?? null } });
   revalidatePath("/dashboard/knowledge");
   redirect(withToast(back(formData), "knowledge.queued"));
 }
@@ -66,6 +68,7 @@ export async function saveKnowledgeDescription(formData: FormData) {
   }
   if (!saved) redirect(withToast(back(formData), "knowledge.not_found"));
   log.info("knowledge entry edited", { orgId, knowledgeEntryId: id, requestedBy: userId });
+  await auditDashboard({ orgId, userId }, { action: "knowledge.edited", targetType: "knowledge_entry", targetId: id });
   revalidatePath(`/dashboard/knowledge/${id}`);
   redirect(withToast(back(formData), "knowledge.saved"));
 }
@@ -79,6 +82,7 @@ export async function decideKnowledgeProposal(formData: FormData) {
   const row = await resolveKnowledgeProposal(db(), orgId, { id, accept });
   if (!row) redirect(withToast(back(formData), "knowledge.no_proposal"));
   log.info("knowledge proposal resolved", { orgId, knowledgeEntryId: id, accepted: accept, requestedBy: userId });
+  await auditDashboard({ orgId, userId }, { action: accept ? "knowledge.proposal_accepted" : "knowledge.proposal_rejected", targetType: "knowledge_entry", targetId: id });
   revalidatePath(`/dashboard/knowledge/${id}`);
   redirect(withToast(back(formData), accept ? "knowledge.accepted" : "knowledge.rejected"));
 }

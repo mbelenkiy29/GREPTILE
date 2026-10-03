@@ -4,15 +4,17 @@
  */
 import { hostname } from "node:os";
 import { DelayedError, Worker } from "bullmq";
+import { pruneAudit } from "@/lib/data/audit";
 import { pruneDeliveries } from "@/lib/data/deliveries";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
+import { enterpriseEnv, env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
 import { retryAfterMs, runObservedJob, type JobDeps } from "@/lib/jobs/handlers";
 import { startHeartbeat } from "@/lib/jobs/heartbeat";
 import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import { QUEUE_NAME, bullQueue, scheduleRepeatingJob } from "@/lib/jobs/queue";
 import { embeddings, llm } from "@/lib/llm";
+import { gatewayForOrg } from "@/lib/llm/org";
 import { errorMessage, log, redactText } from "@/lib/log";
 import { RECOVERY_INTERVAL_MS, recoverStaleRuns } from "@/lib/pipeline/recovery";
 import { redis } from "@/lib/redis";
@@ -33,6 +35,8 @@ const deps: JobDeps = {
   host: gitHost(),
   queue: bullQueue,
   llm: llm({ db: db() }),
+  // Each job runs against its org's own model provider when the org configured one (R4.6).
+  llmForOrg: (orgId) => gatewayForOrg(db(), orgId),
   embedder: embeddings({ db: db() }),
   cacheDir: e.REPO_CACHE_DIR,
   botMention: e.BOT_MENTION,
@@ -81,6 +85,14 @@ async function prune() {
     if (removed) wlog.info("pruned webhook deliveries", { removed, retentionDays: e.WEBHOOK_DELIVERY_RETENTION_DAYS });
   } catch (err) {
     wlog.warn("pruning webhook deliveries failed", { error: errorMessage(err) });
+  }
+  // Audit log retention (R4.6).
+  const auditDays = enterpriseEnv().AUDIT_RETENTION_DAYS;
+  try {
+    const removed = await pruneAudit(deps.db, new Date(Date.now() - auditDays * 86_400_000));
+    if (removed) wlog.info("pruned audit log entries", { removed, retentionDays: auditDays });
+  } catch (err) {
+    wlog.warn("pruning the audit log failed", { error: errorMessage(err) });
   }
 }
 void prune();

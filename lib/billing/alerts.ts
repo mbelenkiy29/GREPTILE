@@ -10,6 +10,7 @@
  *
  * Alerts are checked after every completed review and hourly by the `report-usage` job.
  */
+import { createOutboundFetch } from "@/lib/net/fetch";
 import { createHmac } from "node:crypto";
 import { and, desc, eq, gte } from "drizzle-orm";
 import type { Db } from "@/lib/db";
@@ -178,7 +179,8 @@ async function deliverAlert(
     await assertPublicWebhookUrl(url, { allowPrivate: deps.allowPrivate, resolve: deps.resolve });
     const body = JSON.stringify(payload);
     const timestamp = String(Math.floor(deps.at.getTime() / 1000));
-    const res = await (deps.fetch ?? fetch)(url, {
+    // The org configured this endpoint and it passed the SSRF guard above, so its host is allowed for this call (R4.6).
+    const res = await (deps.fetch ?? createOutboundFetch({ allow: [new URL(url).host] }))(url, {
       method: "POST",
       redirect: "manual",
       signal: AbortSignal.timeout(deps.timeoutMs ?? 10_000),

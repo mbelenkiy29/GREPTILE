@@ -169,6 +169,13 @@
       "when": 1791001436856,
       "tag": "0023_cli_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791005760913,
+      "tag": "0024_enterprise",
+      "breakpoints": true
     }
   ]
 }

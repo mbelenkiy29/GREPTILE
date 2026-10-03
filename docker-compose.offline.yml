@@ -1,0 +1,37 @@
+# Offline / air-gapped override (R4.6). Use with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#
+# OpenReview then makes no outbound calls except to the configured LLM endpoint and git host:
+#   - Next.js telemetry is off (NEXT_TELEMETRY_DISABLED, also baked into the image);
+#   - every server-side HTTP request goes through lib/net/fetch.ts, which refuses hosts outside the allowlist
+#     (LLM / embedding endpoints, git host, Stripe only when billing is configured, configured SSO issuers and org
+#     model endpoints, plus OUTBOUND_ALLOWLIST);
+#   - Postgres and Redis sit on an internal network with no route out.
+# The app ships no web fonts, CDN scripts, update checks, or analytics. See docs/self-hosting.md.
+
+services:
+  postgres:
+    networks: [backend]
+
+  redis:
+    networks: [backend]
+
+  app:
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUTBOUND_ALLOWLIST_ENFORCE: "true"
+    networks: [backend, egress]
+
+  worker:
+    environment:
+      NEXT_TELEMETRY_DISABLED: "1"
+      OUTBOUND_ALLOWLIST_ENFORCE: "true"
+    networks: [backend, egress]
+
+networks:
+  # Databases: no external connectivity at all.
+  backend:
+    internal: true
+  # App and worker: the only containers that may reach the LLM and git host (enforced by the allowlist).
+  egress: {}

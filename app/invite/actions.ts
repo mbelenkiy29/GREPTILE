@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { setActiveOrg } from "@/lib/auth/sessions";
 import { db } from "@/lib/db";
 import { acceptInvitation } from "@/lib/data/members";
-import { OrgError, type OrgErrorCode } from "@/lib/data/orgs";
+import { listUserOrgs, OrgError, type OrgErrorCode } from "@/lib/data/orgs";
+import { checkRateLimit } from "@/lib/security/rate-limit";
 
 /**
  * Accepts an invitation link (R6.1). Needs a signed-in user, not an org role: the data layer checks the token hash,
@@ -15,6 +17,9 @@ import { OrgError, type OrgErrorCode } from "@/lib/data/orgs";
 export async function acceptInviteAction(formData: FormData) {
   const session = await requireUser();
   const token = String(formData.get("token") ?? "");
+  // Invitation acceptance is rate limited per user (R6.20).
+  if (await checkRateLimit("invite.accept", session.userId)) redirect(`/invite/${encodeURIComponent(token)}?error=rate_limited`);
+  const before = new Set((await listUserOrgs(db(), session.userId)).map((o) => o.id));
   let result: { orgId: string } | { error: OrgErrorCode };
   try {
     result = await acceptInvitation(db(), {
@@ -27,6 +32,9 @@ export async function acceptInviteAction(formData: FormData) {
     result = { error: err.code };
   }
   if ("error" in result) redirect(`/invite/${encodeURIComponent(token)}?error=${result.error}`);
+  if (!before.has(result.orgId)) {
+    await auditDashboard({ orgId: result.orgId, userId: session.userId }, { action: "member.joined", targetType: "user", targetId: session.userId, metadata: { via: "invitation_link" } });
+  }
   await setActiveOrg(db(), { sessionId: session.id, userId: session.userId, orgId: result.orgId });
   revalidatePath("/", "layout");
   redirect("/dashboard");

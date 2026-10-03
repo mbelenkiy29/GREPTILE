@@ -5,6 +5,7 @@ import { signInErrorMessage } from "@/lib/auth/messages";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { Brand } from "@/components/shell/Brand";
 import { Alert } from "@/components/ui/Alert";
+import { Input } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/icons";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           <Brand href="/" />
           <div className="stack-sm">
             <h1>Sign in</h1>
-            <p className="dim">Use your GitHub account. We only read your profile, your verified email, and which App installations you can access.</p>
+            <p className="dim">Use your GitHub account, or your organization&apos;s single sign-on. With GitHub we only read your profile, your verified email, and which App installations you can access.</p>
           </div>
         </div>
         {error && <Alert tone="error">{error}</Alert>}
@@ -47,6 +48,23 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
             Set <code>GITHUB_APP_CLIENT_ID</code> and <code>GITHUB_APP_CLIENT_SECRET</code> to the GitHub App&apos;s OAuth credentials.
           </Alert>
         )}
+        <form method="post" action="/api/auth/sso" className="stack-sm" data-testid="sso-sign-in">
+          <input type="hidden" name="next" value={next} />
+          <Input
+            id="sso-identifier"
+            name="identifier"
+            label="Single sign-on"
+            help="Your work email, or your organization's slug."
+            type="text"
+            autoComplete="email"
+            required
+            maxLength={320}
+            placeholder="you@company.com"
+          />
+          <button className="button button-block" type="submit">
+            Sign in with SSO
+          </button>
+        </form>
         {devLogin && (
           <form method="post" action="/api/auth/dev" className="stack-sm">
             <input type="hidden" name="next" value={next} />

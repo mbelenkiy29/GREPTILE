@@ -19,15 +19,19 @@
     "verify:parity": "tsx scripts/verify-parity.ts",
     "worker": "tsx worker/index.ts",
     "mcp:build": "pnpm --filter openreview-mcp build",
-    "cli:build": "pnpm --filter openreview build"
+    "cli:build": "pnpm --filter openreview build",
+    "deps:audit": "pnpm audit --prod --audit-level=high"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@modelcontextprotocol/sdk": "1.32.0",
+    "@node-saml/node-saml": "^5.1.0",
     "@vscode/tree-sitter-wasm": "^0.3.1",
+    "@xmldom/xmldom": "^0.9.12",
     "bullmq": "^6.3.11",
     "drizzle-orm": "^0.45.3",
     "ioredis": "^5.11.1",
+    "jose": "^6.2.12",
     "next": "^16.3.8",
     "picomatch": "^4.0.7",
     "postgres": "^3.4.9",
@@ -42,16 +46,19 @@
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-pgvector": "^0.0.9",
     "@types/node": "^22.20.5",
+    "@types/node-forge": "^1.3.14",
     "@types/picomatch": "^4.0.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.8",
+    "node-forge": "^1.4.0",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.71.0",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "xml-crypto": "^6.3.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

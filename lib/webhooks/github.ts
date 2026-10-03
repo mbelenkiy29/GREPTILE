@@ -5,6 +5,7 @@ import type { Db } from "@/lib/db";
 import { humanReviewComments, installations, orgs, repos, reviewComments, type RepoSettings } from "@/lib/db/schema";
 import { loadEffectiveConfig } from "@/lib/config/repo-config";
 import { resolveEffectiveSettings, type EffectiveSettings } from "@/lib/config/settings";
+import { auditSystemAction } from "@/lib/data/audit";
 import { claimDelivery, failDelivery, finishDelivery, getDelivery } from "@/lib/data/deliveries";
 import {
   deleteInstallation,
@@ -37,6 +38,8 @@ import {
   reviewPayload,
   type Actor,
 } from "./payloads";
+import type { RateLimiter } from "@/lib/api/rate-limit";
+import { checkRateLimit } from "@/lib/security/rate-limit";
 import { verifyGitHubSignature } from "./signature";
 import { addressesBot, mentionsBot } from "@/lib/learning/commands";
 
@@ -50,6 +53,11 @@ export interface WebhookDeps {
   appSlug?: string;
   now?: () => Date;
   log?: Logger;
+  /**
+   * Per-installation rate limit on the receiver (R6.20), counted only for correctly signed deliveries so nobody
+   * can use up a real installation's budget. Generous by default: bursts of pushes are normal.
+   */
+  rateLimit?: { limiter: RateLimiter; perMinute: number };
 }
 
 /** What routing and delivery processing need; the signing secret is only used by the HTTP receiver. */
@@ -430,13 +438,17 @@ async function onInstallation(deps: RouteDeps, payload: unknown, ctx: DeliveryCo
     }
     case "deleted": {
       await deletePendingInstallation(db, host.provider, inst.id);
-      if (linked) await deleteInstallation(db, linked);
+      if (linked) {
+        await auditSystemAction(db, linked.orgId, "github", { action: "installation.removed", targetType: "installation", targetId: inst.id, metadata: { sender: p.sender?.login ?? null } });
+        await deleteInstallation(db, linked);
+      }
       return accepted();
     }
     case "suspend":
     case "unsuspend": {
       if (!linked) return ignored("installation not linked to an org");
       await setInstallationSuspended(db, linked, p.action === "suspend");
+      await auditSystemAction(db, linked.orgId, "github", { action: p.action === "suspend" ? "installation.suspended" : "installation.unsuspended", targetType: "installation", targetId: inst.id });
       return accepted();
     }
     case "new_permissions_accepted": {
@@ -705,6 +717,16 @@ export function createGitHubWebhookHandler(getDeps: () => WebhookDeps) {
     } catch {
       logger.warn("webhook body is not JSON", { deliveryId, event });
       return Response.json({ error: "invalid JSON" }, { status: 400 });
+    }
+
+    if (deps.rateLimit) {
+      const installation = (payload as { installation?: { id?: unknown } } | null)?.installation?.id;
+      const key = typeof installation === "number" ? `installation:${installation}` : "app";
+      const limited = await checkRateLimit("webhook.github", key, { limiter: deps.rateLimit.limiter, limit: deps.rateLimit.perMinute, now: deps.now?.() });
+      if (limited) {
+        logger.warn("webhook delivery rate limited", { deliveryId, event, key });
+        return limited;
+      }
     }
 
     const payloadSha256 = createHash("sha256").update(raw).digest("hex");

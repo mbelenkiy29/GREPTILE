@@ -84,10 +84,12 @@ export const TASK_MODEL_ENV: Readonly<Record<ChatTask, TaskModelVar>> = {
   rules: "LLM_MODEL_RULES",
 };
 
-/** Bring-your-own LLM settings for one org (stored encrypted by the settings track). */
+/** Bring-your-own LLM settings for one org (R4.6; stored in `org_llm_settings`, loaded by `gatewayForOrg`). */
 export interface OrgLlmOverride {
   provider: Exclude<LlmProviderName, "fake">;
   model?: string;
+  /** Per-task models; a task without one uses `model`. */
+  taskModels?: Partial<Record<ChatTask, string>>;
   baseURL?: string;
   apiKey?: string;
 }
@@ -199,6 +201,7 @@ export function resolveRoute(input: RouteInput, ctx: RouteContext): ResolvedRout
     }
   };
   pick(input.model, "call");
+  if (task) pick(ctx.orgOverride?.taskModels?.[task], "org");
   pick(ctx.orgOverride?.model, "org");
   if (target.matchesEnv) {
     if (hasModes(task) && mode === "fast") pick(env.LLM_MODEL_FAST, "task_mode_env");

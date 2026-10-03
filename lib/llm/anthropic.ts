@@ -8,6 +8,7 @@ import Anthropic, {
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import type { z } from "zod";
+import { outboundFetch } from "@/lib/net/fetch";
 import { isRetryableStatus, parseRetryAfter } from "./retry";
 import { DEFAULT_ANTHROPIC_MODEL } from "./routing";
 import {
@@ -207,7 +208,7 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   private client(opts: AnthropicProviderOptions): Anthropic {
-    const common = { apiKey: opts.apiKey, maxRetries: 0, timeout: opts.timeoutMs, ...(opts.fetch ? { fetch: opts.fetch } : {}) };
+    const common = { apiKey: opts.apiKey, maxRetries: 0, timeout: opts.timeoutMs, fetch: opts.fetch ?? outboundFetch };
     if (!opts.orgScoped) return new Anthropic({ ...common, baseURL: opts.baseURL });
     return new Anthropic({
       ...common,

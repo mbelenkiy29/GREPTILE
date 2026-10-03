@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { db } from "@/lib/db";
 import { FeedbackError, parseFeedbackForm, retractFeedback, submitFindingFeedback, type FeedbackResult } from "@/lib/data/feedback";
 import { parseResetForm, PreferenceError, resetPreferences } from "@/lib/learning/preferences";
@@ -14,6 +15,7 @@ export async function giveFindingFeedback(formData: FormData): Promise<ActionRes
   try {
     const input = parseFeedbackForm(formData);
     const result = await submitFindingFeedback(db(), { ...input, orgId, userId, source: "dashboard" });
+    await auditDashboard({ orgId, userId }, { action: "finding.feedback_given", targetType: "finding", targetId: input.findingId, metadata: { kind: input.kind } });
     revalidatePath("/dashboard/findings");
     revalidatePath("/dashboard/reviews", "layout");
     revalidatePath("/dashboard/learned");
@@ -30,6 +32,9 @@ export async function retractFindingFeedback(formData: FormData): Promise<Action
   const feedbackId = Number(formData.get("feedbackId"));
   if (!Number.isInteger(feedbackId) || feedbackId <= 0) return { ok: false, error: "Invalid feedback." };
   const res = await retractFeedback(db(), { orgId, feedbackId, userId });
+  if (res.retracted) {
+    await auditDashboard({ orgId, userId }, { action: "finding.feedback_retracted", targetType: "finding", targetId: res.finding?.id ?? null, metadata: { feedbackId } });
+  }
   revalidatePath("/dashboard/findings");
   revalidatePath("/dashboard/reviews", "layout");
   revalidatePath("/dashboard/learned");
@@ -38,9 +43,11 @@ export async function retractFindingFeedback(formData: FormData): Promise<Action
 
 /** Forgets learned preferences (R6.10): the org's or one repository's, keeping pinned ones unless asked. */
 export async function resetLearnedPreferences(formData: FormData): Promise<ActionResult<{ deleted: number }>> {
-  const { orgId } = await requireOrg({ permission: "rules.manage" });
+  const { orgId, userId } = await requireOrg({ permission: "rules.manage" });
   try {
-    const result = await resetPreferences(db(), orgId, parseResetForm(formData));
+    const opts = parseResetForm(formData);
+    const result = await resetPreferences(db(), orgId, opts);
+    await auditDashboard({ orgId, userId }, { action: "preference.reset", targetType: opts.repoId ? "repository" : "org", targetId: opts.repoId ?? orgId, metadata: { deleted: result.deleted, includePinned: opts.includePinned } });
     revalidatePath("/dashboard/learned");
     return { ok: true, ...result };
   } catch (err) {

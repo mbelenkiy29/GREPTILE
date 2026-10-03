@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { appUrl, authConfig } from "@/lib/auth/config";
 import { db } from "@/lib/db";
 import { changeMemberRole, createInvitation, leaveOrg, parseInviteTarget, regenerateInvitationLink, removeMember, revokeInvitation } from "@/lib/data/members";
@@ -35,12 +36,18 @@ export async function inviteMember(_prev: InviteFormState, formData: FormData): 
   const ctx = await requireOrg({ permission: "members.invite" });
   try {
     const target = parseInviteTarget(String(formData.get("target") ?? ""));
-    const { token } = await createInvitation(db(), {
+    const { token, invitation } = await createInvitation(db(), {
       orgId: ctx.orgId,
       actorId: ctx.userId,
       target,
       role: String(formData.get("role") ?? "member"),
       now: new Date(),
+    });
+    await auditDashboard(ctx, {
+      action: "invitation.created",
+      targetType: "invitation",
+      targetId: invitation.id,
+      metadata: { email: invitation.email, githubLogin: invitation.githubLogin, role: invitation.role },
     });
     revalidatePath("/dashboard/team");
     return { link: appUrl(authConfig(), `/invite/${token}`), target: target.githubLogin ? `@${target.githubLogin}` : (target.email ?? null) };
@@ -54,12 +61,9 @@ export async function inviteMember(_prev: InviteFormState, formData: FormData): 
 export async function newInviteLink(_prev: InviteLinkState, formData: FormData): Promise<InviteLinkState> {
   const ctx = await requireOrg({ permission: "members.invite" });
   try {
-    const { token } = await regenerateInvitationLink(db(), {
-      orgId: ctx.orgId,
-      actorId: ctx.userId,
-      invitationId: Number(formData.get("invitationId")),
-      now: new Date(),
-    });
+    const invitationId = Number(formData.get("invitationId"));
+    const { token } = await regenerateInvitationLink(db(), { orgId: ctx.orgId, actorId: ctx.userId, invitationId, now: new Date() });
+    await auditDashboard(ctx, { action: "invitation.link_regenerated", targetType: "invitation", targetId: invitationId });
     revalidatePath("/dashboard/team");
     return { link: appUrl(authConfig(), `/invite/${token}`) };
   } catch (err) {
@@ -70,36 +74,44 @@ export async function newInviteLink(_prev: InviteLinkState, formData: FormData):
 
 export async function revokeInvite(formData: FormData) {
   const ctx = await requireOrg({ permission: "members.invite" });
+  const invitationId = Number(formData.get("invitationId"));
   done(
-    await attempt(() =>
-      revokeInvitation(db(), { orgId: ctx.orgId, actorId: ctx.userId, invitationId: Number(formData.get("invitationId")), now: new Date() }),
-    ),
+    await attempt(async () => {
+      await revokeInvitation(db(), { orgId: ctx.orgId, actorId: ctx.userId, invitationId, now: new Date() });
+      await auditDashboard(ctx, { action: "invitation.revoked", targetType: "invitation", targetId: invitationId });
+    }),
   );
 }
 
 export async function changeRole(formData: FormData) {
   const ctx = await requireOrg({ permission: "members.changeRole" });
+  const targetUserId = String(formData.get("userId") ?? "");
   done(
-    await attempt(() =>
-      changeMemberRole(db(), {
-        orgId: ctx.orgId,
-        actorId: ctx.userId,
-        targetUserId: String(formData.get("userId") ?? ""),
-        role: String(formData.get("role") ?? ""),
-      }),
-    ),
+    await attempt(async () => {
+      const role = await changeMemberRole(db(), { orgId: ctx.orgId, actorId: ctx.userId, targetUserId, role: String(formData.get("role") ?? "") });
+      await auditDashboard(ctx, { action: "member.role_changed", targetType: "user", targetId: targetUserId, metadata: { role } });
+    }),
   );
 }
 
 export async function removeFromOrg(formData: FormData) {
   const ctx = await requireOrg({ permission: "members.remove" });
-  done(await attempt(() => removeMember(db(), { orgId: ctx.orgId, actorId: ctx.userId, targetUserId: String(formData.get("userId") ?? "") })));
+  const targetUserId = String(formData.get("userId") ?? "");
+  done(
+    await attempt(async () => {
+      await removeMember(db(), { orgId: ctx.orgId, actorId: ctx.userId, targetUserId });
+      await auditDashboard(ctx, { action: targetUserId === ctx.userId ? "member.left" : "member.removed", targetType: "user", targetId: targetUserId });
+    }),
+  );
 }
 
 /** Any member can leave, except the last owner and the creator of a personal workspace. */
 export async function leaveCurrentOrg() {
   const ctx = await requireOrg();
-  const error = await attempt(() => leaveOrg(db(), { orgId: ctx.orgId, userId: ctx.userId }));
+  const error = await attempt(async () => {
+    await leaveOrg(db(), { orgId: ctx.orgId, userId: ctx.userId });
+    await auditDashboard(ctx, { action: "member.left", targetType: "user", targetId: ctx.userId });
+  });
   if (error) redirect(`/dashboard/team?error=${error}`);
   revalidatePath("/", "layout");
   redirect("/orgs");

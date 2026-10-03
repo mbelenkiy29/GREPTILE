@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOrg } from "@/lib/auth";
+import { auditDashboard } from "@/lib/audit/dashboard";
 import { saveRepoSettingsForm, type SettingsFormState } from "@/lib/config/settings-form";
 import { db } from "@/lib/db";
 import { getRepo, setRepoEnabled } from "@/lib/data/installations";
@@ -22,13 +23,14 @@ function back(formData: FormData) {
 
 /** Turns reviews on or off for a repository (R6.13). */
 export async function toggleRepo(formData: FormData) {
-  const { orgId } = await requireOrg({ permission: "repos.manage" });
+  const { orgId, userId } = await requireOrg({ permission: "repos.manage" });
   const repoId = repoIdOf(formData);
   const repo = repoId === null ? undefined : await getRepo(db(), orgId, repoId);
   if (!repo) redirect(withToast(back(formData), "repo.not_found"));
   const enable = formData.get("enabled") === "true";
   if (enable && repo.archived) redirect(withToast(back(formData), "repo.archived"));
   await setRepoEnabled(db(), orgId, repo.id, enable);
+  await auditDashboard({ orgId, userId }, { action: enable ? "repository.enabled" : "repository.disabled", targetType: "repository", targetId: repo.id, metadata: { fullName: repo.fullName } });
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), enable ? "repo.enabled" : "repo.disabled"));
 }
@@ -49,6 +51,7 @@ export async function reindexRepo(formData: FormData) {
   }
   if (!job) redirect(withToast(back(formData), "repo.not_found"));
   log.info("manual re-index queued", { orgId, repoId: repo.id, indexJobId: job.id, kind, requestedBy: userId });
+  await auditDashboard({ orgId, userId }, { action: "repository.reindex_requested", targetType: "repository", targetId: repo.id, metadata: { mode: kind, indexJobId: job.id } });
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), "index.queued"));
 }
@@ -60,15 +63,21 @@ export async function cancelIndex(formData: FormData) {
   const jobId = Number(formData.get("jobId"));
   if (repoId === null || !Number.isSafeInteger(jobId)) redirect(withToast(back(formData), "repo.not_found"));
   const cancelled = await cancelIndexJob(db(), orgId, repoId, jobId);
-  if (cancelled) log.info("index run cancelled", { orgId, repoId, indexJobId: jobId, requestedBy: userId });
+  if (cancelled) {
+    log.info("index run cancelled", { orgId, repoId, indexJobId: jobId, requestedBy: userId });
+    await auditDashboard({ orgId, userId }, { action: "repository.index_cancelled", targetType: "repository", targetId: repoId, metadata: { indexJobId: jobId } });
+  }
   revalidatePath("/dashboard/repos");
   redirect(withToast(back(formData), cancelled ? "index.cancelled" : "index.not_running"));
 }
 
 /** Saves a repository's review settings (R6.14); validation errors come back to the form inline. */
 export async function saveRepoSettings(_prev: SettingsFormState, formData: FormData): Promise<SettingsFormState> {
-  const { orgId, role } = await requireOrg({ permission: "settings.manage" });
+  const { orgId, role, userId } = await requireOrg({ permission: "settings.manage" });
   const state = await saveRepoSettingsForm(db(), { orgId, role }, formData);
-  if (state.status === "saved") revalidatePath(`/dashboard/repos/${String(formData.get("repoId"))}`);
+  if (state.status === "saved") {
+    await auditDashboard({ orgId, userId }, { action: "settings.repository_updated", targetType: "repository", targetId: String(formData.get("repoId")).slice(0, 20) });
+    revalidatePath(`/dashboard/repos/${String(formData.get("repoId"))}`);
+  }
   return state;
 }

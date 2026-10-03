@@ -1,8 +1,9 @@
 import { authConfig } from "@/lib/auth/config";
 import { createGitHubSignInCallbackHandler } from "@/lib/auth/handlers";
 import { db } from "@/lib/db";
+import { withRateLimit } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /** GitHub redirects here after the user authorizes sign-in (R6.1). */
-export const GET = createGitHubSignInCallbackHandler(() => ({ db: db(), config: authConfig() }));
+export const GET = withRateLimit("auth.github.callback", createGitHubSignInCallbackHandler(() => ({ db: db(), config: authConfig() })));

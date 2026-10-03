@@ -72,6 +72,16 @@ export const TOASTS = {
   "onboarding.review_queued": { tone: "success", message: "Review queued. It appears here when it starts." },
   "apikey.revoked": { tone: "success", message: "API key revoked. Requests using it are refused from now on." },
   "apikey.not_found": { tone: "warning", message: "That API key isn't active in this organization." },
+  "sso.created": { tone: "success", message: "Connection created. Add the URLs below to your identity provider, then test it." },
+  "sso.saved": { tone: "success", message: "Connection saved." },
+  "sso.enabled": { tone: "success", message: "Connection enabled." },
+  "sso.disabled": { tone: "info", message: "Connection disabled. It no longer signs anyone in, and SSO is no longer required." },
+  "sso.enforced": { tone: "success", message: "Single sign-on is now required for this organization." },
+  "sso.not_enforced": { tone: "info", message: "Single sign-on is no longer required." },
+  "sso.deleted": { tone: "info", message: "Connection deleted." },
+  "sso.not_found": { tone: "error", message: "That connection isn't in this organization." },
+  "llm.saved": { tone: "success", message: "Model provider saved. New model calls use it." },
+  "llm.removed": { tone: "info", message: "Model provider removed. This organization uses the server's default model again." },
 } as const satisfies Record<string, { tone: ToastTone; message: string }>;
 
 export type ToastCode = keyof typeof TOASTS;

@@ -109,6 +109,25 @@ const billingShape = {
   USAGE_ALERT_ALLOW_PRIVATE_URLS: flag,
 };
 
+/** Enterprise and hardening settings (R4.6, R6.20); also parsed on their own by `enterpriseEnv()`. */
+const enterpriseShape = {
+  /** Let SSO connections use http and private / loopback issuers and IdP endpoints (SSRF guard off). */
+  SSO_ALLOW_PRIVATE_ISSUERS: flag,
+  /** Audit log entries older than this are pruned by the worker. */
+  AUDIT_RETENTION_DAYS: optionalNumber(z.number().int().min(1).max(3650).default(365)),
+  /**
+   * Extra hosts server-side HTTP may reach, comma-separated (`hooks.example.com`, `*.corp.example`). The LLM and
+   * embedding endpoints, the git hosts, Stripe (when billing is configured), and SSO issuers are always allowed.
+   */
+  OUTBOUND_ALLOWLIST: optional,
+  /** Refuse outbound HTTP to hosts outside the allowlist (otherwise such calls are allowed and logged). */
+  OUTBOUND_ALLOWLIST_ENFORCE: flag,
+  /** Requests per minute one client address may make to each public sign-in, SSO, and invitation endpoint. */
+  PUBLIC_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(100_000).default(30)),
+  /** Webhook deliveries per minute accepted for one installation (generous: bursts of pushes are normal). */
+  WEBHOOK_RATE_LIMIT_PER_MINUTE: optionalNumber(z.number().int().min(1).max(1_000_000).default(1_200)),
+};
+
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
 const siteShape = {
   /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
@@ -158,6 +177,7 @@ const fields = z.object({
   ...knowledgeShape,
   ...apiShape,
   ...billingShape,
+  ...enterpriseShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -276,4 +296,12 @@ export type BillingEnv = z.infer<typeof billingSchema>;
 /** Plan, usage-limit, and Stripe settings (R4.2, R4.3); parsed on their own so billing needs no GitHub or LLM variables. */
 export function billingEnv(source: Record<string, string | undefined> = process.env): BillingEnv {
   return billingSchema.parse({ ...source, APP_URL: source.APP_URL || undefined });
+}
+
+const enterpriseSchema = z.object(enterpriseShape);
+export type EnterpriseEnv = z.infer<typeof enterpriseSchema>;
+
+/** SSO, audit retention, outbound allowlist, and public rate limits; parsed on their own so tests need no full env. */
+export function enterpriseEnv(source: Record<string, string | undefined> = process.env): EnterpriseEnv {
+  return enterpriseSchema.parse(source);
 }
