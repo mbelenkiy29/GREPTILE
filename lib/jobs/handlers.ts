@@ -1,4 +1,6 @@
 import type { Db } from "@/lib/db";
+import { demoGitHub, runDemoReviewJob } from "@/lib/demo/job";
+import { demoEnv } from "@/lib/env";
 import type { GitHost } from "@/lib/git/types";
 import { indexRepo } from "@/lib/indexer";
 import { afterIndexCompleted, refreshKnowledge } from "@/lib/knowledge";
@@ -51,6 +53,13 @@ export const handlers: Handlers = {
   "mine-rules": (deps, data) => mineRules(deps, data),
   "refresh-knowledge": (deps, data) => refreshKnowledge(deps, data),
   "report-usage": (deps) => reportUsage({ db: deps.db, log: deps.log }),
+  "demo-review": (deps, data) => {
+    const env = demoEnv();
+    return runDemoReviewJob(
+      { db: deps.db, llm: deps.llm, embedder: deps.embedder, env, github: demoGitHub(env), cacheDir: deps.cacheDir, ...(deps.log ? { log: deps.log } : {}) },
+      data,
+    );
+  },
 };
 
 export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta) {

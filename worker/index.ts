@@ -5,6 +5,7 @@
 import { hostname } from "node:os";
 import { DelayedError, Worker } from "bullmq";
 import { pruneDeliveries } from "@/lib/data/deliveries";
+import { purgeDemoData } from "@/lib/demo/purge";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { gitHost } from "@/lib/git/host";
@@ -83,6 +84,13 @@ async function prune() {
     if (removed) wlog.info("pruned webhook deliveries", { removed, retentionDays: e.WEBHOOK_DELIVERY_RETENTION_DAYS });
   } catch (err) {
     wlog.warn("pruning webhook deliveries failed", { error: errorMessage(err) });
+  }
+  // Demo retention (R3.7): results and demo indexes older than DEMO_RETENTION_HOURS.
+  try {
+    const purged = await purgeDemoData(deps.db, { retentionHours: e.DEMO_RETENTION_HOURS, cacheDir: e.REPO_CACHE_DIR });
+    if (purged.reviews || purged.repos) wlog.info("purged demo data", { ...purged, retentionHours: e.DEMO_RETENTION_HOURS });
+  } catch (err) {
+    wlog.warn("purging demo data failed", { error: errorMessage(err) });
   }
 }
 void prune();

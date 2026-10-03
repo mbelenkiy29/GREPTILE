@@ -80,6 +80,8 @@ export interface JobPayloads {
    * on) and usage alert checks for every org with limits.
    */
   "report-usage": { meta?: JobMeta };
+  /** A public "Paste a PR" demo review (R3.7) for a `demo_reviews` row; never writes to GitHub. */
+  "demo-review": { demoId: string; meta?: JobMeta };
 }
 
 export type JobName = keyof JobPayloads;
@@ -102,6 +104,7 @@ export const JOB_PRIORITY: Record<JobName, number> = {
   "mine-rules": 5,
   "refresh-knowledge": 6,
   "report-usage": 7,
+  "demo-review": 8,
 };
 
 /**
