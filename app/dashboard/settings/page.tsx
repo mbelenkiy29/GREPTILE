@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { requireOrg } from "@/lib/auth";
+import { can } from "@/lib/auth/permissions";
 import { resolveEffectiveSettings, type SettingKey } from "@/lib/config/settings";
 import { db } from "@/lib/db";
 import { getOrgSettings } from "@/lib/data/settings";
@@ -40,7 +41,7 @@ function show(v: unknown): string {
 }
 
 export default async function SettingsPage() {
-  const { orgId, orgName } = await requireOrg();
+  const { orgId, orgName, role } = await requireOrg();
   const org = await getOrgSettings(db(), orgId);
   const { settings, sources } = resolveEffectiveSettings(org, undefined, undefined);
   const docs = `${siteEnv().SOURCE_CODE_URL}/blob/main/docs/OPENREVIEW_SPEC.md`;
@@ -54,6 +55,7 @@ export default async function SettingsPage() {
         actions={
           <>
             <ButtonLink href="/dashboard/repos">Repository settings</ButtonLink>
+            {can(role, "apikeys.manage") && <ButtonLink href="/dashboard/settings/api-keys">API keys</ButtonLink>}
             <ButtonLink href={docs} external variant="ghost">
               Settings reference
             </ButtonLink>

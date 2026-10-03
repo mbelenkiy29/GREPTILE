@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Badge, ConfidencePill, humanize, StatusPill } from "@/components/ui/Badge";
 import { CodeBlock } from "@/components/ui/Code";
 import { Icon } from "@/components/ui/icons";
@@ -29,11 +30,14 @@ export function FindingCard({
   repoFullName,
   prNumber,
   githubUrl,
+  actions,
 }: {
   finding: FindingRow;
   repoFullName: string;
   prNumber: number;
   githubUrl?: string;
+  /** Controls shown at the end of the header row (e.g. "Fix with AI"). */
+  actions?: ReactNode;
 }) {
   const note = verificationNote(f.verification);
   return (
@@ -48,6 +52,7 @@ export function FindingCard({
             Not posted{note.heldBack ? `: ${note.heldBack}` : ""}
           </Badge>
         )}
+        {actions && <span style={{ marginLeft: "auto" }}>{actions}</span>}
       </div>
       <h3 className="finding-title" id={`finding-${f.id}-title`}>
         {f.title}

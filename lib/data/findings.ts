@@ -380,6 +380,8 @@ export type FindingSort = (typeof FINDING_SORTS)[number];
  */
 export interface FindingSearch extends PageOptions {
   repoId?: number;
+  /** Findings of one pull request review. */
+  reviewId?: number;
   severity?: string[];
   category?: string[];
   status?: FindingStatus[];
@@ -410,6 +412,7 @@ export async function searchFindings(db: Db, orgId: string, f: FindingSearch = {
     orgId,
     inArray(findings.visibility, f.visibility?.length ? f.visibility : ["published"]),
     f.repoId !== undefined ? eq(findings.repoId, f.repoId) : undefined,
+    f.reviewId !== undefined ? eq(findings.reviewId, f.reviewId) : undefined,
     f.severity?.length ? inArray(findings.severity, f.severity) : undefined,
     f.category?.length ? inArray(findings.category, f.category) : undefined,
     f.status?.length ? inArray(findings.status, f.status) : undefined,

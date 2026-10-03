@@ -22,6 +22,8 @@ export const TOASTS = {
   "delivery.replay_failed": { tone: "error", message: "The replay failed again. The error is shown on the delivery." },
   "delivery.not_replayable": { tone: "warning", message: "That delivery can't be replayed (it didn't fail, or its payload wasn't kept)." },
   "delivery.not_found": { tone: "error", message: "That delivery isn't in this organization." },
+  "apikey.revoked": { tone: "success", message: "API key revoked. Requests using it are refused from now on." },
+  "apikey.not_found": { tone: "warning", message: "That API key isn't active in this organization." },
 } as const satisfies Record<string, { tone: ToastTone; message: string }>;
 
 export type ToastCode = keyof typeof TOASTS;

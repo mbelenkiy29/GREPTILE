@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FixWithAiMenu } from "@/components/fix/FixWithAi";
 import { ConfidencePill, humanize, StatusPill } from "@/components/ui/Badge";
 import { SortHeader, Table } from "@/components/ui/Table";
 import type { FindingListItem } from "@/lib/data/findings";
@@ -34,6 +35,9 @@ export function FindingsTable({
           <SortHeader label="Confidence" field="confidence" {...sort} />
           <th scope="col">Agent</th>
           <SortHeader label="Found" field="date" {...sort} />
+          <th scope="col">
+            <span className="sr-only">Fix with AI</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -72,6 +76,9 @@ export function FindingsTable({
             </td>
             <td className="nowrap">{humanize(f.agent)}</td>
             <td className="nowrap">{formatRelative(f.createdAt, now)}</td>
+            <td>
+              <FixWithAiMenu findingId={f.id} compact />
+            </td>
           </tr>
         ))}
       </tbody>
