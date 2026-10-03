@@ -22,6 +22,16 @@ export const TOASTS = {
   "delivery.replay_failed": { tone: "error", message: "The replay failed again. The error is shown on the delivery." },
   "delivery.not_replayable": { tone: "warning", message: "That delivery can't be replayed (it didn't fail, or its payload wasn't kept)." },
   "delivery.not_found": { tone: "error", message: "That delivery isn't in this organization." },
+  "knowledge.queued": { tone: "success", message: "Knowledge regeneration queued. Entries update as they're regenerated." },
+  "knowledge.busy": { tone: "info", message: "A knowledge refresh is already queued or running for this repository." },
+  "knowledge.saved": { tone: "success", message: "Description saved. Regenerations now propose changes instead of overwriting it." },
+  "knowledge.invalid": { tone: "error", message: "The description must be non-empty Markdown under 1,500 words." },
+  "knowledge.accepted": { tone: "success", message: "Proposed description accepted." },
+  "knowledge.rejected": { tone: "info", message: "Proposed description discarded. Your text is kept." },
+  "knowledge.no_proposal": { tone: "warning", message: "That entry has no proposed description to review." },
+  "knowledge.not_found": { tone: "error", message: "That knowledge entry isn't in this organization." },
+  "knowledge.disabled": { tone: "warning", message: "The knowledge base is turned off for this deployment (KNOWLEDGE_ENABLED)." },
+  "knowledge.not_indexed": { tone: "warning", message: "Index the repository first; knowledge is generated from the index." },
 } as const satisfies Record<string, { tone: ToastTone; message: string }>;
 
 export type ToastCode = keyof typeof TOASTS;

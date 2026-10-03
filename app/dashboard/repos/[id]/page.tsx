@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DeliveriesTable } from "@/components/dashboard/DeliveriesTable";
+import { KnowledgeGrid, KnowledgeRunNotice } from "@/components/dashboard/KnowledgeGrid";
 import { IndexStatus } from "@/components/dashboard/IndexStatus";
 import { InstallationHealth } from "@/components/dashboard/InstallationHealth";
 import { RepoActions } from "@/components/dashboard/RepoActions";
@@ -25,6 +26,7 @@ import { CONFIG_FILE } from "@/lib/config/repo-config";
 import { resolveEffectiveSettings } from "@/lib/config/settings";
 import { db } from "@/lib/db";
 import { listDeliveries } from "@/lib/data/deliveries";
+import { knowledgeEnabled, latestKnowledgeRuns, listKnowledgeEntries } from "@/lib/data/knowledge";
 import { activeIndexJobs } from "@/lib/data/overview";
 import { getRepoDetail } from "@/lib/data/repos";
 import { listReviewPage } from "@/lib/data/reviews";
@@ -40,7 +42,7 @@ import { cancelIndex, reindexRepo, saveRepoSettings, toggleRepo } from "../actio
 
 export const metadata: Metadata = { title: "Repository" };
 
-const TABS = ["overview", "settings", "rules", "activity"] as const;
+const TABS = ["overview", "knowledge", "settings", "rules", "activity"] as const;
 type Tab = (typeof TABS)[number];
 
 /** The configured GitHub host, or undefined when the GitHub App isn't configured (the page still renders). */
@@ -101,11 +103,13 @@ export default async function RepoPage({ params, searchParams }: { params: Promi
       <InstallationHealth installations={unhealthy} />
       <Tabs label="Repository sections" pathname={path} state={state} current={tab} tabs={[
         { id: "overview", label: "Overview" },
+        { id: "knowledge", label: "Knowledge" },
         { id: "settings", label: "Settings" },
         { id: "rules", label: "Rules" },
         { id: "activity", label: "Activity" },
       ]} />
       {tab === "overview" && <OverviewTab orgId={orgId} repoId={repo.id} detail={detail} state={state} path={path} githubUrl={githubUrl} />}
+      {tab === "knowledge" && <KnowledgeTab orgId={orgId} repoId={repo.id} indexed={Boolean(repo.indexedSha)} />}
       {tab === "settings" && <SettingsTab orgId={orgId} repoId={repo.id} editable={can(role, "settings.manage")} />}
       {tab === "rules" && <RulesTab orgId={orgId} repoId={repo.id} />}
       {tab === "activity" && <ActivityTab orgId={orgId} repoId={repo.id} page={intParam(sp, "page")} state={state} path={path} />}
@@ -275,6 +279,46 @@ async function OverviewTab({
         )}
       </section>
     </>
+  );
+}
+
+async function KnowledgeTab({ orgId, repoId, indexed }: { orgId: string; repoId: number; indexed: boolean }) {
+  const [entries, runs] = await Promise.all([listKnowledgeEntries(db(), orgId, repoId, { pageSize: 12 }), latestKnowledgeRuns(db(), orgId, repoId)]);
+  const now = new Date();
+  return (
+    <div className="stack-md">
+      <div className="page-head">
+        <p className="dim">Subsystem notes generated from this repository&apos;s index and used as review context.</p>
+        <ButtonLink href={`/dashboard/knowledge?repo=${repoId}`} size="sm" icon="knowledge">
+          Open knowledge base
+        </ButtonLink>
+      </div>
+      {!knowledgeEnabled() ? (
+        <EmptyState icon="knowledge" title="The knowledge base is turned off" headingLevel={3}>
+          <p>
+            This deployment sets <code>KNOWLEDGE_ENABLED=false</code>.
+          </p>
+        </EmptyState>
+      ) : !indexed ? (
+        <EmptyState icon="knowledge" title="Not indexed yet" headingLevel={3}>
+          <p>Knowledge entries are generated once the first index run completes.</p>
+        </EmptyState>
+      ) : (
+        <>
+          <KnowledgeRunNotice run={runs.latest} now={now} />
+          {entries.items.length ? (
+            <KnowledgeGrid entries={entries.items} now={now} />
+          ) : (
+            <EmptyState icon="knowledge" title="No knowledge entries yet" headingLevel={3}>
+              <p>Entries are generated after indexing completes.</p>
+            </EmptyState>
+          )}
+          {entries.total > entries.items.length && (
+            <Link href={`/dashboard/knowledge?repo=${repoId}`}>All {entries.total} entries</Link>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

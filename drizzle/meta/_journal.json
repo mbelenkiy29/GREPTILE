@@ -134,6 +134,13 @@
       "when": 1790993922060,
       "tag": "0018_dashboard_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790994840641,
+      "tag": "0019_knowledge_base",
+      "breakpoints": true
     }
   ]
 }

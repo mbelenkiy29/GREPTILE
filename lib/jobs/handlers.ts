@@ -1,6 +1,7 @@
 import type { Db } from "@/lib/db";
 import type { GitHost } from "@/lib/git/types";
 import { indexRepo } from "@/lib/indexer";
+import { afterIndexCompleted, refreshKnowledge } from "@/lib/knowledge";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { syncFeedback } from "@/lib/learning";
 import { mineRules } from "@/lib/learning/mining";
@@ -33,13 +34,18 @@ export interface RunMeta {
 type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N], meta?: RunMeta) => Promise<unknown> };
 
 export const handlers: Handlers = {
-  "index-repo": (deps, data, meta) =>
+  "index-repo": async (deps, data, meta) => {
     // A default-branch switch re-indexes the newly indexed branch, which the index records as a push.
-    indexRepo(deps, { ...data, trigger: data.trigger === "default_branch" ? "push" : data.trigger, queueJobId: meta?.queueJobId }),
+    const result = await indexRepo(deps, { ...data, trigger: data.trigger === "default_branch" ? "push" : data.trigger, queueJobId: meta?.queueJobId });
+    // A completed index with changes refreshes the knowledge base (R6.12).
+    await afterIndexCompleted(deps, { orgId: data.orgId, repoId: data.repoId, meta: data.meta }, result);
+    return result;
+  },
   "review-pr": (deps, data, meta) => runReviewJob(deps, data, meta),
   "answer-mention": (deps, data) => answerMention(deps, data),
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
   "mine-rules": (deps, data) => mineRules(deps, data),
+  "refresh-knowledge": (deps, data) => refreshKnowledge(deps, data),
 };
 
 export function runJob<N extends JobName>(deps: JobDeps, name: N, data: JobPayloads[N], meta?: RunMeta) {

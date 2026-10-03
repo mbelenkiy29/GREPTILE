@@ -19,6 +19,7 @@ export type ContextKind =
   | "doc"
   | "instructions"
   | "context_doc"
+  | "knowledge"
   | "recent_change"
   | "history"
   | "rule";
