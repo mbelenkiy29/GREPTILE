@@ -14,6 +14,15 @@ export interface LearnedItem {
   kind?: "pattern" | "category";
   source?: "feedback" | "reply" | "command" | "human_rule";
   confidenceDelta?: number;
+  /** Feedback signals folded into the preference (R6.10). */
+  evidenceCount?: number;
+  lastSignalAt?: string | Date | null;
+}
+
+function lastSignal(at: string | Date | null | undefined): string | null {
+  if (!at) return null;
+  const d = typeof at === "string" ? new Date(at) : at;
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 const SOURCE_LABEL = { feedback: "from feedback", reply: "from replies", command: "from a command", human_rule: "written by a person" } as const;
@@ -42,6 +51,13 @@ export function LearnedList({ items, actions }: { items: LearnedItem[]; actions?
             {i.kind === "category" && i.signal === "suppress" && (i.confidenceDelta ?? 0) > 0 && (
               <span className="dim">minimum confidence +{(i.confidenceDelta ?? 0).toFixed(2)}</span>
             )}
+            {i.evidenceCount !== undefined && (
+              <span className="dim">
+                {i.evidenceCount} signal{i.evidenceCount === 1 ? "" : "s"}
+                {lastSignal(i.lastSignalAt) ? ` · last ${lastSignal(i.lastSignalAt)}` : ""}
+              </span>
+            )}
+            {i.userEdited && <span className="badge badge-accent">Pinned</span>}
           </div>
           <div className="strong">{i.description}</div>
           {i.examples.length > 0 && (

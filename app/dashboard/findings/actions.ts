@@ -15,6 +15,7 @@ export async function giveFindingFeedback(formData: FormData): Promise<ActionRes
     const input = parseFeedbackForm(formData);
     const result = await submitFindingFeedback(db(), { ...input, orgId, userId, source: "dashboard" });
     revalidatePath("/dashboard/findings");
+    revalidatePath("/dashboard/reviews", "layout");
     revalidatePath("/dashboard/learned");
     return { ok: true, ...result };
   } catch (err) {
@@ -24,14 +25,15 @@ export async function giveFindingFeedback(formData: FormData): Promise<ActionRes
 }
 
 /** Takes back the signed-in user's own feedback (`feedbackId`). */
-export async function retractFindingFeedback(formData: FormData): Promise<ActionResult<{ retracted: boolean }>> {
+export async function retractFindingFeedback(formData: FormData): Promise<ActionResult<{ retracted: boolean; status?: string }>> {
   const { orgId, userId } = await requireOrg({ permission: "findings.feedback" });
   const feedbackId = Number(formData.get("feedbackId"));
   if (!Number.isInteger(feedbackId) || feedbackId <= 0) return { ok: false, error: "Invalid feedback." };
   const res = await retractFeedback(db(), { orgId, feedbackId, userId });
   revalidatePath("/dashboard/findings");
+  revalidatePath("/dashboard/reviews", "layout");
   revalidatePath("/dashboard/learned");
-  return { ok: true, retracted: res.retracted };
+  return { ok: true, retracted: res.retracted, ...(res.finding ? { status: res.finding.status } : {}) };
 }
 
 /** Forgets learned preferences (R6.10): the org's or one repository's, keeping pinned ones unless asked. */
