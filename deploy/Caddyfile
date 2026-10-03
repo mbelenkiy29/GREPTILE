@@ -1,0 +1,12 @@
+# Reverse proxy with automatic HTTPS for OpenReview (used by deploy/docker-compose.prod.yml).
+#
+# Caddy obtains and renews a Let's Encrypt certificate for $OPENREVIEW_DOMAIN on its own; the domain's DNS A/AAAA
+# records must point at this server and ports 80 and 443 must be reachable. Set APP_URL=https://$OPENREVIEW_DOMAIN.
+#
+# Caddy sets X-Forwarded-For to the connecting client's address, which is what OpenReview's per-address rate limits
+# read (the last hop). Keep Caddy the only proxy in front of the app, or configure `trusted_proxies` here.
+
+{$OPENREVIEW_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

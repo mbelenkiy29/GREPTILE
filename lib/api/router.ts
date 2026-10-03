@@ -36,8 +36,11 @@ export interface ApiDeps {
   readFile?: FixFileReader;
   /** Embeds codebase-search questions for semantic matches; without it search uses symbols, paths, and full text. */
   embedder?: EmbeddingProvider;
-  /** The review engine's model gateway and embedder, for reviews the API runs itself (`POST /reviews/local`, R3.5). */
-  reviewEngine?: () => ReviewEngineDeps;
+  /**
+   * The review engine's model gateway and embedder for one org, for reviews the API runs itself (`POST /reviews/local`,
+   * R3.5). Production uses the org's own model provider when it configured one (R4.6), see `orgReviewEngine`.
+   */
+  reviewEngine?: (orgId: string) => ReviewEngineDeps | Promise<ReviewEngineDeps>;
   /** How long `POST /reviews/local` may run before it is aborted. */
   localReviewTimeoutMs?: number;
   log?: Logger;

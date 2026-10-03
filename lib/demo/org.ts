@@ -9,8 +9,9 @@ import { installations, orgs, repos } from "@/lib/db/schema";
 import { scoped } from "@/lib/data/tenant";
 import type { PublicRepo } from "./github";
 
-export const DEMO_ORG_ID = "org_demo";
-export const DEMO_PROVIDER = "public-demo";
+import { DEMO_ORG_ID, DEMO_PROVIDER } from "./ids";
+
+export { DEMO_ORG_ID, DEMO_PROVIDER };
 
 /** Creates the demo org and its placeholder installation if needed; returns the installation id. */
 export async function ensureDemoOrg(db: Db): Promise<number> {

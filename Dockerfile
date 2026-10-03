@@ -22,6 +22,7 @@ FROM base AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/cli/node_modules ./packages/cli/node_modules
+COPY --from=deps /app/packages/mcp/node_modules ./packages/mcp/node_modules
 COPY . .
 RUN pnpm build
 
@@ -31,6 +32,7 @@ RUN apk add --no-cache git
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/cli/node_modules ./packages/cli/node_modules
+COPY --from=deps /app/packages/mcp/node_modules ./packages/mcp/node_modules
 COPY . .
 RUN addgroup -S app && adduser -S app -G app && mkdir -p /data/repos && chown app:app /data/repos
 USER app

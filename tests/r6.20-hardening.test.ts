@@ -33,8 +33,9 @@ const STACK = /\bat \S+ \(|\.ts:\d+:\d+|node_modules|Error: /;
 describe("security headers", () => {
   test("R6.20 security headers are set on every page and API route", async () => {
     const rules = await nextConfig.headers!();
-    expect(rules).toHaveLength(1);
-    expect(rules[0]!.source).toBe("/:path*");
+    // One rule for every route, plus no-store / no-referrer for the GitHub App setup pages (R6.25).
+    expect(rules.map((r) => r.source)).toEqual(["/:path*", "/setup/:path*"]);
+    expect(Object.fromEntries(rules[1]!.headers.map((h) => [h.key, h.value]))).toEqual({ "Cache-Control": "no-store, max-age=0", "Referrer-Policy": "no-referrer" });
     const headers = Object.fromEntries(rules[0]!.headers.map((h) => [h.key.toLowerCase(), h.value]));
     expect(headers["x-frame-options"]).toBe("DENY");
     expect(headers["x-content-type-options"]).toBe("nosniff");

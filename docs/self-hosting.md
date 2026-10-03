@@ -1,8 +1,162 @@
-# Self-hosting: enterprise features and offline operation
+# Self-hosting
 
-This page covers the parts of a self-hosted OpenReview install that larger teams need: single sign-on, the audit log,
-bring-your-own model provider per organization, and running with no outbound traffic except the LLM and git host.
-Every variable mentioned here is listed, with its default, in `.env.example`.
+OpenReview runs on one server with Docker Compose: the web app, the worker, PostgreSQL with pgvector, and Redis. This
+page walks through a production install on a single server (a DigitalOcean Droplet is the reference target; any Linux
+host with Docker works), then covers TLS, backups, upgrades, scaling, and the features larger teams need: offline
+operation, single sign-on, the audit log, and per-organization model providers. Every variable mentioned here is
+listed in [`.env.example`](../.env.example) and explained in [configuration](configuration.md).
+
+## What you need
+
+- A Linux server with Docker Engine and the Docker Compose plugin.
+- A domain name whose DNS you control (for HTTPS and GitHub webhooks).
+- A model provider: an Anthropic API key (default), or OpenAI, OpenRouter, or an OpenAI-compatible server
+  ([models](models.md)).
+- An embedding endpoint (OpenAI by default, or any OpenAI-compatible embedding server): indexing embeds every symbol.
+- A GitHub account or organization where you can create a GitHub App (or GitLab / Bitbucket Cloud credentials).
+
+**Server size.** These are starting points, not measured limits; watch memory and disk and resize as needed.
+
+| Team | Droplet | Disk |
+| --- | --- | --- |
+| Trying it out, a few small repositories | 2 vCPU, 4 GB RAM | 50 GB |
+| A team with tens of active repositories | 4 vCPU, 8 GB RAM | 100 GB |
+| Many large repositories or several workers | 8 vCPU, 16 GB RAM | 200 GB+ |
+
+Postgres holds the code index (symbols, chunks, embeddings) of every repository, and the worker keeps a checkout of
+each repository in the `repocache` volume, so disk grows with the size of the indexed code. Building the images
+(`docker compose build`) needs about as much memory as the largest row's workload; on a 4 GB server add swap first.
+Model calls run at the provider, so CPU mostly goes to parsing during indexing.
+
+## Install on a single server
+
+1. **Create the server** (Ubuntu LTS) and point DNS at it: an `A` (and `AAAA`, if you use IPv6) record for, say,
+   `review.example.com`. Allow inbound TCP 22, 80, and 443 (and UDP 443 for HTTP/3) in the firewall.
+2. **Install Docker Engine and the Compose plugin** following Docker's instructions for your distribution
+   (<https://docs.docker.com/engine/install/ubuntu/>), then check with `docker compose version`.
+3. **Get OpenReview and configure it:**
+
+   ```sh
+   git clone https://github.com/openreview/openreview.git /opt/openreview && cd /opt/openreview
+   cp .env.example .env
+   ```
+
+   Edit `.env` and set at least:
+
+   ```sh
+   APP_URL=https://review.example.com
+   OPENREVIEW_DOMAIN=review.example.com
+   APP_SECRET=<openssl rand -base64 32>
+   ENCRYPTION_KEY=<openssl rand -base64 32>
+   POSTGRES_PASSWORD=<openssl rand -hex 24>
+   ANTHROPIC_API_KEY=<your key>          # or LLM_PROVIDER / LLM_MODEL / LLM_API_KEY
+   EMBEDDING_API_KEY=<your OpenAI key>   # or EMBEDDING_PROVIDER=openai-compatible + EMBEDDING_BASE_URL + EMBEDDING_MODEL
+   ```
+
+   `NODE_ENV`, `DATABASE_URL`, and `REDIS_URL` in `.env` are ignored inside the containers (Compose sets them).
+4. **Start it** with the production override, which adds Caddy for HTTPS:
+
+   ```sh
+   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml ps
+   ```
+
+   The first start builds the images, creates the database, and applies migrations. `postgres`, `redis`, and `app`
+   become healthy; the `worker` restarts until the GitHub App variables exist (next step).
+5. **Create the GitHub App** right away at `https://review.example.com/setup/github-app` (it is open only until
+   someone signs in or an App is configured), paste the credentials it shows into `.env`, and run the same
+   `up -d` command again. See [GitHub App setup](github-app.md). For GitLab or Bitbucket Cloud see
+   [GitLab](gitlab.md) and [Bitbucket](bitbucket.md).
+6. **Sign in** with GitHub at `https://review.example.com`, finish onboarding, and install the App on your
+   repositories. Indexing starts immediately; the first review runs on the next pull request.
+
+To avoid typing both `-f` flags every time, put `COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.prod.yml` in
+the shell environment (or in `.env`; Docker Compose reads it from there too), then use plain `docker compose …`.
+
+### What the production override changes
+
+[`deploy/docker-compose.prod.yml`](../deploy/docker-compose.prod.yml):
+
+- adds `caddy` ([`deploy/Caddyfile`](../deploy/Caddyfile)), the only service listening publicly (80 and 443). Caddy
+  obtains and renews a Let's Encrypt certificate for `OPENREVIEW_DOMAIN` automatically (DNS must point at the server
+  and port 80 must be reachable), redirects http to https, compresses responses, and proxies to `app:3000`;
+- publishes the app on `127.0.0.1:${APP_PORT}` only: Docker-published ports bypass host firewalls such as `ufw`, so
+  the app must not listen on the public interface;
+- sets `restart: unless-stopped` on every service and rotates container logs (`json-file`, 10 MB × 5 files).
+
+Caddy sets `X-Forwarded-For` to the connecting client's address, which is what OpenReview's per-address rate limits
+read. Keep Caddy the only proxy in front of the app (or configure `trusted_proxies` in the Caddyfile if you add a load
+balancer in front of it).
+
+Without the override (`docker compose up -d`), the app listens on port `APP_PORT` (3000) over plain http, which is
+fine on a laptop or behind your own TLS proxy. Sign-in cookies are `Secure` in production, so browsers only keep them
+over https (or on `localhost`).
+
+### Health checks
+
+- `app`: `GET /api/health` must answer `200` (Postgres and Redis reachable). It also reports the newest worker
+  heartbeat for information.
+- `worker`: `worker/healthcheck.ts` checks that this container's worker refreshed its Redis heartbeat (every 15 s).
+- `postgres` (`pg_isready`) and `redis` (`redis-cli ping`).
+
+The worker starts only after the app is healthy, so migrations have run before any job does.
+
+## Backups
+
+All state worth keeping is in PostgreSQL. Redis holds the job queue (review runs whose job was lost are re-queued by the
+worker's recovery sweep; a lost indexing job can be started again from the repository menu), and the `repocache`
+volume is refilled by fetching. Back up Postgres with
+[`deploy/backup.sh`](../deploy/backup.sh), which runs `pg_dump --format=custom` inside the `postgres` container (no
+credentials on the command line), writes `openreview-<UTC timestamp>.dump`, and deletes dumps older than the
+retention:
+
+```sh
+deploy/backup.sh /var/backups/openreview 14     # directory (default ./backups), days to keep (default 14)
+```
+
+Run it daily from cron (as a user that can run `docker`):
+
+```cron
+17 3 * * * /opt/openreview/deploy/backup.sh /var/backups/openreview 14 >> /var/log/openreview-backup.log 2>&1
+```
+
+Copy the backup directory off the server (object storage or another host): a backup on the same disk does not survive
+losing the server. Keep `.env` (especially `APP_SECRET` and `ENCRYPTION_KEY`) somewhere safe as well; encrypted
+secrets in the database cannot be read without them.
+
+Restore into a fresh install (same version or older dump):
+
+```sh
+docker compose up -d postgres
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < openreview-20260101T031700Z.dump
+docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+```
+
+## Upgrades
+
+```sh
+cd /opt/openreview
+deploy/backup.sh                       # always back up first
+git pull                               # or check out a release tag
+docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+```
+
+Database migrations run automatically when the new app container starts (`RUN_MIGRATIONS=true`, applied by
+`instrumentation.ts` before the server takes traffic; concurrent starts are safe). The worker waits for the app to be
+healthy, and a stopping worker gets five minutes (`stop_grace_period`) to finish running reviews; anything it could not
+finish is re-queued by recovery. Read the release notes for new variables (`.env.example` lists them all).
+
+## Scaling
+
+- **More jobs per worker:** raise `WORKER_CONCURRENCY` (default 4) if the server has spare CPU and the model
+  provider's rate limits allow it.
+- **More workers:** `docker compose … up -d --scale worker=3`. Workers share the queue and the `repocache` volume;
+  indexing of one repository is serialized by a Postgres advisory lock, and a review is claimed by exactly one worker.
+- **A separate database:** a managed PostgreSQL 16 with the `vector` extension available (for example DigitalOcean
+  Managed PostgreSQL) works. `docker-compose.yml` sets `DATABASE_URL` for the app and worker (it takes precedence over
+  `.env`), so set yours in a compose override file and drop their dependency on the `postgres` service.
+- Index size grows with code size; vector search uses HNSW indexes on `symbols.embedding` and
+  `file_chunks.embedding`.
 
 ## Offline / air-gapped
 
@@ -29,7 +183,11 @@ Run the offline bundle with the override file:
 docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
 ```
 
-It turns enforcement on, keeps Next.js telemetry off (`NEXT_TELEMETRY_DISABLED=1`, also set in the image), and puts
+With HTTPS through Caddy, add the production override as the last file:
+`docker compose -f docker-compose.yml -f docker-compose.offline.yml -f deploy/docker-compose.prod.yml up -d` (Caddy
+itself needs outbound access to Let's Encrypt to obtain certificates).
+
+The offline override turns enforcement on, keeps Next.js telemetry off (`NEXT_TELEMETRY_DISABLED=1`, also set in the image), and puts
 Postgres and Redis on an internal network with no route out. For a fully local model, point `LLM_BASE_URL` (and
 `EMBEDDING_BASE_URL`) at an OpenAI-compatible server on your network, such as vLLM or Ollama.
 
@@ -94,3 +252,7 @@ allows `WEBHOOK_RATE_LIMIT_PER_MINUTE` signed deliveries per installation per mi
 Every response carries a Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy`, `Permissions-Policy`, and (in production builds) `Strict-Transport-Security`. See `SECURITY.md`
 for the threat model.
+
+## Troubleshooting
+
+See [troubleshooting](troubleshooting.md) for webhook, permission, indexing, model, rate-limit, and SSO problems.

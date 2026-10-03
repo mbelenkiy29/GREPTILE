@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in OpenReview does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not include secrets (API keys, private keys, webhook secrets, tokens) or private
+        source code. Security vulnerabilities go to a private advisory instead (see SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release tag or commit you run (the dashboard footer links the source).
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Reviews and findings
+        - Indexing and retrieval
+        - Webhooks and git hosts (GitHub, GitLab, Bitbucket)
+        - Dashboard and settings
+        - Sign-in, SSO, and members
+        - REST API, MCP, or CLI
+        - Models and usage
+        - Deployment (Docker, Caddy, backups)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: How you run OpenReview (Docker Compose with or without the production or offline override, local development), git host, model provider (LLM_PROVIDER), and anything else relevant.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log lines from `docker compose logs app worker` (JSON). Secrets are redacted by the logger, but check before pasting.
+      render: shell

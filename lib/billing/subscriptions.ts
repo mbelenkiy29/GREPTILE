@@ -11,6 +11,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { billingAccounts, billingEvents, billingUsageReports } from "@/lib/db/schema";
+import { isSystemOrg } from "@/lib/demo/ids";
 import { activeDevelopers, periodTotals } from "@/lib/data/usage";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 import { calendarPeriod, getBillingAccount, hasPaidPlan, usagePeriod, type BillingAccount } from "./account";
@@ -266,7 +267,7 @@ export async function reportOverage(deps: BillingDeps, orgId: string): Promise<{
 export async function syncAllSubscriptions(deps: BillingDeps): Promise<{ orgs: number; failed: number }> {
   enabled(deps);
   const log = deps.log ?? rootLog;
-  const accounts = await deps.db.select().from(billingAccounts).where(eq(billingAccounts.plan, "team"));
+  const accounts = (await deps.db.select().from(billingAccounts).where(eq(billingAccounts.plan, "team"))).filter((a) => !isSystemOrg(a.orgId));
   let failed = 0;
   let orgs = 0;
   for (const account of accounts.filter((a) => hasPaidPlan(a))) {

@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@10.28.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "scripts": {
     "dev": "next dev",
@@ -15,11 +15,11 @@
     "lint": "eslint .",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts",
     "verify:parity": "tsx scripts/verify-parity.ts",
-    "worker": "tsx worker/index.ts",
-    "demo": "tsx scripts/demo.ts",
-    "eval": "tsx scripts/eval.ts",
+    "worker": "tsx --env-file-if-exists=.env worker/index.ts",
+    "demo": "tsx --env-file-if-exists=.env scripts/demo.ts",
+    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts",
     "mcp:build": "pnpm --filter openreview-mcp build",
     "cli:build": "pnpm --filter openreview build",
     "deps:audit": "pnpm audit --prod --audit-level=high"

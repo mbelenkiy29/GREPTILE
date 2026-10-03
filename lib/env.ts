@@ -200,6 +200,15 @@ const siteShape = {
   GITHUB_WEB_URL: z.string().url().default("https://github.com"),
 };
 
+/**
+ * GitHub App setup page (R6.25); also parsed on their own by `setupEnv()`, which must work before the GitHub App
+ * variables exist. `INSTANCE_ADMIN_EMAILS` names the instance admins (comma-separated, case-insensitive); empty means
+ * the first user who signed in.
+ */
+const setupShape = {
+  INSTANCE_ADMIN_EMAILS: optional,
+};
+
 const fields = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_URL: z.string().url().default("http://localhost:3000"),
@@ -247,6 +256,7 @@ const fields = z.object({
   ...sandboxShape,
   ...demoShape,
   ...localModeShape,
+  ...setupShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -419,4 +429,35 @@ export type DemoEnv = z.infer<typeof demoSchema>;
 /** Public demo settings (R3.7); parsed on their own so the demo pages and job need no GitHub App variables. */
 export function demoEnv(source: Record<string, string | undefined> = process.env): DemoEnv {
   return demoSchema.parse(source);
+}
+
+const setupSchema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  APP_URL: z.string().url().default("http://localhost:3000"),
+  /** Optional here so the page can explain that it is missing instead of failing. */
+  APP_SECRET: z.string().min(16).optional().catch(undefined),
+  GITHUB_API_URL: z.string().url().default("https://api.github.com"),
+  GITHUB_WEB_URL: siteShape.GITHUB_WEB_URL,
+  GITHUB_APP_ID: optional,
+  GITHUB_APP_SLUG: optional,
+  GITHUB_APP_PRIVATE_KEY: optional,
+  GITHUB_WEBHOOK_SECRET: optional,
+  ...setupShape,
+});
+export type SetupEnv = z.infer<typeof setupSchema>;
+
+/** GitHub App setup settings (R6.25); parsed on their own because the page runs before the App is configured. */
+export function setupEnv(source: Record<string, string | undefined> = process.env): SetupEnv {
+  return setupSchema.parse({
+    NODE_ENV: source.NODE_ENV || undefined,
+    APP_URL: source.APP_URL || undefined,
+    APP_SECRET: source.APP_SECRET || undefined,
+    GITHUB_API_URL: source.GITHUB_API_URL || undefined,
+    GITHUB_WEB_URL: source.GITHUB_WEB_URL || undefined,
+    GITHUB_APP_ID: source.GITHUB_APP_ID,
+    GITHUB_APP_SLUG: source.GITHUB_APP_SLUG,
+    GITHUB_APP_PRIVATE_KEY: source.GITHUB_APP_PRIVATE_KEY,
+    GITHUB_WEBHOOK_SECRET: source.GITHUB_WEBHOOK_SECRET,
+    INSTANCE_ADMIN_EMAILS: source.INSTANCE_ADMIN_EMAILS,
+  });
 }

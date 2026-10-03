@@ -12,9 +12,10 @@
  */
 import { createOutboundFetch } from "@/lib/net/fetch";
 import { createHmac } from "node:crypto";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, notInArray } from "drizzle-orm";
 import type { Db } from "@/lib/db";
 import { orgs, usageAlerts, usageSettings } from "@/lib/db/schema";
+import { isSystemOrg, SYSTEM_ORG_IDS } from "@/lib/demo/ids";
 import { periodTotals } from "@/lib/data/usage";
 import type { HostResolver } from "@/lib/llm/endpoint-guard";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
@@ -200,11 +201,14 @@ async function deliverAlert(
   }
 }
 
-/** Orgs whose alerts need checking on the hourly sweep: any with a cap or a webhook set (all orgs when billing is on). */
+/**
+ * Orgs whose alerts need checking on the hourly sweep: any with a cap or a webhook set (all orgs when billing is on).
+ * System orgs (the public demo's `org_demo`) are never customers and are skipped.
+ */
 export async function orgsWithUsageLimits(db: Db, cfg: BillingConfig): Promise<string[]> {
-  if (cfg.enabled) return (await db.select({ id: orgs.id }).from(orgs)).map((o) => o.id);
+  if (cfg.enabled) return (await db.select({ id: orgs.id }).from(orgs).where(notInArray(orgs.id, [...SYSTEM_ORG_IDS]))).map((o) => o.id);
   const rows = await db.select({ orgId: usageSettings.orgId, credit: usageSettings.monthlyCreditCap, cost: usageSettings.monthlyCostCapUsd }).from(usageSettings);
-  return rows.filter((r) => r.credit !== null || r.cost !== null).map((r) => r.orgId);
+  return rows.filter((r) => (r.credit !== null || r.cost !== null) && !isSystemOrg(r.orgId)).map((r) => r.orgId);
 }
 
 /** Alerts that fired for the org since `since`, newest first (settings page history). */

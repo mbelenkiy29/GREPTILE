@@ -1,8 +1,13 @@
+import { DEMO_PROVIDER } from "@/lib/demo/ids";
 import type { GitClient, GitHost, RemoteInstallation, RemoteRepo } from "./types";
 
 export class UnsupportedProviderError extends Error {
   constructor(readonly provider: string) {
-    super(`no git host is configured for provider "${provider}"`);
+    super(
+      provider === DEMO_PROVIDER
+        ? `the public demo's placeholder installation (provider "${provider}") has no git host`
+        : `no git host is configured for provider "${provider}"`,
+    );
     this.name = "UnsupportedProviderError";
   }
 }
@@ -23,6 +28,7 @@ export class GitHosts implements GitHost {
   }
 
   forProvider(provider: string): GitHost {
+    if (provider === DEMO_PROVIDER) throw new UnsupportedProviderError(provider);
     if (provider === this.primary.provider) return this.primary;
     const host = this.others[provider];
     if (!host) throw new UnsupportedProviderError(provider);
@@ -47,6 +53,8 @@ export class GitHosts implements GitHost {
  * itself when it is that provider's host (tests pass a single host).
  */
 export function hostFor(host: GitHost, provider: string): GitHost {
+  // The demo org's installation (R3.7) only anchors its repos; it never talks to a git host.
+  if (provider === DEMO_PROVIDER) throw new UnsupportedProviderError(provider);
   if (host instanceof GitHosts) return host.forProvider(provider);
   if (host.provider === provider) return host;
   throw new UnsupportedProviderError(provider);

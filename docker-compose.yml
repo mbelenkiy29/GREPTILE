@@ -29,6 +29,7 @@ services:
       timeout: 3s
       retries: 10
 
+  # Web app: dashboard, API, webhooks. Applies database migrations on start (RUN_MIGRATIONS).
   app:
     build:
       context: .
@@ -40,6 +41,8 @@ services:
       - path: .env
         required: false
     environment:
+      # Containers always run as production (`.env.example` says development for `pnpm dev`).
+      NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-openreview}:${POSTGRES_PASSWORD:-openreview}@postgres:5432/${POSTGRES_DB:-openreview}
       REDIS_URL: redis://redis:6379
     ports:
@@ -62,12 +65,15 @@ services:
       target: worker
       secrets:
         - extra_ca
-    # Needs the GitHub App and LLM variables from .env; see .env.example.
+    # Needs APP_SECRET, the GitHub App, LLM, and embedding variables from .env; see .env.example and
+    # docs/configuration.md. Until the GitHub App is configured (/setup/github-app) it exits and restarts.
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
+      # Containers always run as production (`.env.example` says development for `pnpm dev`).
+      NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-openreview}:${POSTGRES_PASSWORD:-openreview}@postgres:5432/${POSTGRES_DB:-openreview}
       REDIS_URL: redis://redis:6379
       REPO_CACHE_DIR: /data/repos

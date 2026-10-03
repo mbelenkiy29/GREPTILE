@@ -21,3 +21,5 @@ packages/*/dist/
 
 # Evaluation reports written by `pnpm eval` (R6.24)
 eval/reports/
+# deploy/backup.sh default output
+/backups/
