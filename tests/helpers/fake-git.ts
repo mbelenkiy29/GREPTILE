@@ -1,11 +1,14 @@
 import type {
   ChangedFile,
+  CheckRun,
   GitClient,
   GitHost,
   IssueComment,
   NewInlineComment,
   PullRequest,
+  PullRequestCommit,
   PullRequestFile,
+  PullRequestReview,
   RemoteInstallation,
   RemoteRepo,
   ReviewComment,
@@ -38,9 +41,19 @@ export class FakeGitHost implements GitHost {
   reviewComments = new Map<string, ReviewComment[]>();
   reactions = new Map<number, { id: number; content: string; user: string }[]>();
   reviews: { repo: string; number: number; commitId: string; body: string; comments: NewInlineComment[] }[] = [];
+  /** PR commits, keyed by `repo#number`. */
+  commits = new Map<string, PullRequestCommit[]>();
+  /** Reviews submitted by people (OpenReview's own reviews come from `reviews`), keyed by `repo#number`. */
+  humanReviews = new Map<string, PullRequestReview[]>();
+  /** CI check runs, keyed by `repo@sha`. */
+  checkRuns = new Map<string, CheckRun[]>();
+  /** Every inline-comment edit, in order. */
+  commentEdits: { id: number; body: string }[] = [];
   /** Optional source of file contents at any ref (e.g. backed by a fixture git repo). */
   contentAt?: (repo: string, path: string, ref: string) => string | null;
   treeAt?: (repo: string, ref: string) => string[];
+  /** Optional source of `compareCommits` results not registered in `compares`. */
+  compareAt?: (repo: string, base: string, head: string) => ChangedFile[];
   private nextId = 1000;
 
   /** Registers an installation; it reports every permission OpenReview needs unless `extra` says otherwise. */
@@ -101,7 +114,7 @@ export class FakeGitHost implements GitHost {
         return this.contentAt?.(repo, path, ref) ?? null;
       },
       listTree: async (repo, ref) => this.treeAt?.(repo, ref) ?? [],
-      compareCommits: async (repo, base, head) => this.compares.get(`${repo}@${base}...${head}`) ?? [],
+      compareCommits: async (repo, base, head) => this.compares.get(`${repo}@${base}...${head}`) ?? this.compareAt?.(repo, base, head) ?? [],
       listIssueComments: async (repo, n) => this.issueComments.get(key(repo, n)) ?? [],
       createIssueComment: async (repo, n, body) => {
         const c = { id: id(), body, author: "openreview[bot]" };
@@ -129,13 +142,35 @@ export class FakeGitHost implements GitHost {
         this.reviewComments.set(key(repo, n), [...list, reply]);
         return reply;
       },
+      updateReviewComment: async (_repo, commentId, body) => {
+        for (const list of this.reviewComments.values()) {
+          const c = list.find((x) => x.id === commentId);
+          if (c) {
+            c.body = body;
+            this.commentEdits.push({ id: commentId, body });
+            return c;
+          }
+        }
+        throw new Error(`no review comment ${commentId}`);
+      },
       listReviewCommentReactions: async (_repo, commentId) => this.reactions.get(commentId) ?? [],
       createReview: async (repo, n, review) => {
+        const reviewId = id();
         this.reviews.push({ repo, number: n, ...review });
         const posted = review.comments.map((c) => ({ id: id(), path: c.path, line: c.line, body: c.body, author: "openreview[bot]" }));
         this.reviewComments.set(key(repo, n), [...(this.reviewComments.get(key(repo, n)) ?? []), ...posted]);
-        return { id: id(), comments: posted };
+        this.humanReviews.set(key(repo, n), [
+          ...(this.humanReviews.get(key(repo, n)) ?? []),
+          { id: reviewId, author: "openreview[bot]", state: "COMMENTED", body: review.body, commitId: review.commitId, submittedAt: null },
+        ]);
+        return { id: reviewId, comments: posted };
       },
+      listPullRequestCommits: async (repo, n) => {
+        pr(repo, n);
+        return this.commits.get(key(repo, n)) ?? [];
+      },
+      listReviews: async (repo, n) => this.humanReviews.get(key(repo, n)) ?? [],
+      listCheckRuns: async (repo, ref) => this.checkRuns.get(`${repo}@${ref}`) ?? [],
     };
   }
 }

@@ -359,6 +359,7 @@ export class ModelGateway implements LlmProvider {
       ...(meta?.repoId ? { repoId: meta.repoId } : {}),
       ...(meta?.reviewRunId ? { reviewRunId: meta.reviewRunId } : {}),
       ...(meta?.agentRunId ? { agentRunId: meta.agentRunId } : {}),
+      ...(meta?.agent ? { agent: meta.agent } : {}),
     };
   }
 

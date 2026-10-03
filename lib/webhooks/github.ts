@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { z } from "zod";
 import type { Db } from "@/lib/db";
-import { humanReviewComments, installations, repos, reviewComments } from "@/lib/db/schema";
+import { humanReviewComments, installations, orgs, repos, reviewComments, type RepoSettings } from "@/lib/db/schema";
+import { loadEffectiveConfig } from "@/lib/config/repo-config";
+import { resolveEffectiveSettings, type EffectiveSettings } from "@/lib/config/settings";
 import { claimDelivery, failDelivery, finishDelivery, getDelivery } from "@/lib/data/deliveries";
 import {
   deleteInstallation,
@@ -21,6 +23,7 @@ import type { GitHost } from "@/lib/git/types";
 import { enqueueIndexForNewRepos } from "@/lib/jobs/enqueue";
 import type { JobMeta, JobQueue, ReviewTrigger } from "@/lib/jobs/types";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
+import { requestReview } from "@/lib/pipeline/request";
 import {
   envelopeSchema,
   installationPayload,
@@ -139,6 +142,31 @@ async function linkedInstallation(db: Db, host: GitHost, ctx: DeliveryContext, i
   return row;
 }
 
+/**
+ * Effective review settings for gating a webhook (R6.14): org ← repo ← `openreview.json` at the PR's base commit, so
+ * the file wins here exactly as it does in the job (R2.2). A payload without the base commit gets it from the PR.
+ * `fileRead` is false when the file could not be read (a git host error): the org and repo settings then gate
+ * auto-review and branches, and the caller leaves the draft decision to the job, which re-checks every gate with the
+ * file.
+ */
+async function webhookSettings(
+  deps: RouteDeps,
+  ctx: DeliveryContext,
+  repo: { orgId: string; fullName: string; settings: RepoSettings },
+  installation: { externalId: number },
+  pr: { number: number; baseSha: string | undefined },
+): Promise<{ settings: EffectiveSettings; fileRead: boolean }> {
+  const [org] = await deps.db.select({ settings: orgs.settings }).from(orgs).where(eq(orgs.id, repo.orgId));
+  try {
+    const client = deps.host.client(installation.externalId);
+    const baseSha = pr.baseSha ?? (await client.getPullRequest(repo.fullName, pr.number)).baseSha;
+    return { settings: (await loadEffectiveConfig(client, repo.fullName, baseSha, repo.settings, org?.settings)).settings, fileRead: true };
+  } catch (err) {
+    ctx.log.info("openreview.json unavailable at the webhook; gating with dashboard settings", { error: errorMessage(err) });
+  }
+  return { settings: resolveEffectiveSettings(org?.settings, repo.settings, undefined).settings, fileRead: false };
+}
+
 async function onPullRequest(deps: RouteDeps, payload: unknown, ctx: DeliveryContext): Promise<RouteOutcome> {
   const { db, queue, host } = deps;
   const p = parse(pullRequestPayload, payload, ctx);
@@ -161,7 +189,6 @@ async function onPullRequest(deps: RouteDeps, payload: unknown, ctx: DeliveryCon
 
   if (!PR_ACTIONS.has(p.action as ReviewTrigger)) return ignored(`pull_request.${p.action}`);
   if (isBotActor(p.sender, deps.appSlug)) return ignored("event sent by a bot");
-  if (pr.draft) return ignored("draft pull request");
   if (!pr.head) return ignored("malformed pull_request payload");
   const found = await connectedRepo(db, host, ctx, p.installation?.id, p.repository?.id);
   if (!found) return ignored("repository not connected");
@@ -169,20 +196,25 @@ async function onPullRequest(deps: RouteDeps, payload: unknown, ctx: DeliveryCon
   if (installation.suspended) return ignored("installation suspended");
   if (repo.archived) return ignored("repository archived");
   if (!repo.enabled) return ignored("reviews disabled for repository");
-  const jobId = `review-${repo.id}-${pr.number}-${pr.head.sha}`;
-  await queue.add(
-    "review-pr",
+  // The settings gates (auto-review, re-review, drafts, branches) run before a run is recorded, so a gated event
+  // never supersedes a review in progress (R6.14).
+  const { settings, fileRead } = await webhookSettings(deps, ctx, repo, installation, { number: pr.number, baseSha: pr.base?.sha });
+  const requested = await requestReview(
+    { db, queue, log: ctx.log },
     {
       orgId: repo.orgId,
       repoId: repo.id,
       prNumber: pr.number,
       headSha: pr.head.sha,
-      trigger: p.action as ReviewTrigger,
+      trigger: p.action as Exclude<ReviewTrigger, "recovery">,
       meta: ctx.meta,
+      // `reviewDrafts: true` in openreview.json must be able to take effect: when the file could not be read, the
+      // draft decision is left to the job (it reads the file and skips the run if drafts are not reviewed).
+      gate: { draft: Boolean(pr.draft) && fileRead, baseRef: pr.base?.ref, headRef: pr.head.ref, settings },
     },
-    { jobId },
   );
-  return accepted([jobId]);
+  if ("gated" in requested) return ignored(requested.reason);
+  return accepted([requested.jobId]);
 }
 
 async function onReviewComment(deps: RouteDeps, payload: unknown, ctx: DeliveryContext): Promise<RouteOutcome> {

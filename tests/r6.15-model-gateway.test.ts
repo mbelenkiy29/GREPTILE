@@ -20,6 +20,7 @@ import {
 } from "@/lib/llm/types";
 import { createTestDb } from "./helpers/db";
 import { anthropicMessage, chatCompletion, fakeFetch, jsonResponse, type Responder } from "./helpers/fake-fetch";
+import { seedReviewRuns } from "./helpers/review-runs";
 
 const findingsSchema = z.object({ findings: z.array(z.object({ title: z.string(), line: z.number() })) });
 const FINDINGS = { findings: [{ title: "Null deref", line: 12 }] };
@@ -507,7 +508,8 @@ describe("accounting", () => {
           : jsonResponse(anthropicMessage({ model: "claude-sonnet-5-5", text: "summary", usage: { input_tokens: 2_000, output_tokens: 300 } })),
       { recorder: new PostgresModelCallRecorder(db), now: () => (clock += 400) },
     );
-    const meta = { orgId: "org_a", repoId: 7, reviewRunId: 42, agentRunId: 3 };
+    const [runId] = (await seedReviewRuns(db, "org_a")) as [number];
+    const meta = { orgId: "org_a", repoId: 7, reviewRunId: runId, agentRunId: 3 };
     const res = await gateway.text({ system: "s", prompt: "p", task: "summary", mode: "fast", meta });
     expect(res.route).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "low", task: "summary", mode: "fast" });
 
@@ -516,7 +518,7 @@ describe("accounting", () => {
     expect(rows[0]).toMatchObject({
       orgId: "org_a",
       repoId: 7,
-      reviewRunId: 42,
+      reviewRunId: runId,
       agentRunId: 3,
       task: "summary",
       mode: "fast",
@@ -538,9 +540,9 @@ describe("accounting", () => {
     await createGateway({ env: { LLM_PROVIDER: "fake" }, provider: fake, recorder: new PostgresModelCallRecorder(db) }).text({
       system: "s",
       prompt: "p",
-      meta: { orgId: "org_a", reviewRunId: 42 },
+      meta: { orgId: "org_a", reviewRunId: runId },
     });
-    const totals = await modelCallTotals(db, "org_a", { reviewRunId: 42 });
+    const totals = await modelCallTotals(db, "org_a", { reviewRunId: runId });
     expect(totals).toMatchObject({ calls: 2, inputTokens: 2_001, costUsd: 0.007, unpricedCalls: 1 });
     const [unpriced] = await db.select().from(modelCalls).where(eq(modelCalls.model, "fake-model"));
     expect(unpriced).toMatchObject({ costUsd: null, task: "unspecified", status: "ok", attempts: 1 });
@@ -563,13 +565,9 @@ describe("accounting", () => {
     const { runReviewJob } = await import("@/lib/review/run");
     const fx = await reviewFixture();
     try {
-      const fake = new FakeLlm((call) =>
-        call.kind === "text"
-          ? "ok"
-          : /summarize pull requests/.test(call.req.system)
-            ? { whatChanged: ["x"], riskLevel: "low", riskRationale: "r", confidence: 4 }
-            : { findings: [] },
-      );
+      const { engineLlm } = await import("./helpers/engine");
+      // A fake model answering every engine task (classify, review, verify, summary) with valid output.
+      const fake = engineLlm();
       const recorder = new PostgresModelCallRecorder(fx.db);
       const gateway = createGateway({ env: { LLM_PROVIDER: "fake" }, provider: fake, recorder });
       await runReviewJob({ db: fx.db, host: fx.host, llm: gateway, embedder: fx.embedder }, { orgId: "org_a", repoId: fx.repo.id, prNumber: 7, headSha: fx.head });

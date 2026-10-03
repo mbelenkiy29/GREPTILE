@@ -73,6 +73,9 @@ export interface PriorFinding {
   symbol: string | null;
 }
 
+/** A prior finding that stays open after a review run (see `ReviewOutput.openPriorFindings`). */
+export type OpenPriorFinding = Pick<PriorFinding, "id" | "title" | "severity" | "category" | "path" | "startLine">;
+
 /** A past finding elsewhere in the repository, offered as historical context (R6.5). */
 export interface HistoricalFinding {
   title: string;
@@ -256,6 +259,8 @@ export interface ContextItemSummary {
   name: string | null;
   reasons: string[];
   tokens: number;
+  /** Retrieval rank score (higher is more relevant). */
+  score?: number;
 }
 
 export interface ReviewOutput {
@@ -264,6 +269,11 @@ export interface ReviewOutput {
   rejected: RejectedCandidate[];
   /** Prior findings (by id) the engine determined were fixed by the new commits. */
   resolvedPriorFindings: { id: number; reason: string }[];
+  /**
+   * Prior findings still open after this run that this run did not re-report (in incremental re-reviews, findings in
+   * files untouched since the last review). The summary and its counts cover them so they describe the whole PR.
+   */
+  openPriorFindings?: OpenPriorFinding[];
   classification: ChangeClassification;
   context: { items: ContextItemSummary[]; tokensUsed: number; tokenBudget: number; dropped: number };
   agentRuns: AgentRunRecord[];

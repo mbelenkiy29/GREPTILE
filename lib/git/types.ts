@@ -34,6 +34,39 @@ export interface PullRequest {
   headRef: string;
   state: "open" | "closed";
   draft: boolean;
+  /** Closed by merging; only meaningful when `state` is closed. */
+  merged?: boolean;
+  /** Web URL of the pull request, when the host reports it. */
+  url?: string;
+  closedAt?: string | null;
+  mergedAt?: string | null;
+}
+
+export interface PullRequestCommit {
+  sha: string;
+  message: string;
+  author: string;
+  committedAt: string | null;
+}
+
+/** A submitted review on a pull request (ours or a human's). */
+export interface PullRequestReview {
+  id: number;
+  author: string;
+  /** APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING. */
+  state: string;
+  body: string;
+  commitId: string | null;
+  submittedAt: string | null;
+}
+
+/** A CI check run on a commit. */
+export interface CheckRun {
+  name: string;
+  /** queued, in_progress, completed, ... */
+  status: string;
+  /** success, failure, neutral, cancelled, skipped, timed_out, action_required; null while running. */
+  conclusion: string | null;
 }
 
 export interface PullRequestFile {
@@ -100,7 +133,15 @@ export interface GitClient {
    * support replies to replies).
    */
   replyToReviewComment(repo: string, number: number, commentId: number, body: string): Promise<ReviewComment>;
+  /** Edits an inline review comment in place (no new notification). */
+  updateReviewComment(repo: string, commentId: number, body: string): Promise<ReviewComment>;
   listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]>;
+  /** Commits on the pull request, oldest first (GitHub returns at most 250). */
+  listPullRequestCommits(repo: string, number: number): Promise<PullRequestCommit[]>;
+  /** Reviews submitted on the pull request. */
+  listReviews(repo: string, number: number): Promise<PullRequestReview[]>;
+  /** CI check runs on a commit; empty when the app may not read checks. */
+  listCheckRuns(repo: string, ref: string): Promise<CheckRun[]>;
   /** Posts a review with inline comments on the RIGHT side of the diff at `commitId`. */
   createReview(
     repo: string,

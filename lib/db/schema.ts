@@ -13,6 +13,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  real,
   serial,
   text,
   timestamp,
@@ -38,12 +39,39 @@ const vector = customType<{ data: number[]; driverData: string; config: { dimens
   },
 });
 
+/**
+ * Review settings (R6.14), stored per org (`orgs.settings`) and per repo (`repos.settings`); `openreview.json`
+ * overrides both key by key. Every key is optional: an absent key falls through to the next layer or the default.
+ * Validated by `reviewSettingsSchema` in `lib/config/settings.ts`.
+ */
 export interface RepoSettings {
-  strictness?: "low" | "medium" | "high";
-  commentTypes?: ("logic" | "security" | "style")[];
+  autoReview?: boolean;
+  reviewDrafts?: boolean;
+  /** Base branches (globs) that are reviewed automatically; empty or absent = all. */
+  targetBranches?: string[];
+  /** PRs whose head or base branch matches one of these globs are not reviewed automatically. */
+  ignoredBranches?: string[];
   ignore?: string[];
+  maxComments?: number;
+  /** 0..1 */
+  minConfidence?: number;
+  minSeverity?: "critical" | "high" | "medium" | "low";
+  /** Reviewer agents (finding categories) to run. */
+  categories?: ("correctness" | "security" | "data" | "api_compat" | "testing" | "performance" | "rules")[];
+  /** Legacy category switch; `categories` wins when both are set. */
+  commentTypes?: ("logic" | "security" | "style")[];
+  model?: string;
+  mode?: "fast" | "standard" | "deep";
+  customInstructions?: string;
+  autoReReview?: boolean;
+  commentStyle?: "concise" | "detailed";
+  /** Preset for minConfidence / maxComments / minSeverity when those are not set explicitly. */
+  strictness?: "low" | "medium" | "high";
   context?: string[];
 }
+
+/** Org-wide review defaults (R6.14); same shape as repo settings, which override them. */
+export type OrgSettings = RepoSettings;
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () =>
@@ -67,6 +95,8 @@ export const orgs = pgTable(
       .notNull()
       .default(sql`('org-' || substr(md5(random()::text || clock_timestamp()::text), 1, 12))`),
     personal: boolean("personal").notNull().default(false),
+    /** Org-wide review setting defaults (R6.14); repo settings and openreview.json override them key by key. */
+    settings: jsonb("settings").$type<OrgSettings>().notNull().default({}),
     createdBy: text("created_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
@@ -287,7 +317,7 @@ export const edges = pgTable(
   ],
 );
 
-export const reviewStatus = pgEnum("review_status", ["queued", "running", "completed", "failed", "skipped"]);
+export const reviewStatus = pgEnum("review_status", ["queued", "running", "completed", "failed", "skipped", "cancelled"]);
 
 /** One row per PR; re-reviews on new commits update it in place (R1.6). */
 export const reviews = pgTable(
@@ -312,6 +342,17 @@ export const reviews = pgTable(
     creditsUsed: integer("credits_used").notNull().default(0),
     runs: integer("runs").notNull().default(0),
     usage: jsonb("usage").$type<{ inputTokens: number; outputTokens: number }>(),
+    /** The tracked pull request (R6.6); set once the first run ingests it. */
+    pullRequestId: integer("pull_request_id").references((): AnyPgColumn => pullRequests.id, { onDelete: "set null" }),
+    /** Most recent run requested for this PR (any status). */
+    lastRunId: integer("last_run_id").references((): AnyPgColumn => reviewRuns.id, { onDelete: "set null" }),
+    /** Review mode of the latest run (fast | standard | deep). */
+    mode: text("mode").notNull().default("standard"),
+    /** Published findings still open / resolved by later commits (R6.9). */
+    openFindings: integer("open_findings").notNull().default(0),
+    resolvedFindings: integer("resolved_findings").notNull().default(0),
+    /** Estimated model cost of every completed run, USD (R6.16). Unpriced calls are not counted. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }).notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -338,6 +379,8 @@ export const reviewComments = pgTable(
     ruleId: text("rule_id"),
     externalId: bigint("external_id", { mode: "number" }),
     headSha: text("head_sha").notNull(),
+    /** The finding this comment published (R6.9). */
+    findingId: integer("finding_id").references((): AnyPgColumn => findings.id, { onDelete: "set null" }),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("review_comments_review_fp_uq").on(t.reviewId, t.fingerprint), index().on(t.orgId)],
@@ -661,7 +704,7 @@ export const modelCalls = pgTable(
     id: bigserial("id", { mode: "number" }).primaryKey(),
     orgId: text("org_id"),
     repoId: integer("repo_id"),
-    reviewRunId: integer("review_run_id"),
+    reviewRunId: integer("review_run_id").references((): AnyPgColumn => reviewRuns.id, { onDelete: "set null" }),
     agentRunId: integer("agent_run_id"),
     task: text("task").notNull(),
     mode: text("mode"),
@@ -831,4 +874,259 @@ export const invitations = pgTable(
     index().on(t.githubLogin),
     check("invitations_target_lowercase", sql`${t.email} = lower(${t.email}) AND ${t.githubLogin} = lower(${t.githubLogin})`),
   ],
+);
+
+// ---- pipeline ----
+
+export const pullRequestState = pgEnum("pull_request_state", ["open", "closed", "merged"]);
+
+/** A pull request as last ingested by a review run (R6.6). */
+export const pullRequests = pgTable(
+  "pull_requests",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull().default(""),
+    body: text("body").notNull().default(""),
+    author: text("author").notNull().default(""),
+    state: pullRequestState("state").notNull().default("open"),
+    draft: boolean("draft").notNull().default(false),
+    baseRef: text("base_ref").notNull(),
+    headRef: text("head_ref").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha").notNull(),
+    url: text("url"),
+    /** Head commit of the last completed review; incremental re-reviews start from here (R1.6). */
+    lastReviewedSha: text("last_reviewed_sha"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    mergedAt: timestamp("merged_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("pull_requests_repo_number_uq").on(t.repoId, t.number), index().on(t.orgId)],
+);
+
+export const pullRequestCommits = pgTable(
+  "pull_request_commits",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    pullRequestId: integer("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    message: text("message").notNull().default(""),
+    author: text("author").notNull().default(""),
+    committedAt: timestamp("committed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("pull_request_commits_pr_sha_uq").on(t.pullRequestId, t.sha), index().on(t.orgId)],
+);
+
+export const reviewRunStatus = pgEnum("review_run_status", [
+  "queued",
+  "ingesting",
+  "retrieving_context",
+  "reviewing",
+  "verifying",
+  "summarizing",
+  "publishing",
+  "completed",
+  "failed",
+  "cancelled",
+  "superseded",
+  "skipped",
+]);
+
+export const reviewRunTrigger = pgEnum("review_run_trigger", [
+  "opened",
+  "synchronize",
+  "reopened",
+  "ready_for_review",
+  "manual",
+  "mention",
+  "api",
+  "cli",
+  "recovery",
+]);
+
+/** When a run entered a state and how long it stayed (set on leaving it). */
+export interface StageTiming {
+  startedAt: string;
+  durationMs?: number;
+}
+
+/**
+ * One review attempt of a pull request (R6.6): its state machine position, timings, what the engine saw and
+ * decided, and what it cost. A PR's `reviews` row aggregates its runs.
+ */
+export const reviewRuns = pgTable(
+  "review_runs",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    reviewId: integer("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    /** Head commit under review; null until the run starts when the request did not name one. */
+    headSha: text("head_sha"),
+    baseSha: text("base_sha"),
+    /** Incremental re-review: the previously reviewed head (R1.6). */
+    sinceSha: text("since_sha"),
+    trigger: reviewRunTrigger("trigger").notNull(),
+    mode: text("mode"),
+    focus: text("focus"),
+    /** A manual "full" re-review ignores the incremental baseline. */
+    full: boolean("full").notNull().default(false),
+    requestedBy: text("requested_by"),
+    status: reviewRunStatus("status").notNull().default("queued"),
+    statusReason: text("status_reason"),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
+    /** Times the run was started; recovery gives up after 3. */
+    attempts: integer("attempts").notNull().default(0),
+    jobId: text("job_id"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }).notNull().defaultNow(),
+    stageTimings: jsonb("stage_timings").$type<Record<string, StageTiming>>().notNull().default({}),
+    classification: jsonb("classification"),
+    contextStats: jsonb("context_stats"),
+    summary: jsonb("summary"),
+    models: jsonb("models").$type<Record<string, string>>(),
+    filesReviewed: integer("files_reviewed").notNull().default(0),
+    findingsPublished: integer("findings_published").notNull().default(0),
+    findingsRejected: integer("findings_rejected").notNull().default(0),
+    findingsResolved: integer("findings_resolved").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** Estimated USD; null when no call had a known price. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
+    credits: integer("credits").notNull().default(0),
+    error: text("error"),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index().on(t.orgId, t.queuedAt), index().on(t.reviewId), index().on(t.status)],
+);
+
+/** One specialized agent's work within a run (R6.7), as reported by the engine. */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    reviewRunId: integer("review_run_id")
+      .notNull()
+      .references(() => reviewRuns.id, { onDelete: "cascade" }),
+    agent: text("agent").notNull(),
+    status: text("status").notNull(),
+    model: text("model"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
+    latencyMs: integer("latency_ms").notNull().default(0),
+    candidates: integer("candidates").notNull().default(0),
+    accepted: integer("accepted").notNull().default(0),
+    error: text("error"),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.reviewRunId), index().on(t.orgId)],
+);
+
+export const findingVisibility = pgEnum("finding_visibility", ["published", "suppressed", "rejected"]);
+export const findingStatus = pgEnum("finding_status", ["open", "resolved", "dismissed", "wont_fix", "false_positive"]);
+export const findingResolution = pgEnum("finding_resolution", ["fixed", "user", "outdated"]);
+
+/**
+ * Structured findings (S10, R6.9), one row per (PR review, fingerprint), tracked across commits. Candidates the
+ * engine rejected, and accepted findings held back (e.g. over the comment cap), are kept with their visibility and
+ * verification reasons so the dashboard can explain why they were not posted.
+ */
+export const findings = pgTable(
+  "findings",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id")
+      .notNull()
+      .references(() => repos.id, { onDelete: "cascade" }),
+    reviewId: integer("review_id")
+      .notNull()
+      .references(() => reviews.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    firstRunId: integer("first_run_id").references(() => reviewRuns.id, { onDelete: "set null" }),
+    lastRunId: integer("last_run_id").references(() => reviewRuns.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    impact: text("impact").notNull().default(""),
+    severity: text("severity").notNull(),
+    /** 0..1 */
+    confidence: real("confidence").notNull(),
+    category: text("category").notNull(),
+    /** Agent that raised it first. */
+    agent: text("agent").notNull(),
+    agents: text("agents").array().notNull().default([]),
+    path: text("path").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    symbol: text("symbol"),
+    anchorCode: text("anchor_code").notNull().default(""),
+    /** Head commit where the finding was last seen. */
+    commitSha: text("commit_sha").notNull(),
+    firstSeenSha: text("first_seen_sha").notNull(),
+    evidence: jsonb("evidence")
+      .$type<{ path: string; startLine: number; endLine: number; snippet: string; note: string }[]>()
+      .notNull()
+      .default([]),
+    suggestedFix: text("suggested_fix").notNull().default(""),
+    suggestion: text("suggestion"),
+    ruleId: text("rule_id"),
+    ruleText: text("rule_text"),
+    verification: jsonb("verification"),
+    visibility: findingVisibility("visibility").notNull(),
+    status: findingStatus("status").notNull().default("open"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedSha: text("resolved_sha"),
+    resolution: findingResolution("resolution"),
+    fingerprint: text("fingerprint").notNull(),
+    /** The inline comment that published it. */
+    externalCommentId: bigint("external_comment_id", { mode: "number" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("findings_review_fp_uq").on(t.reviewId, t.fingerprint),
+    index().on(t.orgId, t.status, t.severity),
+    index().on(t.repoId, t.createdAt),
+  ],
+);
+
+export const usageKind = pgEnum("usage_kind", ["review", "index", "chat", "knowledge", "embedding", "eval"]);
+
+/** Metered usage (R6.16): one row per billable unit of work, e.g. one review run. */
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: serial("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    repoId: integer("repo_id"),
+    reviewRunId: integer("review_run_id"),
+    prNumber: integer("pr_number"),
+    /** Pull request author, for active-developer billing. */
+    author: text("author"),
+    kind: usageKind("kind").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** Estimated USD; null when unpriced. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6, mode: "number" }),
+    credits: integer("credits").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.orgId, t.createdAt)],
 );

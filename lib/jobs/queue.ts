@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import { log } from "@/lib/log";
 import { redis } from "@/lib/redis";
-import { JOB_PRIORITY, type JobName, type JobOptions, type JobPayloads, type JobQueue } from "./types";
+import { JOB_PRIORITY, type JobName, type JobOptions, type JobPayloads, type JobQueue, type QueuedJobState } from "./types";
 
 export const QUEUE_NAME = "openreview";
 
@@ -33,6 +33,15 @@ export const bullQueue: JobQueue = {
       repoId: data.repoId,
       deliveryId: data.meta?.deliveryId,
     });
+  },
+  async jobState(jobId: string): Promise<QueuedJobState> {
+    const job = await bull().getJob(jobId);
+    if (!job) return "missing";
+    const state = await job.getState();
+    if (state === "completed") return "done";
+    if (state === "failed") return "failed";
+    if (state === "unknown") return "missing";
+    return "pending";
   },
 };
 

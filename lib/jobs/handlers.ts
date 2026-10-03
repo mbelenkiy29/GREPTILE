@@ -24,6 +24,10 @@ export interface JobDeps {
 /** Queue-side facts about the job being run (BullMQ job id), when the runner has them. */
 export interface RunMeta {
   queueJobId?: string;
+  /** Attempts the queue already made for this job before this one (0 on the first run). */
+  attemptsMade?: number;
+  /** Attempts the queue allows this job in total. */
+  maxAttempts?: number;
 }
 
 type Handlers = { [N in JobName]: (deps: JobDeps, data: JobPayloads[N], meta?: RunMeta) => Promise<unknown> };
@@ -32,7 +36,7 @@ export const handlers: Handlers = {
   "index-repo": (deps, data, meta) =>
     // A default-branch switch re-indexes the newly indexed branch, which the index records as a push.
     indexRepo(deps, { ...data, trigger: data.trigger === "default_branch" ? "push" : data.trigger, queueJobId: meta?.queueJobId }),
-  "review-pr": (deps, data) => runReviewJob(deps, data),
+  "review-pr": (deps, data, meta) => runReviewJob(deps, data, meta),
   "answer-mention": (deps, data) => answerMention(deps, data),
   "sync-feedback": (deps, data) => syncFeedback(deps, data),
   "mine-rules": (deps, data) => mineRules(deps, data),
@@ -76,7 +80,7 @@ export function jobLogContext(job: { name: string; id?: string; data: unknown; a
  */
 export async function runObservedJob(
   deps: JobDeps,
-  job: { name: string; id?: string; data: unknown; attemptsMade?: number },
+  job: { name: string; id?: string; data: unknown; attemptsMade?: number; maxAttempts?: number },
   logger: Logger = deps.log ?? rootLog,
 ) {
   const jobLog = logger.child(jobLogContext(job));
@@ -88,7 +92,11 @@ export async function runObservedJob(
   jobLog.info("job started");
   const started = performance.now();
   try {
-    const result = await runJob({ ...deps, log: jobLog }, name, job.data as JobPayloads[typeof name], job.id ? { queueJobId: job.id } : undefined);
+    const result = await runJob({ ...deps, log: jobLog }, name, job.data as JobPayloads[typeof name], {
+      ...(job.id ? { queueJobId: job.id } : {}),
+      ...(job.attemptsMade !== undefined ? { attemptsMade: job.attemptsMade } : {}),
+      ...(job.maxAttempts !== undefined ? { maxAttempts: job.maxAttempts } : {}),
+    });
     const status = result && typeof result === "object" && "status" in result ? String((result as { status: unknown }).status) : undefined;
     jobLog.info("job completed", { durationMs: Math.round(performance.now() - started), ...(status ? { outcome: status } : {}) });
     return result;

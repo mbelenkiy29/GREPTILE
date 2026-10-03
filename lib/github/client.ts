@@ -3,12 +3,15 @@ import { createAppJwt, normalizePem } from "./app";
 import { log as rootLog, type Logger } from "@/lib/log";
 import type {
   ChangedFile,
+  CheckRun,
   GitClient,
   GitHost,
   IssueComment,
   NewInlineComment,
   PullRequest,
+  PullRequestCommit,
   PullRequestFile,
+  PullRequestReview,
   Reaction,
   RemoteInstallation,
   RemoteRepo,
@@ -105,7 +108,31 @@ const prSchema = z.object({
   base: z.object({ sha: z.string(), ref: z.string() }),
   state: z.string(),
   draft: z.boolean().nullish(),
+  merged: z.boolean().nullish(),
+  html_url: z.string().nullish(),
+  closed_at: z.string().nullish(),
+  merged_at: z.string().nullish(),
 });
+
+const prCommitSchema = z.object({
+  sha: z.string(),
+  commit: z.object({
+    message: z.string().nullish(),
+    author: z.object({ name: z.string().nullish(), date: z.string().nullish() }).nullish(),
+  }),
+  author: user,
+});
+
+const prReviewSchema = z.object({
+  id: z.number(),
+  user,
+  state: z.string().nullish(),
+  body: z.string().nullish(),
+  commit_id: z.string().nullish(),
+  submitted_at: z.string().nullish(),
+});
+
+const checkRunSchema = z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullish() });
 
 const reviewCommentSchema = z.object({
   id: z.number(),
@@ -397,7 +424,54 @@ class GitHubClient implements GitClient {
       headRef: pr.head.ref,
       state: pr.state === "open" ? "open" : "closed",
       draft: Boolean(pr.draft),
+      merged: Boolean(pr.merged),
+      ...(pr.html_url ? { url: pr.html_url } : {}),
+      closedAt: pr.closed_at ?? null,
+      mergedAt: pr.merged_at ?? null,
     };
+  }
+
+  async listPullRequestCommits(repo: string, number: number): Promise<PullRequestCommit[]> {
+    return (await this.list(`/repos/${repo}/pulls/${number}/commits`)).map((raw) => {
+      const c = parse(prCommitSchema, raw, "pull request commit");
+      return {
+        sha: c.sha,
+        message: c.commit.message ?? "",
+        author: c.author?.login ?? c.commit.author?.name ?? "",
+        committedAt: c.commit.author?.date ?? null,
+      };
+    });
+  }
+
+  async listReviews(repo: string, number: number): Promise<PullRequestReview[]> {
+    return (await this.list(`/repos/${repo}/pulls/${number}/reviews`)).map((raw) => {
+      const r = parse(prReviewSchema, raw, "pull request review");
+      return {
+        id: r.id,
+        author: r.user?.login ?? "",
+        state: r.state ?? "",
+        body: r.body ?? "",
+        commitId: r.commit_id ?? null,
+        submittedAt: r.submitted_at ?? null,
+      };
+    });
+  }
+
+  async listCheckRuns(repo: string, ref: string): Promise<CheckRun[]> {
+    try {
+      const runs = await this.host.paginate(`/repos/${repo}/commits/${encodeURIComponent(ref)}/check-runs`, this.auth, (page) =>
+        parse(z.object({ check_runs: z.array(z.unknown()) }), page, "check runs").check_runs,
+      );
+      return runs.map((raw) => {
+        const c = parse(checkRunSchema, raw, "check run");
+        return { name: c.name, status: c.status, conclusion: c.conclusion ?? null };
+      });
+    } catch (err) {
+      // `checks: read` is recommended, not required: without it the review simply has no CI context. A 403 that is
+      // a (primary or secondary) rate limit carries retryAfterMs and is rethrown so the job is deferred.
+      if (err instanceof GitHubError && err.retryAfterMs === undefined && (err.status === 403 || err.status === 404)) return [];
+      throw err;
+    }
   }
 
   async listPullRequestFiles(repo: string, number: number): Promise<PullRequestFile[]> {
@@ -450,6 +524,10 @@ class GitHubClient implements GitClient {
     return toReviewComment(
       await this.req(`/repos/${repo}/pulls/${number}/comments/${commentId}/replies`, { method: "POST", body: { body } }),
     );
+  }
+
+  async updateReviewComment(repo: string, commentId: number, body: string) {
+    return toReviewComment(await this.req(`/repos/${repo}/pulls/comments/${commentId}`, { method: "PATCH", body: { body } }));
   }
 
   async listReviewCommentReactions(repo: string, commentId: number): Promise<Reaction[]> {

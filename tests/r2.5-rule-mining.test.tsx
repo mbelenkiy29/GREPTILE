@@ -5,17 +5,16 @@ import { createRule, listRules, updateRule } from "@/lib/data/rules";
 import { humanReviewComments } from "@/lib/db/schema";
 import { MemoryQueue } from "@/lib/jobs/types";
 import { mineRules } from "@/lib/learning/mining";
-import { FakeLlm, type FakeCall } from "@/lib/llm/fake";
+import { FakeLlm } from "@/lib/llm/fake";
 import { runReviewJob } from "@/lib/review/run";
 import { createGitHubWebhookHandler } from "@/lib/webhooks/github";
 import { signGitHubPayload } from "@/lib/webhooks/signature";
+import { engineLlm, reviewCalls } from "./helpers/engine";
 import { reviewFixture } from "./helpers/review-fixture";
 
 type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
-
-const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
 
 function webhook(f: Fixture, queue: MemoryQueue) {
   const handler = createGitHubWebhookHandler(() => ({ db: f.db, queue, host: f.host, secret: "s", botMention: "openreview" }));
@@ -112,9 +111,9 @@ describe("mining rules from human reviewers", () => {
     const logger = candidates.find((r) => r.text.includes("shared logger"));
 
     const review = async () => {
-      const llm = new FakeLlm((call) => (agentOf(call) === "summary" ? { whatChanged: ["x"], riskLevel: "low", riskRationale: "r", confidence: 4 } : { findings: [] }));
+      const llm = engineLlm();
       await runReviewJob({ db: fx!.db, host: fx!.host, llm, embedder: fx!.embedder }, { orgId: "org_a", repoId: fx!.repo.id, prNumber: 7, headSha: fx!.head });
-      return llm.calls.find((c) => agentOf(c) === "logic")!.req.prompt;
+      return reviewCalls(llm).find((c) => c.req.meta?.agent === "correctness")!.req.prompt;
     };
     expect(await review()).not.toContain("integer cents");
 

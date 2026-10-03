@@ -11,38 +11,38 @@ import {
   syncFeedback,
   updateLearnedPattern,
 } from "@/lib/learning";
-import { FakeLlm, type FakeCall } from "@/lib/llm/fake";
-import type { RawFinding } from "@/lib/review/findings";
+import { createRule } from "@/lib/data/rules";
+import type { Candidate } from "@/lib/engine";
 import { runReviewJob } from "@/lib/review/run";
 import { createGitHubWebhookHandler } from "@/lib/webhooks/github";
 import { signGitHubPayload } from "@/lib/webhooks/signature";
 import { addReviewReply } from "./helpers/fake-git";
+import { candidateAt, engineLlm, reviewCalls } from "./helpers/engine";
 import { addPrFromFixture } from "./helpers/pr";
-import { reviewFixture } from "./helpers/review-fixture";
+import { HEAD_PRICING, reviewFixture } from "./helpers/review-fixture";
 
 type Fixture = Awaited<ReturnType<typeof reviewFixture>>;
 let fx: Fixture | undefined;
 afterEach(() => fx?.fixture.cleanup());
 
-const agentOf = (call: FakeCall) => /OpenReview's (\w+) reviewer/.exec(call.req.system)?.[1] ?? "summary";
+/** A medium finding on `line` of `content` (the file at the PR head). `ruleId` is set for the team-rules reviewer. */
+const f = (content: string, path: string, line: number, title: string, ruleId: string | null = null): Candidate =>
+  candidateAt(content, line, { path, title, description: `${title}.`, severity: "medium", confidence: 0.8, ruleId });
 
-const f = (path: string, line: number, title: string, severity: RawFinding["severity"] = "medium"): RawFinding => ({
-  path, line, endLine: null, severity, title, body: `${title}.`, suggestion: null, confidence: 4,
-});
-
-/** Reviewer outputs keyed by agent; mutate between runs. */
-function scripted(out: Record<string, RawFinding[]>) {
-  return new FakeLlm((call) =>
-    agentOf(call) === "summary" ? { whatChanged: ["x"], riskLevel: "low", riskRationale: "r", confidence: 4 } : { findings: out[agentOf(call)] ?? [] },
-  );
+/** The real engine over a fake model: reviewer outputs keyed by agent; mutate between runs. */
+function scripted(out: Record<string, Candidate[]>) {
+  return engineLlm({ review: (agent) => ({ findings: out[agent] ?? [] }) });
 }
 
 const PRICING = "services/billing/pricing.ts";
+const TAX8 = "export function taxFor(amount: number, rows?: number[]) {\n  const total = amount;\n  return Math.round(total * 0.2) + rows.length;\n}\n";
 
-/** First review posts a style and a logic comment; teammates then react and reply. */
+/** First review posts a team-rules and a correctness comment; teammates then react and reply. */
 async function withFeedback() {
   const f0 = await reviewFixture();
-  const out = { style: [f(PRICING, 4, "Unused variable subtotal")], logic: [f(PRICING, 5, "Missing null check on items")] };
+  const rule = await createRule(f0.db, "org_a", { text: "Keep billing code free of dead code." });
+  const ruleId = `rule:${rule.id}`;
+  const out = { rules: [f(HEAD_PRICING, PRICING, 4, "Unused variable subtotal", ruleId)], correctness: [f(HEAD_PRICING, PRICING, 5, "Missing null check on items")] };
   const llm = scripted(out);
   const deps = { db: f0.db, host: f0.host, llm, embedder: f0.embedder };
   await runReviewJob(deps, { orgId: "org_a", repoId: f0.repo.id, prNumber: 7, headSha: f0.head });
@@ -58,7 +58,7 @@ async function withFeedback() {
   ]);
   addReviewReply(f0.host, "acme/shop", 7, { id: 6, inReplyTo: styleC!.id, body: "False positive — this is intentional.", author: "dana" });
   addReviewReply(f0.host, "acme/shop", 7, { id: 7, inReplyTo: logicC!.id, body: "ack", author: "openreview[bot]" });
-  return { f0, out, llm, deps, styleC: styleC!, logicC: logicC! };
+  return { f0, out, llm, deps, ruleId, styleC: styleC!, logicC: logicC! };
 }
 
 describe("learning from feedback", () => {
@@ -85,35 +85,40 @@ describe("learning from feedback", () => {
   });
 
   test("R2.4 suppressed patterns stop recurring and accepted patterns are prioritized on later reviews", async () => {
-    const { f0, out, llm, deps } = await withFeedback();
+    const { f0, out, llm, deps, ruleId } = await withFeedback();
     fx = f0;
     await syncFeedback(f0, { orgId: "org_a", repoId: f0.repo.id, prNumber: 7 });
     expect((await learnedForRepo(f0.db, "org_a", f0.repo.id)).map((p) => [p.category, p.description, p.signal])).toEqual([
-      ["style", "Unused variable subtotal", "suppress"],
-      ["logic", "Missing null check on items", "boost"],
+      // Categories are the reviewer agents' (R6.14).
+      ["rules", "Unused variable subtotal", "suppress"],
+      ["correctness", "Missing null check on items", "boost"],
     ]);
 
     // A later PR elsewhere in the repo: the same kinds of findings come back from the model.
-    const head8 = f0.fixture.commit({ "services/billing/tax.ts": "export function taxFor(amount: number, rows?: number[]) {\n  const total = amount;\n  return Math.round(total * 0.2) + rows.length;\n}\n" }, "pr8");
+    const head8 = f0.fixture.commit({ "services/billing/tax.ts": TAX8 }, "pr8");
     addPrFromFixture(f0.host, f0.fixture, "acme/shop", { number: 8, base: f0.head, head: head8 });
-    out.style = [f("services/billing/tax.ts", 2, "Unused variable total"), f("services/billing/tax.ts", 1, "Parameter naming is unclear")];
-    out.logic = [f("services/billing/tax.ts", 3, "Missing null check on rows")];
+    const TAX = "services/billing/tax.ts";
+    out.rules = [f(TAX8, TAX, 2, "Unused variable total", ruleId), f(TAX8, TAX, 1, "Parameter naming is unclear", ruleId)];
+    out.correctness = [f(TAX8, TAX, 3, "Missing null check on rows")];
     llm.calls.length = 0;
     await runReviewJob(deps, { orgId: "org_a", repoId: f0.repo.id, prNumber: 8, headSha: head8 });
 
-    const prompt = llm.calls.find((c) => agentOf(c) === "style")!.req.prompt;
-    expect(prompt).toContain("The team has rejected these kinds of comments. Do not report them:\n- (style) Unused variable subtotal");
-    expect(prompt).toContain("The team values these kinds of comments. Look for them carefully:\n- (logic) Missing null check on items");
-    // Equal severity and confidence: without the boost the style finding (line 1) would sort first.
-    const posted = f0.host.reviews.at(-1)!.comments.map((c) => c.body.split("\n")[0]);
-    expect(posted).toEqual(["**Medium · logic** — Missing null check on rows", "**Medium · style** — Parameter naming is unclear"]);
+    // Every reviewer is told what the team rejected and what it values.
+    for (const call of reviewCalls(llm)) {
+      expect(call.req.prompt).toContain("The team has rejected these kinds of comments; do not report them:\n- (rules) Unused variable subtotal");
+      expect(call.req.prompt).toContain("The team values these kinds of comments; look for them carefully:\n- (correctness) Missing null check on items");
+    }
+    // The suppressed pattern is dropped even though the model reported it again.
+    const posted = f0.host.reviews.at(-1)!.comments.map((c) => c.body.split("\n\n")[1]);
+    // Equal severity and confidence: without the boost the rule-citing finding would rank first.
+    expect(posted).toEqual(["**Missing null check on rows**", "**Parameter naming is unclear**"]);
   });
 
   test("R2.4 new reactions are picked up before a re-review, and webhooks queue feedback collection", async () => {
     const { f0, deps, logicC } = await withFeedback();
     fx = f0;
     f0.host.reactions.set(logicC.id, [{ id: 40, content: "-1", user: "ops" }]);
-    const head2 = f0.fixture.commit({ [PRICING]: "// v2\n" + f0.fixture.git("show", `${f0.head}:${PRICING}`) + "\n" }, "v2");
+    const head2 = f0.fixture.commit({ [PRICING]: "// v2\n" + HEAD_PRICING }, "v2");
     addPrFromFixture(f0.host, f0.fixture, "acme/shop", { number: 7, base: f0.base, head: head2 });
     await runReviewJob(deps, { orgId: "org_a", repoId: f0.repo.id, prNumber: 7, headSha: head2 });
     expect((await f0.db.select().from(commentFeedback)).length).toBe(3);

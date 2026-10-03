@@ -14,6 +14,7 @@ import { InMemoryModelCallRecorder, PostgresModelCallRecorder, modelCallTotals }
 import { LlmError, type LlmProvider } from "@/lib/llm/types";
 import { createTestDb } from "./helpers/db";
 import { anthropicMessage, chatCompletion, fakeFetch, jsonResponse } from "./helpers/fake-fetch";
+import { seedReviewRuns } from "./helpers/review-runs";
 
 /** FakeEmbeddings that remembers which texts reached the "provider". */
 class CountingEmbeddings extends FakeEmbeddings {
@@ -256,6 +257,7 @@ describe("cost and budgets", () => {
   test("R6.16 estimated model cost is totalled per pull-request review run and scoped to the org", async () => {
     const db = await createTestDb();
     const recorder = new PostgresModelCallRecorder(db);
+    const [run1, run2] = (await seedReviewRuns(db, "org_a", 2)) as [number, number];
     const row = (orgId: string | null, reviewRunId: number | null, costUsd: number | null, status: "ok" | "cache_hit" = "ok") =>
       recorder.record({
         orgId,
@@ -276,14 +278,14 @@ describe("cost and budgets", () => {
         error: null,
         attempts: 1,
       });
-    await row("org_a", 1, 0.25);
-    await row("org_a", 1, 0.125);
-    await row("org_a", 1, 0, "cache_hit");
-    await row("org_a", 1, null);
-    await row("org_a", 2, 1);
-    await row("org_b", 1, 9);
-    await row(null, 1, 9);
-    expect(await modelCallTotals(db, "org_a", { reviewRunId: 1 })).toEqual({
+    await row("org_a", run1, 0.25);
+    await row("org_a", run1, 0.125);
+    await row("org_a", run1, 0, "cache_hit");
+    await row("org_a", run1, null);
+    await row("org_a", run2, 1);
+    await row("org_b", run1, 9);
+    await row(null, run1, 9);
+    expect(await modelCallTotals(db, "org_a", { reviewRunId: run1 })).toEqual({
       calls: 4,
       inputTokens: 400,
       outputTokens: 40,
@@ -293,7 +295,7 @@ describe("cost and budgets", () => {
       unpricedCalls: 1,
     });
     expect((await modelCallTotals(db, "org_a")).costUsd).toBe(1.375);
-    expect((await modelCallTotals(db, "org_b", { reviewRunId: 2 })).calls).toBe(0);
+    expect((await modelCallTotals(db, "org_b", { reviewRunId: run2 })).calls).toBe(0);
     expect((await modelCallTotals(db, "org_a", { since: new Date(Date.now() + HOUR) })).calls).toBe(0);
     await expect(modelCallTotals(db, "")).rejects.toThrow(/orgId/);
   });

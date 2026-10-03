@@ -14,6 +14,7 @@ import { deferIfRateLimited } from "@/lib/jobs/rate-limit";
 import { QUEUE_NAME, bullQueue } from "@/lib/jobs/queue";
 import { embeddings, llm } from "@/lib/llm";
 import { errorMessage, log, redactText } from "@/lib/log";
+import { RECOVERY_INTERVAL_MS, recoverStaleRuns } from "@/lib/pipeline/recovery";
 import { redis } from "@/lib/redis";
 
 const wlog = log.child({ component: "worker", host: hostname(), pid: process.pid });
@@ -43,7 +44,7 @@ const worker = new Worker(
   async (job, token) => {
     active++;
     try {
-      return await runObservedJob(deps, { name: job.name, id: job.id, data: job.data, attemptsMade: job.attemptsMade }, wlog);
+      return await runObservedJob(deps, { name: job.name, id: job.id, data: job.data, attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts ?? 1 }, wlog);
     } catch (err) {
       // A GitHub rate limit that resets minutes from now: wait for the reset rather than spend the retries.
       if (await deferIfRateLimited(job, token, err, { log: wlog })) throw new DelayedError();
@@ -86,12 +87,25 @@ void prune();
 const pruneTimer = setInterval(() => void prune(), 3_600_000);
 pruneTimer.unref();
 
+/** Restart recovery (R6.6): re-queue review runs abandoned by a crashed worker, on start and every 5 minutes. */
+async function recover() {
+  try {
+    await recoverStaleRuns({ db: deps.db, queue: deps.queue, log: wlog });
+  } catch (err) {
+    wlog.warn("review run recovery failed", { error: errorMessage(err) });
+  }
+}
+void recover();
+const recoveryTimer = setInterval(() => void recover(), RECOVERY_INTERVAL_MS);
+recoveryTimer.unref();
+
 let stopping = false;
 async function shutdown(signal: string) {
   if (stopping) return;
   stopping = true;
   wlog.info("worker shutting down", { signal, active });
   clearInterval(pruneTimer);
+  clearInterval(recoveryTimer);
   // Drain active jobs first so the heartbeat (and the container healthcheck) stays truthful meanwhile.
   await worker.close();
   await heartbeat.stop();

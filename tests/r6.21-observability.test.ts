@@ -101,7 +101,7 @@ describe("webhook delivery records", () => {
       installationId: 11,
       repoFullName: "acme/api",
       status: "accepted",
-      jobs: [expect.stringMatching(/^review-\d+-5-a1$/)],
+      jobs: [expect.stringMatching(/^review-\d+-5-r\d+$/)],
       attempts: 1,
       replayable: false,
     });
@@ -134,7 +134,7 @@ describe("webhook delivery records", () => {
     expect(await replayDelivery({ ...deps, queue }, "org_b", "to-replay")).toEqual({ status: "not_found" });
 
     const replayed = await replayDelivery({ ...deps, queue }, "org_a", "to-replay", { requestedBy: "user_1" });
-    expect(replayed).toEqual({ status: "accepted", jobs: [expect.stringMatching(/^review-\d+-5-r1$/)] });
+    expect(replayed).toEqual({ status: "accepted", jobs: [expect.stringMatching(/^review-\d+-5-r\d+$/)] });
     expect(queue.jobs[0]?.data).toMatchObject({ meta: { deliveryId: "to-replay", requestedBy: "user_1" } });
     expect(await getDelivery(db, "org_a", "to-replay")).toMatchObject({ status: "accepted", attempts: 2, payload: null, error: null });
     expect(await replayDelivery({ ...deps, queue }, "org_a", "to-replay")).toEqual({ status: "not_replayable", reason: "delivery is accepted" });

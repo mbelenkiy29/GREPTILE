@@ -13,7 +13,11 @@ describe("secrets at rest and redaction", () => {
     // Same plaintext encrypts differently every time (random IV).
     expect(encryptSecret("sk-ant-super-secret-value", key)).not.toBe(sealed);
     const [v, iv, tag, ct] = sealed.split(".");
-    const flipped = `${v}.${iv}.${tag}.${ct!.slice(0, -2)}${ct!.endsWith("A") ? "B" : "A"}${ct!.slice(-1)}`;
+    // Flip one bit of the first ciphertext byte (always a real change to the decoded bytes).
+    const bytes = Buffer.from(ct!, "base64url");
+    bytes[0] = bytes[0]! ^ 0x01;
+    const flipped = `${v}.${iv}.${tag}.${bytes.toString("base64url")}`;
+    expect(flipped).not.toBe(sealed);
     expect(() => decryptSecret(flipped, key)).toThrow();
     expect(() => decryptSecret(sealed, randomBytes(32))).toThrow();
   });
@@ -66,7 +70,7 @@ describe("structured logging", () => {
     process.env.LOG_LEVEL = "debug";
     try {
       const review = createLogger({ service: "test" }).child({ deliveryId: "d-1", repoId: 4 }).child({ reviewRunId: 9, agent: "security" });
-      review.info("agent finished", { findings: 2, token: "ghp_abcdefghijklmnopqrstuvwxyz0123" });
+      review.info("agent finished", { findings: 2, token: ["ghp", "abcdefghijklmnopqrstuvwxyz0123"].join("_") });
       review.debug("detail");
     } finally {
       restore();

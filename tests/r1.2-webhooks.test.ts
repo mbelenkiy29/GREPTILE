@@ -50,7 +50,7 @@ function deliver(event: string, payload: unknown, deliveryId: string, secret = S
 }
 
 function prEvent(action: string, sha = "abc123", extra: Record<string, unknown> = {}) {
-  return { action, installation, repository, pull_request: { number: 7, draft: false, head: { sha }, ...extra } };
+  return { action, installation, repository, pull_request: { number: 7, draft: false, head: { sha }, base: { ref: "main", sha: "base000" }, ...extra } };
 }
 
 async function delivery(id: string) {
@@ -100,15 +100,16 @@ describe("webhook receiver", () => {
     expect((await deliver("pull_request", prEvent("opened", "s1"), "d-1")).status).toBe(202);
     expect((await deliver("pull_request", prEvent("synchronize", "s2"), "d-2")).status).toBe(202);
     expect((await deliver("pull_request", prEvent("reopened", "s3"), "d-3")).status).toBe(202);
+    // Each request is a tracked review run; its job id derives from the run id (R6.6).
     expect(queue.jobs.map((j) => [j.name, j.jobId, j.data])).toEqual(
       [
         ["s1", "opened", "d-1"],
         ["s2", "synchronize", "d-2"],
         ["s3", "reopened", "d-3"],
-      ].map(([sha, trigger, deliveryId]) => [
+      ].map(([sha, trigger, deliveryId], i) => [
         "review-pr",
-        `review-${repoId}-7-${sha}`,
-        { orgId: "org_a", repoId, prNumber: 7, headSha: sha, trigger, meta: { deliveryId } },
+        `review-${repoId}-7-r${i + 1}`,
+        { runId: i + 1, orgId: "org_a", repoId, prNumber: 7, headSha: sha, trigger, meta: { deliveryId } },
       ]),
     );
   });
@@ -129,11 +130,11 @@ describe("webhook receiver", () => {
     const again = await deliver("pull_request", prEvent("opened"), "d-1");
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual({ status: "duplicate" });
-    // A distinct delivery of the same PR head maps to the same job id and is deduped by the queue.
+    // A distinct delivery of the same PR head reuses the in-flight run and its job id, which the queue dedupes.
     await deliver("pull_request", prEvent("opened"), "d-2");
     expect(queue.jobs).toHaveLength(1);
     expect(await db.select().from(webhookDeliveries)).toHaveLength(2);
-    expect(await delivery("d-1")).toMatchObject({ status: "accepted", attempts: 1, jobs: [`review-${repoId}-7-abc123`] });
+    expect(await delivery("d-1")).toMatchObject({ status: "accepted", attempts: 1, jobs: [`review-${repoId}-7-r1`] });
   });
 
   test("R1.2 concurrent identical deliveries enqueue once and record one delivery", async () => {
@@ -155,7 +156,7 @@ describe("webhook receiver", () => {
 
     const retried = await deliver("pull_request", prEvent("opened", "s9"), "d-1", SECRET, h);
     expect(retried.status).toBe(202);
-    expect(flaky.inner.jobs.map((j) => j.jobId)).toEqual([`review-${repoId}-7-s9`]);
+    expect(flaky.inner.jobs.map((j) => j.jobId)).toEqual([`review-${repoId}-7-r1`]);
     expect(await delivery("d-1")).toMatchObject({ status: "accepted", attempts: 2, error: null, payload: null });
     // Once accepted, further redeliveries are duplicates.
     expect(await (await deliver("pull_request", prEvent("opened", "s9"), "d-1", SECRET, h)).json()).toEqual({ status: "duplicate" });
@@ -179,13 +180,13 @@ describe("webhook receiver", () => {
     clock = new Date(clock.getTime() + IN_FLIGHT_WINDOW_MS);
     const reprocessed = await deliver("pull_request", prEvent("opened"), "d-stuck");
     expect(reprocessed.status).toBe(202);
-    expect(await reprocessed.json()).toEqual({ status: "accepted", jobs: [`review-${repoId}-7-abc123`] });
+    expect(await reprocessed.json()).toEqual({ status: "accepted", jobs: [`review-${repoId}-7-r1`] });
     expect(await delivery("d-stuck")).toMatchObject({ status: "accepted", attempts: 2, orgId: "org_a", repoId });
   });
 
   test("R1.2 a routing error returns 500 and persists the failure with the redacted payload", async () => {
     const h = makeHandler({ queue: new FlakyQueue(1, "connect ECONNREFUSED redis:6379") });
-    const payload = prEvent("opened", "s1", { title: "Rotate key", body: "old token ghp_abcdefghijklmnopqrstuvwxyz0123" });
+    const payload = prEvent("opened", "s1", { title: "Rotate key", body: `old token ${["ghp", "abcdefghijklmnopqrstuvwxyz0123"].join("_")}` });
     const res = await deliver("pull_request", payload, "d-fail", SECRET, h);
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ status: "failed", deliveryId: "d-fail" });
