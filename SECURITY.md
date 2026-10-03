@@ -40,6 +40,29 @@ releases are not patched.
 Error pages and API errors never include stack traces or internal messages; details go to the structured server log
 with a correlation id.
 
+## Operator secrets and the GitHub App setup page
+
+Server credentials (`APP_SECRET`, `ENCRYPTION_KEY`, the GitHub App private key, webhook and OAuth secrets, model and
+Stripe keys) live only in the environment (`.env`), never in the database or the repository; `.env.example` holds no
+values. `/setup/github-app` creates the GitHub App through GitHub's manifest flow and shows the resulting credentials
+once, with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; nothing is stored. It is open only on a fresh
+install (no App configured and nobody signed in yet), afterwards only to instance administrators
+(`INSTANCE_ADMIN_EMAILS`, or the first user). The flow's `state` is an HMAC over a random nonce kept in an HttpOnly
+cookie of the browser that started it, so a callback link from anyone else is refused, and the one-time code is
+validated before it is used in a request to GitHub.
+
+## Deployment hardening
+
+- Serve the app over HTTPS only, with one trusted reverse proxy in front of it (the per-address rate limits read the
+  last `X-Forwarded-For` hop). `deploy/docker-compose.prod.yml` does this with Caddy and publishes the app on
+  `127.0.0.1` only, because Docker-published ports bypass host firewalls.
+- Postgres and Redis are not published to the host; `docker-compose.offline.yml` also puts them on an internal network.
+- The app and worker containers run as a non-root user. Never mount the Docker socket into the web container; runtime validation
+  (off by default) should use a separate sandbox host or rootless Docker.
+- Back up the database and `.env` separately and restrict who can read both: the backup contains encrypted secrets and
+  `.env` contains the key.
+- Track the latest release: `pnpm deps:audit` runs in CI and Dependabot proposes dependency and base-image updates.
+
 ## Prompt injection (H7)
 
 Repository content, pull request titles and bodies, comments, and review replies are untrusted. They are always passed
