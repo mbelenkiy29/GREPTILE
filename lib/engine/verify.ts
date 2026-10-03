@@ -163,20 +163,58 @@ const LEGACY_CATEGORY: Record<string, string> = { logic: "correctness", style: "
 
 export function learnedSignal(learned: readonly LearnedPreference[], f: { category: string; title: string }): "suppress" | "boost" | null {
   for (const p of learned) {
-    if (p.signal === "neutral") continue;
+    if (p.signal === "neutral" || p.appliesTo === "category") continue;
     const cat = LEGACY_CATEGORY[p.category] ?? p.category;
     if (cat === f.category && similarity(p.description, f.title) >= 0.5) return p.signal;
   }
   return null;
 }
 
+/** Largest confidence increase any category suppression asks for (R6.10); never pushes the bar above 0.95. */
+export function categoryConfidenceDelta(learned: readonly LearnedPreference[], category: string): number {
+  let delta = 0;
+  for (const p of learned) {
+    if (p.appliesTo !== "category" || p.signal !== "suppress") continue;
+    if ((LEGACY_CATEGORY[p.category] ?? p.category) === category) delta = Math.max(delta, Math.max(0, p.confidenceDelta ?? 0));
+  }
+  return delta;
+}
+
+/** The minimum confidence for a finding of `category`: the setting plus any learned category suppression. */
+export function minConfidenceFor(settings: Pick<EngineSettings, "minConfidence">, learned: readonly LearnedPreference[], category: string): number {
+  const delta = categoryConfidenceDelta(learned, category);
+  return delta > 0 ? Math.min(0.95, Math.max(settings.minConfidence, settings.minConfidence + delta)) : settings.minConfidence;
+}
+
+/** Whether the team values the category as a whole (a learned category boost). */
+export function categoryBoosted(learned: readonly LearnedPreference[], category: string): boolean {
+  return learned.some((p) => p.appliesTo === "category" && p.signal === "boost" && (LEGACY_CATEGORY[p.category] ?? p.category) === category);
+}
+
 function strength(w: { c: Candidate }): number {
   return SEVERITY_WEIGHT[w.c.severity] * w.c.confidence;
 }
 
-/** Rank score: severity × confidence × agreement, × 1.25 for a cited team rule, × 1.5 for a learned boost. */
-export function rankScore(f: { severity: Severity; confidence: number; agents: readonly string[]; rule: unknown; boosted?: boolean }): number {
-  return SEVERITY_WEIGHT[f.severity] * f.confidence * (1 + 0.5 * (f.agents.length - 1)) * (f.rule ? 1.25 : 1) * (f.boosted ? 1.5 : 1);
+/**
+ * Rank score: severity × confidence × agreement, × 1.25 for a cited team rule, × 1.5 for a learned pattern boost,
+ * × 1.2 for a learned category boost.
+ */
+export function rankScore(f: {
+  severity: Severity;
+  confidence: number;
+  agents: readonly string[];
+  rule: unknown;
+  boosted?: boolean;
+  categoryBoosted?: boolean;
+}): number {
+  return (
+    SEVERITY_WEIGHT[f.severity] *
+    f.confidence *
+    (1 + 0.5 * (f.agents.length - 1)) *
+    (f.rule ? 1.25 : 1) *
+    (f.boosted ? 1.5 : 1) *
+    (f.categoryBoosted ? 1.2 : 1)
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -420,8 +458,13 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       reject(w0, "filter", `severity ${c.severity} is below the minimum (${settings.minSeverity})`);
       continue;
     }
-    if (c.confidence < settings.minConfidence) {
-      reject(w0, "filter", `confidence ${c.confidence.toFixed(2)} is below the minimum (${settings.minConfidence})`);
+    const minConfidence = minConfidenceFor(settings, input.learned, agent);
+    if (c.confidence < minConfidence) {
+      reject(
+        w0,
+        minConfidence > settings.minConfidence ? "learned" : "filter",
+        `confidence ${c.confidence.toFixed(2)} is below the minimum (${minConfidence}${minConfidence > settings.minConfidence ? `, raised for ${agent} by team feedback` : ""})`,
+      );
       continue;
     }
 
@@ -497,8 +540,9 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       reject(w, "verifier", v.verification.reasons.join("; ") || "rejected by the verification judge");
       continue;
     }
-    if (v.confidence < settings.minConfidence) {
-      reject({ agent: w.agent, c: { ...w.c, confidence: v.confidence } }, "verifier", `verified confidence ${v.confidence.toFixed(2)} is below the minimum (${settings.minConfidence})`);
+    const minConfidence = minConfidenceFor(settings, input.learned, w.agent);
+    if (v.confidence < minConfidence) {
+      reject({ agent: w.agent, c: { ...w.c, confidence: v.confidence } }, "verifier", `verified confidence ${v.confidence.toFixed(2)} is below the minimum (${minConfidence})`);
       continue;
     }
     if (SEVERITY_WEIGHT[v.severity] < SEVERITY_WEIGHT[settings.minSeverity]) {
@@ -526,7 +570,7 @@ export async function verifyCandidates(ctx: EngineContext, input: VerifyInput): 
       verification: v.verification,
       priorFindingId: w.priorFindingId,
     };
-    accepted.push({ finding, score: rankScore({ ...finding, boosted: w.boosted }) });
+    accepted.push({ finding, score: rankScore({ ...finding, boosted: w.boosted, categoryBoosted: categoryBoosted(input.learned, w.agent) }) });
     // A prior finding counts as re-reported (still open) only when a verified finding repeats it.
     if (w.priorFindingId !== null) reReported.add(w.priorFindingId);
   }

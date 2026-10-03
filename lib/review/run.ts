@@ -50,7 +50,7 @@ import type { GitHost, PullRequest } from "@/lib/git/types";
 import type { RunMeta } from "@/lib/jobs/handlers";
 import type { JobPayloads, JobQueue } from "@/lib/jobs/types";
 import { rateLimitRetryMs } from "@/lib/jobs/rate-limit";
-import { learnedForRepo, syncFeedback } from "@/lib/learning";
+import { learnedPreferencesForReview, syncFeedback } from "@/lib/learning";
 import type { EmbeddingProvider, LlmProvider } from "@/lib/llm";
 import { modelCallTotals } from "@/lib/llm/recorder";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
@@ -82,6 +82,8 @@ export interface ReviewJobDeps {
   embedder?: EmbeddingProvider;
   queue?: JobQueue;
   log?: Logger;
+  /** Bot name, so feedback collection leaves explicit commands to the conversation handler. */
+  botMention?: string;
   /** The review engine (S39); defaults to {@link defaultRunReview}. Tests inject a stub. */
   runReview?: RunReview;
   now?: () => Date;
@@ -419,12 +421,12 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
   await ctx.stopIfRequested();
 
   const context = await loadContextDocs(client, repo.fullName, pr.baseSha, settings.context);
-  await syncFeedback(deps, { orgId: run.orgId, repoId: repo.id, prNumber: pr.number }).catch((err) =>
+  await syncFeedback({ db, host: deps.host, botMention: deps.botMention, log }, { orgId: run.orgId, repoId: repo.id, prNumber: pr.number }).catch((err) =>
     log.info("feedback sync before review failed", { error: errorMessage(err) }),
   );
   const [dashboardRules, learned, priors, historical] = await Promise.all([
     activeRulesForRepo(db, run.orgId, repo.id),
-    learnedForRepo(db, run.orgId, repo.id),
+    learnedPreferencesForReview(db, run.orgId, repo.id),
     loadPriorFindings(db, run.orgId, run.reviewId),
     loadHistoricalFindings(db, run.orgId, { repoId: repo.id, excludeReviewId: run.reviewId, paths: files.map((f) => f.path) }),
   ]);
@@ -480,7 +482,7 @@ async function execute(deps: ReviewJobDeps, run: RunRow, ctx: ExecContext): Prom
       model: settings.model,
     },
     rules: [...dashboardRules, ...config.rules],
-    learned: learned.map((l) => ({ category: l.category, description: l.description, signal: l.signal })),
+    learned,
     contextDocs: context.docs.map((d) => ({ path: d.path, content: d.content })),
     existingComments,
     priorFindings: priors,
