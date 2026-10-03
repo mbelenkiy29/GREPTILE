@@ -85,6 +85,16 @@ async function prune() {
   } catch (err) {
     wlog.warn("pruning webhook deliveries failed", { error: errorMessage(err) });
   }
+  // Sandbox leftovers (R4.5) of runs a crashed worker could not clean up: anything older than the longest possible run.
+  const sandbox = deps.sandbox;
+  if (sandbox?.env.RUNTIME_VALIDATION_ENABLED && sandbox.runner?.sweep) {
+    try {
+      const swept = await sandbox.runner.sweep((sandbox.env.SANDBOX_TIMEOUT_SEC + 600) * 1000);
+      if (swept.containers || swept.volumes) wlog.info("removed stale sandbox containers", swept);
+    } catch (err) {
+      wlog.warn("sandbox sweep failed", { error: errorMessage(err) });
+    }
+  }
   // Demo retention (R3.7): results and demo indexes older than DEMO_RETENTION_HOURS.
   try {
     const purged = await purgeDemoData(deps.db, { retentionHours: e.DEMO_RETENTION_HOURS, cacheDir: e.REPO_CACHE_DIR });

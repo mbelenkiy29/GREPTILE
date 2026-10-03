@@ -332,4 +332,32 @@ export class DockerSandbox implements SandboxRunner {
     }
     if (volume) await attempt("remove volume", { method: "DELETE", path: `/volumes/${volume}`, query: { force: true } }, [204, 404]);
   }
+
+  /**
+   * Removes sandbox containers and volumes left behind by a worker that died mid-run: containers labeled as ours and
+   * created more than `maxAgeMs` ago (longer than any run may last), and our unused volumes older than that. Returns
+   * how many of each were removed.
+   */
+  async sweep(maxAgeMs: number): Promise<{ containers: number; volumes: number }> {
+    const signal = AbortSignal.timeout(this.opts.cleanupTimeoutMs ?? 30_000);
+    const cutoff = this.now() - maxAgeMs;
+    const label = JSON.stringify({ label: ["dev.openreview.sandbox=true"] });
+    const removed = { containers: 0, volumes: 0 };
+    const list = await this.transport.request({ method: "GET", path: "/containers/json", query: { all: true, filters: label }, signal });
+    await expectStatus(list, [200], "list sandbox containers");
+    for (const c of await readJson<{ Id?: unknown; Created?: unknown }[]>(list)) {
+      if (typeof c.Created !== "number" || c.Created * 1000 > cutoff || typeof c.Id !== "string" || !DOCKER_ID.test(c.Id)) continue;
+      await this.cleanup(c.Id, null);
+      removed.containers++;
+    }
+    const volumes = await this.transport.request({ method: "GET", path: "/volumes", query: { filters: JSON.stringify({ label: ["dev.openreview.sandbox=true"], dangling: ["true"] }) }, signal });
+    await expectStatus(volumes, [200], "list sandbox volumes");
+    for (const v of (await readJson<{ Volumes?: { Name?: unknown; CreatedAt?: unknown }[] | null }>(volumes)).Volumes ?? []) {
+      const created = typeof v.CreatedAt === "string" ? Date.parse(v.CreatedAt) : NaN;
+      if (typeof v.Name !== "string" || !/^openreview-sbx-[0-9a-f]{16}$/.test(v.Name) || !(created <= cutoff)) continue;
+      await this.cleanup(null, v.Name);
+      removed.volumes++;
+    }
+    return removed;
+  }
 }

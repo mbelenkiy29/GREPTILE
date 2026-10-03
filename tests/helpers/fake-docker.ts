@@ -46,6 +46,9 @@ export class FakeDocker implements DockerTransport {
   commands = new Map<string, FakeCommand>();
   /** Networks the container reports after a disconnect (empty = offline). */
   networksAfterDisconnect: Record<string, unknown> = {};
+  /** What `GET /containers/json` and `GET /volumes` list (for the stale-run sweep). */
+  listedContainers: { Id: string; Created: number }[] = [];
+  listedVolumes: { Name: string; CreatedAt: string }[] = [];
   /** Status for container create (e.g. 500 to simulate an engine failure). */
   createStatus = 201;
   private execs = new Map<string, string>();
@@ -112,6 +115,8 @@ export class FakeDocker implements DockerTransport {
     }
     if (method === "POST" && /^\/networks\/[^/]+\/disconnect$/.test(path)) return response(200);
     if (method === "GET" && /^\/containers\/[a-z0-9-]+\/json$/.test(path)) return response(200, { NetworkSettings: { Networks: this.networksAfterDisconnect } });
+    if (method === "GET" && path === "/containers/json") return response(200, this.listedContainers);
+    if (method === "GET" && path === "/volumes") return response(200, { Volumes: this.listedVolumes });
     if (method === "POST" && /\/kill$/.test(path)) return response(204);
     if (method === "DELETE" && path.startsWith("/containers/")) return response(204);
     if (method === "DELETE" && path.startsWith("/volumes/")) return response(204);

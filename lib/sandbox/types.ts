@@ -44,4 +44,6 @@ export interface SandboxResult {
 
 export interface SandboxRunner {
   run(spec: SandboxSpec): Promise<SandboxResult>;
+  /** Removes leftovers of runs older than `maxAgeMs` (a worker that died mid-run). */
+  sweep?(maxAgeMs: number): Promise<{ containers: number; volumes: number }>;
 }

@@ -229,6 +229,27 @@ describe("Docker sandbox", () => {
     expect(docker.find("DELETE", "/containers/*")).toHaveLength(1);
   });
 
+  test("R4.5 sweeps sandbox containers and volumes a crashed worker left behind, and only old ones", async () => {
+    const docker = new FakeDocker();
+    const now = Date.parse("2026-06-10T12:00:00Z");
+    const old = "a".repeat(64);
+    const fresh = "b".repeat(64);
+    docker.listedContainers = [
+      { Id: old, Created: (now - 2 * 3_600_000) / 1000 },
+      { Id: fresh, Created: (now - 60_000) / 1000 },
+    ];
+    docker.listedVolumes = [
+      { Name: "openreview-sbx-0123456789abcdef", CreatedAt: new Date(now - 2 * 3_600_000).toISOString() },
+      { Name: "openreview-sbx-fedcba9876543210", CreatedAt: new Date(now - 60_000).toISOString() },
+      { Name: "someone-elses-volume", CreatedAt: new Date(now - 9 * 3_600_000).toISOString() },
+    ];
+    const swept = await new DockerSandbox(docker, { ...OPTS, now: () => now }).sweep(3_600_000);
+    expect(swept).toEqual({ containers: 1, volumes: 1 });
+    expect(docker.find("GET", "/containers/json")[0]!.query).toEqual({ all: true, filters: JSON.stringify({ label: ["dev.openreview.sandbox=true"] }) });
+    expect(docker.find("DELETE", "/containers/*").map((c) => c.path)).toEqual([`/containers/${old}`]);
+    expect(docker.find("DELETE", "/volumes/*").map((c) => c.path)).toEqual(["/volumes/openreview-sbx-0123456789abcdef"]);
+  });
+
   test("R4.5 pulls a missing image with an explicit tag", async () => {
     const docker = new FakeDocker();
     await new DockerSandbox(docker, OPTS).run(spec({ image: "python" }));
