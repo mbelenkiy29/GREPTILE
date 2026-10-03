@@ -68,9 +68,17 @@ const llmShape = {
   EMBEDDING_CACHE_TTL_DAYS: optionalNumber(z.number().positive().default(90)),
 };
 
+/** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
+const siteShape = {
+  /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
+  SOURCE_CODE_URL: z.string().url().default("https://github.com/openreview/openreview"),
+  GITHUB_WEB_URL: z.string().url().default("https://github.com"),
+};
+
 const fields = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   APP_URL: z.string().url().default("http://localhost:3000"),
+  SOURCE_CODE_URL: siteShape.SOURCE_CODE_URL,
   /** Secret for signing app-issued tokens such as the GitHub install `state` and the OAuth state cookie. */
   APP_SECRET: z.string().min(16),
   DATABASE_URL: z.string().url(),
@@ -82,7 +90,7 @@ const fields = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().min(1),
   GITHUB_API_URL: z.string().url().default("https://api.github.com"),
   /** Web origin of the GitHub instance (GitHub Enterprise Server: `https://ghe.example.com`). */
-  GITHUB_WEB_URL: z.string().url().default("https://github.com"),
+  GITHUB_WEB_URL: siteShape.GITHUB_WEB_URL,
   /** The GitHub App's own OAuth credentials, used for "Sign in with GitHub" (R6.1). */
   GITHUB_APP_CLIENT_ID: optional,
   GITHUB_APP_CLIENT_SECRET: optional,
@@ -138,6 +146,17 @@ export function env(): Env {
 /** Only the variables the health check and db/redis clients need. */
 export function infraEnv() {
   return z.object({ DATABASE_URL: z.string().url(), REDIS_URL: z.string().url() }).parse(process.env);
+}
+
+const siteSchema = z.object(siteShape);
+export type SiteEnv = z.infer<typeof siteSchema>;
+
+/** Settings the UI shell reads (source link, GitHub web origin); parsed on their own so pages need no secrets. */
+export function siteEnv(source: Record<string, string | undefined> = process.env): SiteEnv {
+  return siteSchema.parse({
+    SOURCE_CODE_URL: source.SOURCE_CODE_URL || undefined,
+    GITHUB_WEB_URL: source.GITHUB_WEB_URL || undefined,
+  });
 }
 
 /** Indexer settings; parsed on their own so indexing does not require the full app env. */

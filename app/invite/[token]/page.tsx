@@ -6,15 +6,18 @@ import { db } from "@/lib/db";
 import { findInvitationByToken, invitationState, invitationTargetsUser } from "@/lib/data/members";
 import { getMembership, ORG_ERROR_MESSAGES, orgErrorCode, type OrgErrorCode } from "@/lib/data/orgs";
 import { acceptInviteAction } from "../actions";
+import { Brand } from "@/components/shell/Brand";
+import { Alert } from "@/components/ui/Alert";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Invitation · OpenReview" };
+export const metadata = { title: "Invitation" };
 
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <main className="shell auth-page">
+    <main className="auth-page">
       <div className="auth-card">
-        <span className="brand">OpenReview</span>
+        <Brand href="/dashboard" />
         <h1>{title}</h1>
         {children}
       </div>
@@ -79,9 +82,7 @@ export default async function InvitePage({
   if (problem) {
     return (
       <Card title="This invitation can't be used">
-        <p className="notice notice-bad" role="alert">
-          {ORG_ERROR_MESSAGES[problem]}
-        </p>
+        <Alert tone="error">{ORG_ERROR_MESSAGES[problem]}</Alert>
         <p className="dim">You&apos;re signed in as {account}.</p>
         <Link className="button" href="/orgs">
           Go to your organizations
@@ -97,15 +98,13 @@ export default async function InvitePage({
         OpenReview as <strong>{ROLE_LABEL[inv.role]}</strong>.
       </p>
       {reported && (
-        <p className="notice notice-bad" role="alert">
-          {ORG_ERROR_MESSAGES[reported]}
-        </p>
+        <Alert tone="error">{ORG_ERROR_MESSAGES[reported]}</Alert>
       )}
       <form action={acceptInviteAction}>
         <input type="hidden" name="token" value={token} />
-        <button className="button button-primary button-block" type="submit">
+        <SubmitButton variant="primary" block pendingLabel="Joining…">
           Accept invitation
-        </button>
+        </SubmitButton>
       </form>
       <p className="dim">Signed in as {account}. The invitation expires {inv.expiresAt.toISOString().slice(0, 10)}.</p>
     </Card>

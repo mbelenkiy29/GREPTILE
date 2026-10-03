@@ -20,8 +20,8 @@ function CopyableLink({ link, target }: { link: string; target: string | null | 
       <span>
         Invitation created{target ? ` for ${target}` : ""}. Share this link; it is shown only once and expires in 7 days.
       </span>
-      <div className="row">
-        <input className="mono" readOnly value={link} size={64} aria-label="Invitation link" onFocus={(e) => e.currentTarget.select()} />
+      <div className="row" style={{ flexWrap: "nowrap" }}>
+        <input className="input mono" readOnly value={link} aria-label="Invitation link" onFocus={(e) => e.currentTarget.select()} style={{ minWidth: 0 }} />
         <button
           className="button"
           type="button"
@@ -46,28 +46,34 @@ function CopyableLink({ link, target }: { link: string; target: string | null | 
 export function InviteForm({ action }: { action: (prev: InviteFormState, formData: FormData) => Promise<InviteFormState> }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
-    <form action={formAction} className="comment stack-sm" data-testid="invite-form">
-      <div className="row">
-        <label>
-          GitHub username or email <input name="target" placeholder="octocat or dev@example.com" autoComplete="off" size={28} />
-        </label>
-        <label>
-          Role{" "}
-          <select name="role" defaultValue="member">
+    <form action={formAction} className="card card-body" data-testid="invite-form">
+      <div className="row" style={{ alignItems: "flex-end" }}>
+        <div className="field" style={{ flex: "1 1 240px" }}>
+          <label className="field-label" htmlFor="invite-target">
+            GitHub username or email
+          </label>
+          <input id="invite-target" className="input" name="target" placeholder="octocat or dev@example.com" autoComplete="off" />
+        </div>
+        <div className="field" style={{ flex: "0 1 160px" }}>
+          <label className="field-label" htmlFor="invite-role">
+            Role
+          </label>
+          <select id="invite-role" className="select" name="role" defaultValue="member">
             {ROLE_OPTIONS.map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}
               </option>
             ))}
           </select>
-        </label>
-        <button className="button button-primary" type="submit" disabled={pending}>
+        </div>
+        <button className="button button-primary" type="submit" disabled={pending} aria-busy={pending || undefined}>
+          {pending && <span className="spinner" aria-hidden="true" />}
           Create invite link
         </button>
       </div>
       <span className="dim">Naming someone limits the link to that GitHub account or email. Leave it empty for a link anyone can use.</span>
       {state.error && (
-        <p className="error-text" role="alert">
+        <p className="field-error" role="alert">
           {state.error}
         </p>
       )}

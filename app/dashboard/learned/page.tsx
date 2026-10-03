@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { listLearnedPatterns } from "@/lib/learning";
 import { resetLearnedPreferences } from "../findings/actions";
 import { editPattern, removePattern } from "./actions";
+import { RulesNav } from "@/components/dashboard/RulesNav";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 async function resetFromForm(formData: FormData) {
   "use server";
@@ -17,10 +19,9 @@ export default async function LearnedPage() {
   const rows = await listLearnedPatterns(db(), orgId);
   const items = rows.map((r) => ({ ...r.pattern, repoFullName: r.repoFullName }));
   return (
-    <div className="stack">
-      <div className="page-head">
-        <h1>Learned</h1>
-      </div>
+    <>
+      <PageHeader title="Learned" />
+      <RulesNav current="learned" />
       <p className="dim">
         Conventions inferred from reactions, replies, and feedback on OpenReview findings. Suppressed patterns are no
         longer reported; prioritized ones rank higher. A suppressed category raises the confidence a finding in it
@@ -63,6 +64,6 @@ export default async function LearnedPage() {
             : undefined
         }
       />
-    </div>
+    </>
   );
 }

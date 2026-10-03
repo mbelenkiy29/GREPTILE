@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { listRepos } from "@/lib/data/installations";
 import { listRules } from "@/lib/data/rules";
 import { addRule, editRule, removeRule, setRuleStatus } from "./actions";
+import { RulesNav } from "@/components/dashboard/RulesNav";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 function toItem(r: Awaited<ReturnType<typeof listRules>>[number]): RuleItem {
   return { ...r.rule, repoFullName: r.repoFullName };
@@ -19,10 +21,9 @@ export default async function RulesPage() {
     listRepos(db(), orgId),
   ]);
   return (
-    <div className="stack">
-      <div className="page-head">
-        <h1>Rules</h1>
-      </div>
+    <>
+      <PageHeader title="Rules" />
+      <RulesNav current="rules" />
       <p className="dim">
         Write rules in plain English. Reviews enforce them on matching files and cite the rule in the comment. Rules can
         also live in a repository&apos;s <code>openreview.json</code>.
@@ -30,7 +31,7 @@ export default async function RulesPage() {
       </p>
 
       {manage && (
-      <form action={addRule} className="comment">
+      <form action={addRule} className="comment stack-sm">
         <label className="stack-sm">
           <span className="strong">New rule</span>
           <textarea name="text" required minLength={5} maxLength={2000} rows={2} placeholder="e.g. Database queries in API handlers must go through the repository layer, never raw SQL." />
@@ -100,6 +101,6 @@ export default async function RulesPage() {
           ) : undefined}
         />
       </section>
-    </div>
+    </>
   );
 }
