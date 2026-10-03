@@ -1,0 +1,26 @@
+{
+  "title": "Clean feature: clamp helper with tests",
+  "kind": "clean",
+  "pr": {
+    "title": "Cap progress bars at 100%",
+    "body": "Workers sometimes report more steps than planned; progress bars overflowed.",
+    "author": "eval"
+  },
+  "expected": [],
+  "nonIssues": [
+    {
+      "id": "clamp-bounds",
+      "file": "src/ui/progress.ts",
+      "lines": [
+        1,
+        4
+      ],
+      "description": "clamp does not check min <= max; every caller passes constant bounds and the JSDoc states the contract, so validating them is not needed.",
+      "keywords": [
+        "min",
+        "max",
+        "bound"
+      ]
+    }
+  ]
+}

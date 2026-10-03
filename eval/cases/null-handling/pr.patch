@@ -1,0 +1,14 @@
+diff --git a/src/notify/mention.ts b/src/notify/mention.ts
+index 4b411ba..722e985 100644
+--- a/src/notify/mention.ts
++++ b/src/notify/mention.ts
+@@ -5,3 +5,9 @@ import type { User } from "../users/types";
+ export function mentionText(author: User, comment: string): string {
+   return `${label(author)} mentioned you: ${comment.slice(0, 140)}`;
+ }
++
++/** The notification text for a mention, looking the author up among the thread's participants. */
++export function mentionTextById(participants: User[], authorId: string, comment: string): string {
++  const author = participants.find((u) => u.id === authorId);
++  return `${author!.email.split("@")[0]} mentioned you: ${comment.slice(0, 140)}`;
++}

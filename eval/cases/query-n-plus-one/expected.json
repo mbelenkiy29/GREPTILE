@@ -1,0 +1,30 @@
+{
+  "title": "Report query becomes one query per order",
+  "kind": "database query",
+  "pr": {
+    "title": "Handle deleted customers in the sales report",
+    "body": "Orders whose customer was deleted disappeared from the report because of the inner join.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "n-plus-one",
+      "file": "src/reports/orders.ts",
+      "lines": [
+        16,
+        18
+      ],
+      "category": "performance",
+      "severity": "medium",
+      "description": "The customer name is fetched with one query per order inside the loop (N+1) instead of a LEFT JOIN.",
+      "keywords": [
+        "n+1",
+        "query per",
+        "per order",
+        "loop",
+        "left join"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

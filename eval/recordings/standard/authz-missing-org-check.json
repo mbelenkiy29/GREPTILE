@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case authz-missing-org-check, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:security",
+      "response": {
+        "findings": [
+          {
+            "title": "archiveProject lets any caller archive another organization's project",
+            "description": "Unlike getProject, archiveProject reads the project with store.get(id) and never compares project.orgId with caller.orgId.",
+            "impact": "Cross-tenant writes: users can archive projects of other organizations by id.",
+            "severity": "high",
+            "confidence": 0.85,
+            "path": "src/routes/projects.ts",
+            "startLine": 27,
+            "endLine": 28,
+            "symbol": "archiveProject",
+            "evidence": [
+              {
+                "path": "src/routes/projects.ts",
+                "startLine": 27,
+                "endLine": 28,
+                "snippet": "  const project = await store.get(id);\n  if (!project) throw new NotFoundError(id);",
+                "why": "No orgId comparison before the write."
+              },
+              {
+                "path": "src/routes/projects.ts",
+                "startLine": 13,
+                "endLine": 13,
+                "snippet": "if (!project || project.orgId !== caller.orgId) throw new NotFoundError(id);",
+                "why": "getProject shows the required org check."
+              }
+            ],
+            "suggestedFix": "Load the project with getProject(store, caller, id), which enforces the organization check.",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "high",
+            "confidence": 0.85,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": [
+        {
+          "id": "security",
+          "reason": "scripted routing for this case"
+        }
+      ]
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

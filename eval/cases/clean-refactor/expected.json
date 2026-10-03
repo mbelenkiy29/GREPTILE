@@ -1,0 +1,11 @@
+{
+  "title": "Clean refactor: clearer names and docs",
+  "kind": "clean",
+  "pr": {
+    "title": "Document slugify",
+    "body": "Names the length limit and documents the behavior; no functional change.",
+    "author": "eval"
+  },
+  "expected": [],
+  "nonIssues": []
+}

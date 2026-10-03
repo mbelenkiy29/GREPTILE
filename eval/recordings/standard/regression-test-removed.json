@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case regression-test-removed, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:correctness",
+      "response": {
+        "findings": [
+          {
+            "title": "isLeapYear reintroduces bug #212: centuries are leap years again",
+            "description": "year % 4 === 0 treats 1900 and 2100 as leap years; the century rule fixed in #212 is gone and its regression test was deleted in this PR.",
+            "impact": "February 1900/2100 gets 29 days; date math across those years is off by a day.",
+            "severity": "high",
+            "confidence": 0.9,
+            "path": "src/dates/calendar.ts",
+            "startLine": 9,
+            "endLine": 9,
+            "symbol": "isLeapYear",
+            "evidence": [
+              {
+                "path": "src/dates/calendar.ts",
+                "startLine": 9,
+                "endLine": 9,
+                "snippet": "  return year % 4 === 0;",
+                "why": "The century exceptions were removed."
+              }
+            ],
+            "suggestedFix": "Restore (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 and keep the regression test.",
+            "suggestion": null,
+            "ruleId": null
+          },
+          {
+            "title": "daysInMonth returns 29 for February 1900",
+            "description": "Through isLeapYear, February of century years that are not divisible by 400 now has 29 days.",
+            "impact": "Wrong day counts for February in 1900 and 2100.",
+            "severity": "medium",
+            "confidence": 0.7,
+            "path": "src/dates/calendar.ts",
+            "startLine": 3,
+            "endLine": 3,
+            "symbol": "daysInMonth",
+            "evidence": [
+              {
+                "path": "src/dates/calendar.ts",
+                "startLine": 3,
+                "endLine": 3,
+                "snippet": "  if (month === 2) return 28 + Number(isLeapYear(year));",
+                "why": "daysInMonth relies on the broken isLeapYear."
+              }
+            ],
+            "suggestedFix": "Fix isLeapYear (see the other comment).",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "high",
+            "confidence": 0.9,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          },
+          {
+            "id": "c2",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "medium",
+            "confidence": 0.7,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": []
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

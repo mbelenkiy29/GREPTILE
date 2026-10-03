@@ -1,0 +1,38 @@
+diff --git a/src/ui/progress.ts b/src/ui/progress.ts
+index 53b5c90..0cda145 100644
+--- a/src/ui/progress.ts
++++ b/src/ui/progress.ts
+@@ -1,5 +1,10 @@
+-/** Width (0-100) of a progress bar for `done` of `total` steps. */
++/** `n` limited to the range [min, max]. Bounds are constants at every call site; `min` must not exceed `max`. */
++export function clamp(n: number, min: number, max: number): number {
++  return Math.min(max, Math.max(min, n));
++}
++
++/** Width (0-100) of a progress bar for `done` of `total` steps; over-reported progress never exceeds 100. */
+ export function progressPercent(done: number, total: number): number {
+   if (total <= 0) return 0;
+-  return Math.round((done / total) * 100);
++  return clamp(Math.round((done / total) * 100), 0, 100);
+ }
+diff --git a/test/progress.test.ts b/test/progress.test.ts
+new file mode 100644
+index 0000000..4a86ce6
+--- /dev/null
++++ b/test/progress.test.ts
+@@ -0,0 +1,15 @@
++import assert from "node:assert/strict";
++import { test } from "node:test";
++import { clamp, progressPercent } from "../src/ui/progress";
++
++test("clamp keeps values inside the range", () => {
++  assert.equal(clamp(-1, 0, 10), 0);
++  assert.equal(clamp(5, 0, 10), 5);
++  assert.equal(clamp(11, 0, 10), 10);
++});
++
++test("progressPercent never exceeds 100", () => {
++  assert.equal(progressPercent(12, 10), 100);
++  assert.equal(progressPercent(5, 10), 50);
++  assert.equal(progressPercent(1, 0), 0);
++});

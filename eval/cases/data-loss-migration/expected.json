@@ -1,0 +1,30 @@
+{
+  "title": "Migration drops a column before copying its data",
+  "kind": "data loss",
+  "pr": {
+    "title": "Rename users.email to contact_email",
+    "body": "Marketing and login now share one address column.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "email-dropped",
+      "file": "migrations/0002_contact_email.sql",
+      "lines": [
+        2,
+        4
+      ],
+      "category": "data",
+      "severity": "critical",
+      "description": "The migration adds contact_email and drops email without copying the addresses; SET NOT NULL then fails or every user loses their email.",
+      "keywords": [
+        "drop",
+        "data loss",
+        "backfill",
+        "copy",
+        "lost"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

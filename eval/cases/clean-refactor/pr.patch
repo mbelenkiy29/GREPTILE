@@ -1,0 +1,24 @@
+diff --git a/src/util/slug.ts b/src/util/slug.ts
+index ff59a5b..6577690 100644
+--- a/src/util/slug.ts
++++ b/src/util/slug.ts
+@@ -1,9 +1,16 @@
+-export function slugify(s: string): string {
+-  const x = s
++/** Longest slug we generate; longer titles are cut. */
++export const MAX_SLUG_LENGTH = 64;
++
++/**
++ * A URL slug for a title: accents removed, lowercase, runs of other characters collapsed to one dash, no leading or
++ * trailing dash, at most {@link MAX_SLUG_LENGTH} characters.
++ */
++export function slugify(title: string): string {
++  const slug = title
+     .normalize("NFKD")
+     .replace(/[̀-ͯ]/g, "")
+     .toLowerCase()
+     .replace(/[^a-z0-9]+/g, "-")
+     .replace(/^-+|-+$/g, "");
+-  return x.slice(0, 64);
++  return slug.slice(0, MAX_SLUG_LENGTH);
+ }

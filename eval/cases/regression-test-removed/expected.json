@@ -1,0 +1,30 @@
+{
+  "title": "Leap-year fix reverted and its regression test deleted",
+  "kind": "regression",
+  "pr": {
+    "title": "Simplify calendar helpers",
+    "body": "Simplifies isLeapYear and daysInMonth; drops a redundant test.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "leap-year-regression",
+      "file": "src/dates/calendar.ts",
+      "lines": [
+        8,
+        9
+      ],
+      "category": "correctness",
+      "severity": "high",
+      "description": "isLeapYear goes back to year % 4 === 0, reintroducing bug #212 (1900 and 2100 counted as leap years), and the regression test for it is deleted.",
+      "keywords": [
+        "leap",
+        "century",
+        "1900",
+        "400",
+        "regression"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

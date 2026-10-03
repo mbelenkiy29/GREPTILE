@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case breaking-api-change, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:api_compat",
+      "response": {
+        "findings": [
+          {
+            "title": "formatPrice now returns an object; renderInvoice still treats it as a string",
+            "description": "The return type changed from string to { symbol, amount }, but renderInvoice calls formatPrice(...).padStart(12), which no longer exists on the result.",
+            "impact": "Email receipts throw a TypeError (padStart is not a function).",
+            "severity": "high",
+            "confidence": 0.85,
+            "path": "src/money/format.ts",
+            "startLine": 9,
+            "endLine": 9,
+            "symbol": "formatPrice",
+            "evidence": [
+              {
+                "path": "src/money/format.ts",
+                "startLine": 9,
+                "endLine": 9,
+                "snippet": "export function formatPrice(cents: number, currency = \"USD\"): FormattedPrice {",
+                "why": "The exported signature now returns FormattedPrice."
+              },
+              {
+                "path": "src/invoice/render.ts",
+                "startLine": 10,
+                "endLine": 10,
+                "snippet": "const body = lines.map((l) => `${l.description.padEnd(30)}${formatPrice(l.cents, currency).padStart(12)}`);",
+                "why": "The existing caller relies on a string result."
+              }
+            ],
+            "suggestedFix": "Keep formatPrice returning a string and add a separate formatPriceParts for the checkout UI.",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "high",
+            "confidence": 0.85,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": [
+        {
+          "id": "api_compat",
+          "reason": "scripted routing for this case"
+        }
+      ]
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

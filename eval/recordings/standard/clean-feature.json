@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "origin": "scripted",
+  "description": "Hand-written responses for case clean-feature, used to test the evaluation harness offline (pnpm eval --provider fake --recorded). They were not produced by a model and say nothing about any model's review quality; record real ones with pnpm eval --record.",
+  "calls": [
+    {
+      "key": "review:correctness",
+      "response": {
+        "findings": [
+          {
+            "title": "clamp returns max when min > max instead of rejecting the bounds",
+            "description": "If a caller passes min greater than max, clamp silently returns max; consider throwing a RangeError.",
+            "impact": "Swapped bounds would go unnoticed.",
+            "severity": "low",
+            "confidence": 0.6,
+            "path": "src/ui/progress.ts",
+            "startLine": 3,
+            "endLine": 3,
+            "symbol": "clamp",
+            "evidence": [
+              {
+                "path": "src/ui/progress.ts",
+                "startLine": 3,
+                "endLine": 3,
+                "snippet": "  return Math.min(max, Math.max(min, n));",
+                "why": "No check that min <= max."
+              }
+            ],
+            "suggestedFix": "Throw a RangeError when min > max.",
+            "suggestion": null,
+            "ruleId": null
+          }
+        ]
+      }
+    },
+    {
+      "key": "verify:verifier",
+      "response": {
+        "verdicts": [
+          {
+            "id": "c1",
+            "verdict": "accept",
+            "reasons": [
+              "Scripted verdict: the cited code shows the problem."
+            ],
+            "severity": "low",
+            "confidence": 0.6,
+            "checks": {
+              "grounded": true,
+              "codeAccurate": true,
+              "introducedByPr": true,
+              "actionable": true,
+              "nonTrivial": true,
+              "notDuplicate": true
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "classify": {
+      "subsystems": [],
+      "riskAreas": [],
+      "additionalAgents": []
+    },
+    "review": {
+      "findings": []
+    },
+    "summary": {
+      "overview": "Scripted summary for the evaluation harness (not produced by a model).",
+      "whatChanged": [
+        "See the pull request diff"
+      ],
+      "affectedAreas": [],
+      "riskLevel": "medium",
+      "riskRationale": "Scripted response.",
+      "confidence": 3,
+      "architectureImpact": null
+    }
+  }
+}

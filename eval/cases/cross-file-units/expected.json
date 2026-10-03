@@ -1,0 +1,29 @@
+{
+  "title": "Timeout switches to milliseconds while its caller multiplies by 1000",
+  "kind": "cross-file logic",
+  "pr": {
+    "title": "Configure the upstream timeout in milliseconds",
+    "body": "REQUEST_TIMEOUT_MS allows sub-second tuning.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "timeout-units",
+      "file": "src/config/timeouts.ts",
+      "lines": [
+        1,
+        4
+      ],
+      "category": "correctness",
+      "severity": "high",
+      "description": "requestTimeout now returns milliseconds, but callUpstream in src/http/upstream.ts still multiplies it by 1000, making the timeout 30,000 seconds.",
+      "keywords": [
+        "millisecond",
+        "seconds",
+        "1000",
+        "unit"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

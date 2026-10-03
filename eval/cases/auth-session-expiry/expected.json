@@ -1,0 +1,28 @@
+{
+  "title": "Token refactor drops the session expiry check",
+  "kind": "authentication",
+  "pr": {
+    "title": "Extract token parsing from verifySession",
+    "body": "Pure refactor: token parsing moves into parseToken so the API key flow can reuse it.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "expired-sessions-accepted",
+      "file": "src/auth/session.ts",
+      "lines": [
+        25,
+        32
+      ],
+      "category": "security",
+      "severity": "critical",
+      "description": "verifySession no longer compares expiresAt with now, so expired (or never-expiring) tokens are accepted.",
+      "keywords": [
+        "expir",
+        "expired",
+        "now"
+      ]
+    }
+  ],
+  "nonIssues": []
+}

@@ -1,0 +1,17 @@
+diff --git a/src/routes/projects.ts b/src/routes/projects.ts
+index cf71ccb..8733175 100644
+--- a/src/routes/projects.ts
++++ b/src/routes/projects.ts
+@@ -21,3 +21,12 @@ export async function renameProject(store: ProjectStore, caller: Caller, id: str
+   await store.save(project);
+   return project;
+ }
++
++/** POST /projects/:id/archive — archives a project. */
++export async function archiveProject(store: ProjectStore, caller: Caller, id: string) {
++  const project = await store.get(id);
++  if (!project) throw new NotFoundError(id);
++  project.archived = true;
++  await store.save(project);
++  return project;
++}

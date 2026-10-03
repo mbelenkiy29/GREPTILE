@@ -1,0 +1,31 @@
+{
+  "title": "Pagination parameters are not validated",
+  "kind": "missing validation",
+  "pr": {
+    "title": "Paginate search results",
+    "body": "Adds limit and offset query parameters.",
+    "author": "eval"
+  },
+  "expected": [
+    {
+      "id": "unbounded-limit",
+      "file": "src/routes/search.ts",
+      "lines": [
+        9,
+        11
+      ],
+      "category": "security",
+      "severity": "medium",
+      "description": "limit and offset come straight from the query string: NaN, negative, or huge values (limit=100000000) reach the index, which loads offset + limit hits into memory.",
+      "keywords": [
+        "validat",
+        "bound",
+        "limit",
+        "nan",
+        "negative",
+        "maximum"
+      ]
+    }
+  ],
+  "nonIssues": []
+}
