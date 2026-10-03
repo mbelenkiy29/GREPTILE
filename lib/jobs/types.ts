@@ -52,6 +52,8 @@ export interface JobPayloads {
   };
   "sync-feedback": { orgId: string; repoId: number; prNumber: number; meta?: JobMeta };
   "mine-rules": { orgId: string; repoId: number; meta?: JobMeta };
+  /** Refreshes the repository knowledge base (R6.12) for a tracked `knowledge_runs` row. */
+  "refresh-knowledge": { orgId: string; repoId: number; runId: number; meta?: JobMeta };
   "answer-mention": {
     orgId: string;
     repoId: number;
@@ -86,13 +88,14 @@ export interface JobOptions {
   delay?: number;
 }
 
-/** Default priorities (lower runs first): mentions, then reviews, then feedback, indexing, and rule mining. */
+/** Default priorities (lower runs first): mentions, then reviews, then feedback, indexing, rule mining, and knowledge. */
 export const JOB_PRIORITY: Record<JobName, number> = {
   "answer-mention": 1,
   "review-pr": 2,
   "sync-feedback": 3,
   "index-repo": 4,
   "mine-rules": 5,
+  "refresh-knowledge": 6,
 };
 
 /**

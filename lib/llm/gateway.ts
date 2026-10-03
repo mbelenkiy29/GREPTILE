@@ -19,6 +19,7 @@ import {
   LlmValidationError,
   ZERO_USAGE,
   type CallMeta,
+  type ChatTask,
   type JsonRequest,
   type JsonResult,
   type LlmProvider,
@@ -119,6 +120,31 @@ export class ModelGateway implements LlmProvider {
   /** The provider, model, effort, and output limit a task runs with. Throws LlmError on incomplete configuration. */
   routeFor(task: LlmTask, mode: ReviewMode = "standard"): ResolvedRoute {
     return resolveRoute({ task, mode }, { env: this.env, orgOverride: this.opts.orgOverride });
+  }
+
+  /**
+   * Why calls for `task` cannot run with the current configuration (no model, endpoint, or API key), or null when
+   * they can. Background work that is optional (e.g. the knowledge base) checks this to skip instead of failing.
+   */
+  configurationError(task: ChatTask): string | null {
+    if (this.opts.provider) return null;
+    try {
+      const route = this.routeFor(task);
+      const target = providerTarget({ env: this.env, orgOverride: this.opts.orgOverride });
+      if (route.provider === "anthropic") {
+        // The SDK falls back to ANTHROPIC_API_KEY, but only for the operator's own endpoint.
+        const sdkKey = target.matchesEnv ? ((this.opts.env ?? process.env) as Record<string, unknown>).ANTHROPIC_API_KEY : undefined;
+        if (!target.apiKey && !sdkKey) {
+          return target.fromOrg ? "the organization's LLM settings must include an API key for the anthropic provider" : "LLM_API_KEY is not set for the anthropic provider";
+        }
+      }
+      if ((route.provider === "openai" || route.provider === "openrouter") && !target.apiKey) {
+        return target.fromOrg ? `the organization's LLM settings must include an API key for ${route.provider}` : `LLM_API_KEY is required for the ${route.provider} provider`;
+      }
+      return null;
+    } catch (err) {
+      return errorMessage(err);
+    }
   }
 
   private route(req: TextRequest): ResolvedRoute {

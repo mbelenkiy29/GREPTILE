@@ -3,7 +3,8 @@
  * token-budgeted context bundle for a change: definitions of changed symbols, callers, callees, importers,
  * transitive dependents, related tests, routes and schema consumers, nearby manifests and config, exact symbol and
  * path search for identifiers the diff references, full-text search for new constants, embedding neighbors (code and
- * docs), repository instructions, recently co-changed files, historical findings, and team rules. Every item says
+ * docs), repository instructions, knowledge base notes on the touched subsystems (R6.12), recently co-changed files,
+ * historical findings, and team rules. Every item says
  * why it was retrieved; overlapping ranges of one file are merged and keep every reason. Output is deterministic for
  * the same inputs.
  */
@@ -13,6 +14,7 @@ import type { Db } from "@/lib/db";
 import { fileChunks, files, symbols } from "@/lib/db/schema";
 import type { ContextDoc, HistoricalFinding } from "@/lib/engine/types";
 import { isTestPath } from "@/lib/indexer/filetypes";
+import { knowledgeForPaths } from "@/lib/knowledge/retrieve";
 import { parseSource, type ParsedFile } from "@/lib/indexer/parser";
 import {
   calleesOf,
@@ -90,6 +92,7 @@ const BASE_SCORE: Record<ContextKind, number> = {
   symbol_match: 0.6,
   dependent: 0.55,
   instructions: 0.5,
+  knowledge: 0.48,
   path_match: 0.45,
   history: 0.45,
   config: 0.4,
@@ -377,6 +380,43 @@ async function changedSymbols(
   return { changed, parsedHead };
 }
 
+/** Share of the context budget knowledge base notes may use (R6.12). */
+export const KNOWLEDGE_BUDGET_SHARE = 0.08;
+
+/** Knowledge entry rendered for a prompt: description, conventions, and risks, within `maxTokens`. */
+function knowledgeContent(e: Awaited<ReturnType<typeof knowledgeForPaths>>[number], maxTokens: number): string {
+  const parts = [
+    `${e.title}${e.stale ? " (may be outdated: the subsystem changed since this note was written)" : ""}`,
+    e.description,
+    e.conventions.length ? `Conventions:\n${e.conventions.map((c) => `- ${c}`).join("\n")}` : "",
+    e.risks.length ? `Known risks:\n${e.risks.map((r) => `- [${r.severity}] ${r.title}: ${r.detail}`).join("\n")}` : "",
+  ];
+  return truncateToTokens(parts.filter(Boolean).join("\n\n"), maxTokens);
+}
+
+async function addKnowledge(db: Db, scope: RepoScope, col: Collector, paths: string[], tokenBudget: number) {
+  if (!paths.length) return;
+  const share = Math.max(200, Math.floor(tokenBudget * KNOWLEDGE_BUDGET_SHARE));
+  const entries = await knowledgeForPaths(db, scope.orgId, scope.repoId, paths, { limit: 3 });
+  let left = share;
+  for (const [i, e] of entries.entries()) {
+    if (left < 100) break;
+    const content = knowledgeContent(e, Math.min(left, Math.ceil(share / Math.min(entries.length, 2))));
+    left -= estimateTokens(content);
+    col.add({
+      kind: "knowledge",
+      path: `knowledge:${e.slug}`,
+      startLine: 0,
+      endLine: 0,
+      name: e.title,
+      content,
+      // Most overlapping (most specific) subsystem first.
+      score: BASE_SCORE.knowledge - 0.02 * i,
+      reasons: [`subsystem notes for ${e.title} (covers ${e.matchedPaths.slice(0, 3).join(", ")}${e.matchedPaths.length > 3 ? ", …" : ""})`],
+    });
+  }
+}
+
 /**
  * Retrieves the context a review of `input.diffs` needs (R6.5). See the module comment for the sources.
  */
@@ -642,6 +682,9 @@ export async function retrieveContext(deps: RetrievalDeps, input: RetrievalInput
     col.add({ kind: "context_doc", path: doc.path, startLine: 1, endLine: lines, name: null, content: doc.content, reasons: ["context file configured for this repository"] });
   }
 
+  // 12b. Knowledge base notes on the subsystems the change touches (R6.12), held to a small share of the budget.
+  await addKnowledge(db, scope, col, [...changedPaths], input.tokenBudget ?? profile.contextTokens);
+
   // 13. Recently changed files near the change.
   const commits = await recentChanges(db, scope, { paths: [...changedPaths], limit: limit });
   const changedComponents = new Set([...changedPaths].map(componentOf));
@@ -763,6 +806,9 @@ export async function retrieveForQuestion(deps: RetrievalDeps, input: QuestionIn
       col.add({ kind: h.kind === "doc" ? "doc" : "text_match", path: h.path, startLine: h.startLine, endLine: h.endLine, name: null, content: h.content, score: 0.3 + (top > 0 ? 0.2 * (h.rank / top) : 0), reasons: ["matches words in the question"] });
     }
   }
+  // Knowledge base notes on the subsystems the question names (R6.12).
+  const named = [...new Set(col.drafts.filter((d) => d.kind === "symbol_match" || d.kind === "path_match").map((d) => d.path))];
+  await addKnowledge(deps.db, scope, col, named, input.tokenBudget ?? profile.contextTokens);
   if (deps.embedder) {
     const vec = await embedOne(deps, input.question, scope);
     if (vec) {

@@ -22,6 +22,17 @@ const creditsShape = {
   CREDITS_DEEP: optionalNumber(z.number().min(0).default(4)),
 };
 
+/** Knowledge base settings (R6.12); also parsed on their own by `knowledgeEnv()`. */
+const knowledgeShape = {
+  /** Generate and refresh the repository knowledge base after indexing. On unless set to false / 0 / no / off. */
+  KNOWLEDGE_ENABLED: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => (typeof v === "boolean" ? v : !["false", "0", "no", "off"].includes((v ?? "").trim().toLowerCase()))),
+  /** Entries regenerated per refresh run (model calls); the rest stay stale for the next run. */
+  KNOWLEDGE_MAX_ENTRIES_PER_RUN: optionalNumber(z.number().int().min(1).max(12).default(5)),
+};
+
 const indexMaxFileBytes = z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().int().positive().default(524_288));
 /** Review pipeline settings (R6.6, R6.16); also parsed on their own by `pipelineEnv()`. */
 const pipelineShape = {
@@ -114,6 +125,7 @@ const fields = z.object({
 
   ...creditsShape,
   ...pipelineShape,
+  ...knowledgeShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -167,6 +179,14 @@ export function indexerEnv() {
 /** Review credit costs per mode (R4.1); parsed on their own so the engine does not require the full app env. */
 export function creditsEnv(source: Record<string, string | undefined> = process.env) {
   return z.object(creditsShape).parse(source);
+}
+
+const knowledgeSchema = z.object(knowledgeShape);
+export type KnowledgeEnv = z.infer<typeof knowledgeSchema>;
+
+/** Knowledge base settings (R6.12); parsed on their own so knowledge jobs (and tests) do not require the full app env. */
+export function knowledgeEnv(source: Record<string, string | undefined> = process.env): KnowledgeEnv {
+  return knowledgeSchema.parse(source);
 }
 
 const pipelineSchema = z.object(pipelineShape);
