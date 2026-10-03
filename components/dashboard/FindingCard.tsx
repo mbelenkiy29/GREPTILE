@@ -5,7 +5,7 @@ import { CodeBlock } from "@/components/ui/Code";
 import { Icon } from "@/components/ui/icons";
 import { Markdown } from "@/components/ui/Markdown";
 import type { FindingRow } from "@/lib/data/findings";
-import { blobUrl, commentUrl, PROVIDER_LABEL, repoWeb, type RepoWeb } from "@/lib/git/web-url";
+import { blobUrl, commentUrl, PROVIDER_LABEL, providerIcon, repoWeb, type RepoWeb } from "@/lib/git/web-url";
 
 function location(f: Pick<FindingRow, "path" | "startLine" | "endLine">) {
   return f.endLine > f.startLine ? `${f.path}:${f.startLine}–${f.endLine}` : `${f.path}:${f.startLine}`;
@@ -74,7 +74,7 @@ export function FindingCard({
         <span>· raised by {f.agents.length ? f.agents.map(humanize).join(", ") : humanize(f.agent)}</span>
         {f.externalCommentId !== null && (
           <a href={commentUrl(host, repoFullName, prNumber, f.externalCommentId)} target="_blank" rel="noreferrer">
-            <Icon name={host.provider === "gitlab" ? "gitlab" : host.provider === "bitbucket" ? "bitbucket" : "github"} size={12} /> Comment on {label}
+            <Icon name={providerIcon(host.provider)} size={12} /> Comment on {label}
           </a>
         )}
       </div>

@@ -36,6 +36,7 @@ export type IconName =
   | "github"
   | "gitlab"
   | "bitbucket"
+  | "local"
   | "plus"
   | "code"
   | "clock"
@@ -232,6 +233,13 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M4 5h16l-2.2 14a1.5 1.5 0 0 1-1.5 1.2H7.7a1.5 1.5 0 0 1-1.5-1.2z" />
       <path d="M9.5 10.5h5l-.8 4.5h-3.4z" />
+    </>
+  ),
+  // The demo / local mode host (R6.22): a laptop.
+  local: (
+    <>
+      <rect x="4" y="5" width="16" height="10" rx="1.5" />
+      <path d="M2.5 19h19" />
     </>
   ),
   plus: (

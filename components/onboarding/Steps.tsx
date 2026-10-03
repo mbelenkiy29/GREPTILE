@@ -14,6 +14,7 @@ import type { InvitationView } from "@/lib/data/members";
 import { canViewStep, ONBOARDING_STEP_LABEL, type ClaimableResult, type OnboardingState, type OnboardingStep, type RepoIndexProgress } from "@/lib/data/onboarding";
 import type { UserOrg } from "@/lib/data/orgs";
 import { SEVERITIES } from "@/lib/engine/types";
+import { providerIcon } from "@/lib/git/web-url";
 import { IndexProgressList } from "./IndexProgressList";
 
 type Action = (formData: FormData) => Promise<void>;
@@ -217,7 +218,7 @@ export function InstallStep({
             {installations.map((i) => (
               <li key={i.id} className="comment" data-installation={i.externalId} data-status={i.status}>
                 <div className="row">
-                  <Icon name={i.provider === "gitlab" ? "gitlab" : i.provider === "bitbucket" ? "bitbucket" : "github"} size={16} />
+                  <Icon name={providerIcon(i.provider)} size={16} />
                   <span className="strong">{i.accountLogin}</span>
                   <span className="spacer" />
                   <Badge tone={i.status === "ok" ? "ok" : i.status === "suspended" ? "bad" : "warn"}>

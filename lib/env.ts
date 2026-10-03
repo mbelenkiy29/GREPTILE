@@ -181,6 +181,18 @@ const demoShape = {
   DEMO_GITHUB_TOKEN: optional,
 };
 
+/**
+ * Demo / local mode (R6.22): the local git host (bare repositories under LOCAL_GIT_ROOT, pull requests and comments in
+ * Postgres) for trying OpenReview without a GitHub App. A development aid: refused when NODE_ENV=production unless
+ * DEMO_MODE_ALLOW_PRODUCTION is also set. Also parsed on their own by `localModeEnv()`.
+ */
+const localModeShape = {
+  DEMO_MODE: flag,
+  DEMO_MODE_ALLOW_PRODUCTION: flag,
+  /** Directory holding the local host's bare repositories (`<owner>/<name>.git`). */
+  LOCAL_GIT_ROOT: z.string().trim().min(1).default("/tmp/openreview-local-git"),
+};
+
 /** Public, non-secret settings the UI shell needs; also parsed on their own by `siteEnv()`. */
 const siteShape = {
   /** Source of the running version, linked from the dashboard footer (AGPL-3.0 §13). */
@@ -234,6 +246,7 @@ const fields = z.object({
   ...scmShape,
   ...sandboxShape,
   ...demoShape,
+  ...localModeShape,
 });
 
 function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boolean }, ctx: z.RefinementCtx) {
@@ -246,7 +259,25 @@ function rejectDevLoginInProduction(e: { NODE_ENV: string; AUTH_DEV_LOGIN: boole
   }
 }
 
-const schema = fields.superRefine(rejectDevLoginInProduction);
+function rejectDemoModeInProduction(e: { NODE_ENV: string; DEMO_MODE: boolean; DEMO_MODE_ALLOW_PRODUCTION: boolean }, ctx: z.RefinementCtx) {
+  if (e.DEMO_MODE && e.NODE_ENV === "production" && !e.DEMO_MODE_ALLOW_PRODUCTION) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["DEMO_MODE"],
+      message: "DEMO_MODE=true is a development aid and is refused when NODE_ENV=production (set DEMO_MODE_ALLOW_PRODUCTION=true to override).",
+    });
+  }
+}
+
+const schema = fields.superRefine(rejectDevLoginInProduction).superRefine(rejectDemoModeInProduction);
+
+const localModeSchema = z.object({ NODE_ENV: fields.shape.NODE_ENV, ...localModeShape });
+export type LocalModeEnv = z.infer<typeof localModeSchema>;
+
+/** Demo / local mode settings (R6.22); parsed on their own so `pnpm demo` and the local host need no GitHub App. */
+export function localModeEnv(source: Record<string, string | undefined> = process.env): LocalModeEnv {
+  return localModeSchema.parse(source);
+}
 
 export type Env = z.infer<typeof schema>;
 

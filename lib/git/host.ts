@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { GitHubHost } from "@/lib/github/client";
 import { GitLabHost } from "@/lib/gitlab/client";
+import { LocalGitHost } from "@/lib/git/local/host";
+import { localModeBlocker } from "@/lib/git/local/guard";
 import { bitbucketConnection, gitlabConnection } from "@/lib/scm/connection";
 import { GitHosts } from "./hosts";
 
@@ -21,6 +23,8 @@ function create(maxWaitMs?: number) {
   return new GitHosts(github, {
     gitlab: new GitLabHost({ credentials: (id) => gitlabConnection(db(), id), ...wait }),
     bitbucket: new BitbucketHost({ credentials: (id) => bitbucketConnection(db(), id), ...wait }),
+    // Demo / local mode (R6.22) only: without DEMO_MODE (or in production) `local` installations get UnsupportedProviderError.
+    ...(localModeBlocker(e) === null ? { local: new LocalGitHost({ db, root: e.LOCAL_GIT_ROOT, mode: e }) } : {}),
   });
 }
 

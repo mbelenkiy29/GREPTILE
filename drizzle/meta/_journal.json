@@ -190,6 +190,13 @@
       "when": 1791007598127,
       "tag": "0026_sandbox_demo",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791008437664,
+      "tag": "0027_wandering_sentinel",
+      "breakpoints": true
     }
   ]
 }

@@ -18,11 +18,20 @@ export const DEFAULT_WEB_URLS: Record<string, string> = {
 };
 
 /**
+ * Demo / local mode (R6.22): the local git host has no web UI of its own, so its links point at the dashboard's local
+ * pages, which render pull requests, files, and commits straight from the local repositories.
+ */
+export const LOCAL_WEB_BASE = "/dashboard/local";
+
+const localQuery = (params: Record<string, string | number>) => new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
+
+/**
  * The web location of a repository's host: the installation's own web URL (self-managed GitLab, GitHub Enterprise
  * via `fallbackGithubUrl`) or the provider's default.
  */
 export function repoWeb(provider: string | null | undefined, installationWebUrl?: string | null, fallbackGithubUrl?: string): RepoWeb {
   const p = provider ?? "github";
+  if (p === "local") return { provider: p, webUrl: LOCAL_WEB_BASE };
   const base = installationWebUrl || (p === "github" ? fallbackGithubUrl : undefined) || DEFAULT_WEB_URLS[p] || DEFAULT_WEB_URLS.github!;
   return { provider: p, webUrl: base.replace(/\/+$/, "") };
 }
@@ -30,22 +39,26 @@ export function repoWeb(provider: string | null | undefined, installationWebUrl?
 const encodePath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
 
 export function repoUrl(web: RepoWeb, repoFullName: string): string {
+  if (web.provider === "local") return `${web.webUrl}/browse?${localQuery({ repo: repoFullName })}`;
   return `${web.webUrl}/${repoFullName}`;
 }
 
 export function prUrl(web: RepoWeb, repoFullName: string, prNumber: number): string {
+  if (web.provider === "local") return `${web.webUrl}/pr?${localQuery({ repo: repoFullName, number: prNumber })}`;
   if (web.provider === "gitlab") return `${repoUrl(web, repoFullName)}/-/merge_requests/${prNumber}`;
   if (web.provider === "bitbucket") return `${repoUrl(web, repoFullName)}/pull-requests/${prNumber}`;
   return `${repoUrl(web, repoFullName)}/pull/${prNumber}`;
 }
 
 export function commitUrl(web: RepoWeb, repoFullName: string, sha: string): string {
+  if (web.provider === "local") return `${web.webUrl}/browse?${localQuery({ repo: repoFullName, ref: sha, view: "commit" })}`;
   if (web.provider === "gitlab") return `${repoUrl(web, repoFullName)}/-/commit/${sha}`;
   if (web.provider === "bitbucket") return `${repoUrl(web, repoFullName)}/commits/${sha}`;
   return `${repoUrl(web, repoFullName)}/commit/${sha}`;
 }
 
 export function blobUrl(web: RepoWeb, repoFullName: string, sha: string, path: string, line?: number): string {
+  if (web.provider === "local") return `${web.webUrl}/browse?${localQuery({ repo: repoFullName, ref: sha, path })}${line ? `#L${line}` : ""}`;
   const p = encodePath(path);
   if (web.provider === "gitlab") return `${repoUrl(web, repoFullName)}/-/blob/${sha}/${p}${line ? `#L${line}` : ""}`;
   if (web.provider === "bitbucket") return `${repoUrl(web, repoFullName)}/src/${sha}/${p}${line ? `#lines-${line}` : ""}`;
@@ -54,10 +67,16 @@ export function blobUrl(web: RepoWeb, repoFullName: string, sha: string, path: s
 
 /** Link to an inline comment on its pull request. */
 export function commentUrl(web: RepoWeb, repoFullName: string, prNumber: number, commentId: number): string {
+  if (web.provider === "local") return `${prUrl(web, repoFullName, prNumber)}#comment-${commentId}`;
   if (web.provider === "gitlab") return `${prUrl(web, repoFullName, prNumber)}#note_${commentId}`;
   if (web.provider === "bitbucket") return `${prUrl(web, repoFullName, prNumber)}#comment-${commentId}`;
   return `${prUrl(web, repoFullName, prNumber)}#discussion_r${commentId}`;
 }
 
 /** Provider display names. */
-export const PROVIDER_LABEL: Record<string, string> = { github: "GitHub", gitlab: "GitLab", bitbucket: "Bitbucket" };
+export const PROVIDER_LABEL: Record<string, string> = { github: "GitHub", gitlab: "GitLab", bitbucket: "Bitbucket", local: "Local (demo)" };
+
+/** The icon for a provider's repositories and links (`local` is the demo / local mode host, R6.22). */
+export function providerIcon(provider: string | null | undefined): "github" | "gitlab" | "bitbucket" | "local" {
+  return provider === "gitlab" || provider === "bitbucket" || provider === "local" ? provider : "github";
+}
