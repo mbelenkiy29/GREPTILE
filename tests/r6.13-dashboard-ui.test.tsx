@@ -122,6 +122,43 @@ describe("dashboard UI (R6.13)", () => {
     expect(hrefWith("/x", { a: "1", toast: "z" }, { a: undefined, b: 2 })).toBe("/x?b=2&toast=z");
   });
 
+  test("R6.13 markdown renders the tables, collapsible details, footers, and nested fences review comments use", () => {
+    const source = [
+      "| Severity | Location |",
+      "| --- | --- |",
+      "| Critical | `a.ts:1` |",
+      "",
+      "<details><summary>Fix with AI</summary>",
+      "",
+      "````markdown",
+      "Paste this:",
+      "```ts",
+      "x()",
+      "```",
+      "</details>",
+      "````",
+      "",
+      "</details>",
+      "",
+      "<sub>standard mode</sub>",
+      "",
+      "New DEFAULT_MAX_PERCENT_OFF constant, _emphasis_ and __strong__.",
+      "",
+      '<details onclick="alert(1)"><img src=x onerror=alert(1)>',
+    ].join("\n");
+    const html = renderToStaticMarkup(<Markdown source={source} />);
+    expect(html).toContain("<th>Severity</th>");
+    expect(html).toContain("<td><code>a.ts:1</code></td>");
+    expect(html).toContain("<details><summary>Fix with AI</summary>");
+    // The four-backtick fence keeps the inner fence and the </details> inside it as code.
+    expect(html).toContain('<pre data-lang="markdown"><code>Paste this:\n```ts\nx()\n```\n&lt;/details&gt;</code></pre></details>');
+    expect(html).toContain("<small>standard mode</small>");
+    expect(html).toContain("New DEFAULT_MAX_PERCENT_OFF constant, <em>emphasis</em> and <strong>strong</strong>.");
+    // Anything else that looks like HTML stays text.
+    expect(html).not.toMatch(/<img|<details onclick/);
+    expect(html).toContain("&lt;details onclick=");
+  });
+
   test("R6.13 markdown and diffs render untrusted text safely", () => {
     const html = renderToStaticMarkup(
       <Markdown source={"# Title\n\n<script>alert(1)</script> and **bold** with `code`\n\n- [ok](https://example.com)\n- [bad](javascript:alert(1))\n\n```ts\nconst a = '<b>';\n```"} />,

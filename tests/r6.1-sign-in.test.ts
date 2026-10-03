@@ -14,10 +14,11 @@ import { installMessage, lookupMessage, signInErrorMessage } from "@/lib/auth/me
 import { openOAuthState, pkceChallenge, sealOAuthState } from "@/lib/auth/oauth";
 import { safeNextPath, signInPath } from "@/lib/auth/redirect";
 import { authorizeRequest } from "@/lib/auth/request";
+import { upsertDevUser } from "@/lib/auth/users";
 import { createSession, pruneExpiredSessions, validateSessionToken } from "@/lib/auth/sessions";
 import { decryptSecret, hashToken } from "@/lib/crypto";
 import type { Db } from "@/lib/db";
-import { orgErrorCode } from "@/lib/data/orgs";
+import { createOrg, orgErrorCode } from "@/lib/data/orgs";
 import { authAccounts, memberships, orgs, sessions, users } from "@/lib/db/schema";
 import { parseAuthEnv } from "@/lib/env";
 import { setLogSink } from "@/lib/log";
@@ -476,5 +477,20 @@ describe("dev login", () => {
     await post({ devLogin: true, nodeEnv: "development" });
     expect(await db.select().from(users)).toHaveLength(1);
     expect(await db.select().from(orgs)).toHaveLength(1);
+  });
+
+  test("R6.1 dev login lands in an org the local developer already belongs to instead of creating a workspace", async () => {
+    // What `pnpm demo` leaves behind (R6.22): the dev user with an owner seat in the demo org, never signed in.
+    const dev = await upsertDevUser(db, NOW);
+    const demo = await createOrg(db, { name: "Local demo", createdBy: dev.id });
+    await db.insert(memberships).values({ orgId: demo.id, userId: dev.id, role: "owner" }).onConflictDoNothing();
+
+    const ok = await createDevLoginHandler(() => ({ db, config: { ...config, devLogin: true, nodeEnv: "development" }, now: () => NOW }))(
+      new Request(`${config.appUrl}/api/auth/dev`, { method: "POST", headers: { origin: config.appUrl } }),
+    );
+    expect(ok.status).toBe(303);
+    expect(await db.select().from(orgs).where(eq(orgs.personal, true))).toEqual([]);
+    const token = setCookies(ok).get(SESSION_COOKIE)!.value;
+    expect(await validateSessionToken(db, token, { now: NOW, ttlDays: 30 })).toMatchObject({ userId: dev.id, activeOrgId: demo.id });
   });
 });

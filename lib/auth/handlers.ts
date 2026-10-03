@@ -1,6 +1,6 @@
 import type { Db } from "@/lib/db";
 import { needsOnboarding } from "@/lib/data/onboarding";
-import { defaultOrgForUser, ensurePersonalOrg } from "@/lib/data/orgs";
+import { defaultOrgForUser, ensurePersonalOrg, listUserOrgs } from "@/lib/data/orgs";
 import { errorMessage, log } from "@/lib/log";
 import { assertSameOrigin, CsrfError } from "@/lib/security/csrf";
 import { appUrl, devLoginAllowed, GITHUB_CALLBACK_PATH, type AuthConfig } from "./config";
@@ -169,7 +169,8 @@ export function createDevLoginHandler(factory: Factory<AuthHandlerDeps>) {
     const form = await req.formData().catch(() => null);
     const now = clock(deps);
     const user = await upsertDevUser(db, now);
-    await ensurePersonalOrg(db, user);
+    // A workspace only when the developer has nowhere to land: `pnpm demo` seats them in its org, which should open.
+    if ((await listUserOrgs(db, user.id)).length === 0) await ensurePersonalOrg(db, user);
     const cookies = await startSession(deps, req, user.id, now);
     log.info("signed in with dev login", { userId: user.id });
     return redirectTo(appUrl(config, await afterSignInPath(db, user.id, form?.get("next"))), cookies, 303);
