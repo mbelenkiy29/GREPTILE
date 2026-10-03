@@ -356,7 +356,7 @@ export const reviews = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex("reviews_repo_pr_uq").on(t.repoId, t.prNumber), index().on(t.orgId, t.createdAt)],
+  (t) => [uniqueIndex("reviews_repo_pr_uq").on(t.repoId, t.prNumber), index().on(t.orgId, t.createdAt), index().on(t.orgId, t.updatedAt)],
 );
 
 /** Inline comments posted to a PR. `fingerprint` dedupes across re-reviews (R1.6). */
@@ -1104,6 +1104,8 @@ export const findings = pgTable(
     uniqueIndex("findings_review_fp_uq").on(t.reviewId, t.fingerprint),
     index().on(t.orgId, t.status, t.severity),
     index().on(t.repoId, t.createdAt),
+    // Dashboard findings list: newest first within an org (R6.13).
+    index().on(t.orgId, t.createdAt),
   ],
 );
 

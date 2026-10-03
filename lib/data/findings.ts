@@ -5,10 +5,11 @@
  * kept (visibility `rejected`) with the reason, for transparency.
  */
 import { createHash } from "node:crypto";
-import { and, count, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, lt, ne, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/lib/db";
-import { findings, reviewComments } from "@/lib/db/schema";
+import { findings, repos, reviewComments, reviews } from "@/lib/db/schema";
 import type { EngineFinding, HistoricalFinding, PriorFinding, RejectedCandidate } from "@/lib/engine/types";
+import { pageWindow, toPage, type Page, type PageOptions } from "./paginate";
 import { scoped } from "./tenant";
 
 export type FindingRow = typeof findings.$inferSelect;
@@ -365,4 +366,98 @@ export async function setFindingStatus(
     .where(and(scoped(findings, orgId, eq(findings.id, findingId)), ne(findings.visibility, "rejected")))
     .returning();
   return row;
+}
+
+/** Severity as a sortable rank: 0 = critical … 3 = low, 4 = anything unrecognized. */
+export const severityRank = sql<number>`(case ${findings.severity} when 'critical' then 0 when 'high' then 1 when 'medium' then 2 when 'low' then 3 else 4 end)`;
+
+export const FINDING_SORTS = ["date", "severity", "confidence"] as const;
+export type FindingSort = (typeof FINDING_SORTS)[number];
+
+/**
+ * Findings page filters (R6.13). Each is optional and they combine with AND. Later tracks add filters (e.g.
+ * usefulness) as new optional fields here.
+ */
+export interface FindingSearch extends PageOptions {
+  repoId?: number;
+  severity?: string[];
+  category?: string[];
+  status?: FindingStatus[];
+  /** Pull request author (GitHub login, case-insensitive). */
+  author?: string;
+  /** Created at or after `from`, and before `to`. */
+  from?: Date;
+  to?: Date;
+  /** Raised by this agent (first or corroborating). */
+  agent?: string;
+  /** Defaults to published findings. */
+  visibility?: FindingVisibility[];
+  sort?: FindingSort;
+  dir?: "asc" | "desc";
+}
+
+export interface FindingListItem extends FindingRow {
+  repoFullName: string;
+  prAuthor: string;
+  prTitle: string;
+}
+
+/** The org's findings with their repository and pull request, filtered, sorted, and paginated (R6.13). */
+export async function searchFindings(db: Db, orgId: string, f: FindingSearch = {}): Promise<Page<FindingListItem>> {
+  const win = pageWindow(f, 25);
+  const where = scoped(
+    findings,
+    orgId,
+    inArray(findings.visibility, f.visibility?.length ? f.visibility : ["published"]),
+    f.repoId !== undefined ? eq(findings.repoId, f.repoId) : undefined,
+    f.severity?.length ? inArray(findings.severity, f.severity) : undefined,
+    f.category?.length ? inArray(findings.category, f.category) : undefined,
+    f.status?.length ? inArray(findings.status, f.status) : undefined,
+    f.author ? sql`lower(${reviews.prAuthor}) = lower(${f.author})` : undefined,
+    f.from ? gte(findings.createdAt, f.from) : undefined,
+    f.to ? lt(findings.createdAt, f.to) : undefined,
+    f.agent ? sql`(${findings.agent} = ${f.agent} or ${f.agent} = any(${findings.agents}))` : undefined,
+  );
+  const dir = f.dir === "asc" ? asc : desc;
+  const order =
+    f.sort === "severity"
+      ? [f.dir === "asc" ? desc(severityRank) : asc(severityRank), desc(findings.createdAt)]
+      : f.sort === "confidence"
+        ? [dir(findings.confidence), desc(findings.createdAt)]
+        : [dir(findings.createdAt)];
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({ finding: findings, repoFullName: repos.fullName, prAuthor: reviews.prAuthor, prTitle: reviews.prTitle })
+      .from(findings)
+      .innerJoin(reviews, and(eq(reviews.id, findings.reviewId), eq(reviews.orgId, orgId)))
+      .innerJoin(repos, and(eq(repos.id, findings.repoId), eq(repos.orgId, orgId)))
+      .where(where)
+      .orderBy(...order, desc(findings.id))
+      .limit(win.pageSize)
+      .offset(win.offset),
+    db
+      .select({ n: count() })
+      .from(findings)
+      .innerJoin(reviews, and(eq(reviews.id, findings.reviewId), eq(reviews.orgId, orgId)))
+      .where(where),
+  ]);
+  const items = rows.map((r) => ({ ...r.finding, repoFullName: r.repoFullName, prAuthor: r.prAuthor, prTitle: r.prTitle }));
+  return toPage(items, Number(total?.n ?? 0), win);
+}
+
+/** Values present in the org's published findings, for the findings filter menus. */
+export async function findingFacets(db: Db, orgId: string): Promise<{ categories: string[]; agents: string[]; authors: string[] }> {
+  const published = scoped(findings, orgId, eq(findings.visibility, "published"));
+  const [categories, agents, authors] = await Promise.all([
+    db.selectDistinct({ v: findings.category }).from(findings).where(published).orderBy(findings.category).limit(100),
+    db.selectDistinct({ v: findings.agent }).from(findings).where(published).orderBy(findings.agent).limit(100),
+    db
+      .selectDistinct({ v: reviews.prAuthor })
+      .from(findings)
+      .innerJoin(reviews, and(eq(reviews.id, findings.reviewId), eq(reviews.orgId, orgId)))
+      .where(and(published, ne(reviews.prAuthor, "")))
+      .orderBy(reviews.prAuthor)
+      .limit(200),
+  ]);
+  return { categories: categories.map((r) => r.v), agents: agents.map((r) => r.v), authors: authors.map((r) => r.v) };
 }

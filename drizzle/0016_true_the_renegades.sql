@@ -1,0 +1,2 @@
+CREATE INDEX "findings_org_id_created_at_index" ON "findings" USING btree ("org_id","created_at");--> statement-breakpoint
+CREATE INDEX "reviews_org_id_updated_at_index" ON "reviews" USING btree ("org_id","updated_at");

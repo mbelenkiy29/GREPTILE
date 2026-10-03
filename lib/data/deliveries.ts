@@ -171,11 +171,16 @@ const summary = {
 export async function listDeliveries(
   db: Db,
   orgId: string,
-  opts: { page?: number; pageSize?: number; status?: DeliveryStatus } = {},
+  opts: { page?: number; pageSize?: number; status?: DeliveryStatus; repoId?: number } = {},
 ) {
   const pageSize = Math.min(Math.max(Math.trunc(opts.pageSize ?? 50), 1), 200);
   const page = Math.max(Math.trunc(opts.page ?? 1), 1);
-  const where = scoped(webhookDeliveries, orgId, opts.status ? eq(webhookDeliveries.status, opts.status) : undefined);
+  const where = scoped(
+    webhookDeliveries,
+    orgId,
+    opts.status ? eq(webhookDeliveries.status, opts.status) : undefined,
+    opts.repoId !== undefined ? eq(webhookDeliveries.repoId, opts.repoId) : undefined,
+  );
   const [items, totals] = await Promise.all([
     db
       .select(summary)
