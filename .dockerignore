@@ -11,3 +11,4 @@ test-results
 **/node_modules
 packages/*/dist
 .openreview
+.lighthouseci
