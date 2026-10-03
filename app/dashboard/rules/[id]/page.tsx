@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { RuleCard } from "@/components/rules/RuleCard";
 import { RuleForm } from "@/components/rules/RuleForm";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
@@ -8,34 +9,49 @@ import { ConfirmButton } from "@/components/ui/ConfirmButton";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SubmitButton } from "@/components/ui/SubmitButton";
 import { requireOrg } from "@/lib/auth";
+import { can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { repoOptions } from "@/lib/data/repos";
 import { getRule, ruleFindingCounts } from "@/lib/data/rules";
 import { ruleDisplayTitle } from "@/lib/rules/catalog";
 import { removeRule, reviewCandidate, saveRule } from "../actions";
 
-export const metadata: Metadata = { title: "Edit rule" };
+export const metadata: Metadata = { title: "Rule" };
 
 /** Edit one rule (R6.11), approve it if it's a suggestion (R2.5), see its findings, or delete it. */
 export default async function EditRulePage({ params }: { params: Promise<{ id: string }> }) {
-  const { orgId } = await requireOrg({ permission: "rules.manage" });
+  const { orgId, role } = await requireOrg();
   const id = Number((await params).id);
   const rule = Number.isSafeInteger(id) && id > 0 ? await getRule(db(), orgId, id) : undefined;
   if (!rule) notFound();
   const [repos, counts] = await Promise.all([repoOptions(db(), orgId), ruleFindingCounts(db(), orgId, [rule.id])]);
   const findings = counts.get(rule.id) ?? 0;
   const title = ruleDisplayTitle(rule);
+  const header = (
+    <PageHeader
+      title={title}
+      breadcrumbs={[{ label: "Rules", href: "/dashboard/rules" }, { label: `rule:${rule.id}` }]}
+      meta={
+        <Link href={`/dashboard/findings?rule=${encodeURIComponent(`rule:${rule.id}`)}`}>
+          {findings} finding{findings === 1 ? "" : "s"} from this rule
+        </Link>
+      }
+    />
+  );
+  if (!can(role, "rules.manage")) {
+    // Members can read every rule (e.g. from a finding that cites it); only owners and admins edit.
+    const repoFullName = rule.repoId === null ? null : (repos.find((r) => r.id === rule.repoId)?.fullName ?? null);
+    return (
+      <>
+        {header}
+        <RuleCard rule={{ ...rule, repoFullName, findings }} />
+        <p className="dim">Only owners and admins can change rules.</p>
+      </>
+    );
+  }
   return (
     <>
-      <PageHeader
-        title={title}
-        breadcrumbs={[{ label: "Rules", href: "/dashboard/rules" }, { label: `rule:${rule.id}` }]}
-        meta={
-          <Link href={`/dashboard/findings?rule=${encodeURIComponent(`rule:${rule.id}`)}`}>
-            {findings} finding{findings === 1 ? "" : "s"} from this rule
-          </Link>
-        }
-      />
+      {header}
       {rule.status === "candidate" && (
         <Alert tone="info" title="Suggested from your reviewers">
           <p>This rule takes effect once approved. Edit it below if needed, then approve it.</p>
