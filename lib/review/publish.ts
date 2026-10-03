@@ -34,6 +34,7 @@ import {
 import { scoped } from "@/lib/data/tenant";
 import { fingerprintFromMarkdown, renderFindingMarkdown, renderSummaryMarkdown, SUMMARY_MARKER } from "@/lib/engine/markdown";
 import type { EngineFinding, RejectedCandidate, ReviewOutput } from "@/lib/engine/types";
+import type { FixContext } from "@/lib/fix/prompt";
 import type { GitClient, NewInlineComment, ReviewComment } from "@/lib/git/types";
 import { errorMessage, log as rootLog, type Logger } from "@/lib/log";
 
@@ -43,8 +44,8 @@ export const RESOLVED_PREFIX = "✅ Resolved in";
 /** The fingerprint an OpenReview comment carries in its marker, or null for other comments. */
 export const fingerprintFromBody = fingerprintFromMarkdown;
 
-export function inlineCommentFor(f: EngineFinding, commentStyle: "concise" | "detailed" = "detailed"): NewInlineComment {
-  const body = renderFindingMarkdown(f, { commentStyle });
+export function inlineCommentFor(f: EngineFinding, commentStyle: "concise" | "detailed" = "detailed", fix?: FixContext): NewInlineComment {
+  const body = renderFindingMarkdown(f, { commentStyle, ...(fix ? { fix } : {}) });
   return f.endLine > f.startLine ? { path: f.path, startLine: f.startLine, line: f.endLine, body } : { path: f.path, line: f.startLine, body };
 }
 
@@ -162,7 +163,8 @@ export async function publishReview(deps: { db: Db; client: GitClient; log?: Log
   let githubReviewId: number | null = null;
   const idByFp = new Map<string, number>();
   if (fresh.length) {
-    const comments = fresh.map((f) => inlineCommentFor(f, commentStyle));
+    const fix: FixContext = { repoFullName, prNumber, headSha: scope.headSha };
+    const comments = fresh.map((f) => inlineCommentFor(f, commentStyle, fix));
     const posted = await client.createReview(repoFullName, prNumber, { commitId: scope.headSha, body: "", comments });
     githubReviewId = posted.id;
     for (const c of posted.comments) {
