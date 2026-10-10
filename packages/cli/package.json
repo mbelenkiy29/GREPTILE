@@ -30,7 +30,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@electric-sql/pglite-pgvector": "^0.0.9",
     "@vscode/tree-sitter-wasm": "^0.3.1",
-    "commander": "^14.0.0",
+    "commander": "^15.0.0",
     "drizzle-orm": "^0.45.3",
     "picomatch": "^4.0.7",
     "smol-toml": "^1.9.0",
