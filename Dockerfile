@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Optional build secret `extra_ca`: a PEM bundle to trust when installs go
 # through a TLS-intercepting proxy. Empty (unused) by default.
-FROM node:22-alpine AS base
+FROM node:25-alpine AS base
 # No Next.js telemetry in any stage (R4.6 offline bundle).
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
@@ -38,7 +38,7 @@ RUN addgroup -S app && adduser -S app -G app && mkdir -p /data/repos && chown ap
 USER app
 CMD ["node_modules/.bin/tsx", "worker/index.ts"]
 
-FROM node:22-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 RUN addgroup -S app && adduser -S app -G app
