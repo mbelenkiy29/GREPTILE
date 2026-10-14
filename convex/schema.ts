@@ -448,6 +448,7 @@ export default defineSchema({
     userId: v.id("users"),
     title: v.string(),
     repositoryIds: v.array(repo),
+    origin: v.optional(v.string()), // web (default) | api
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_org_user", ["organizationId", "userId", "updatedAt"]),
@@ -629,6 +630,8 @@ export default defineSchema({
     prefix: v.string(),
     createdAt: v.number(),
     revoked: v.boolean(),
+    // read | write | admin; absent on keys created before scopes (they keep full access).
+    scopes: v.optional(v.array(v.string())),
   })
     .index("by_hash", ["hash"])
     .index("by_org", ["organizationId"]),

@@ -30,7 +30,7 @@ function present(m: Doc<"chatMessages">, visible: Set<Id<"repositories">>) {
 
 export const threads = query({ args: { token: v.string(), organizationId: v.id("organizations") }, handler: async (ctx, a) => {
   const { user } = await authorize(ctx, a.token, a.organizationId);
-  return (await ctx.db.query("chatThreads").withIndex("by_org_user", (q) => q.eq("organizationId", a.organizationId).eq("userId", user._id)).order("desc").take(50)).map((t) => ({ _id: t._id, title: t.title, updatedAt: t.updatedAt, repositoryIds: t.repositoryIds }));
+  return (await ctx.db.query("chatThreads").withIndex("by_org_user", (q) => q.eq("organizationId", a.organizationId).eq("userId", user._id)).order("desc").take(50)).map((t) => ({ _id: t._id, title: t.title, updatedAt: t.updatedAt, repositoryIds: t.repositoryIds, origin: t.origin ?? "web" }));
 } });
 
 export const thread = query({ args: { token: v.string(), threadId: v.id("chatThreads") }, handler: async (ctx, a) => {
@@ -48,7 +48,15 @@ export const progress = query({ args: { token: v.string(), messageId: v.id("chat
   return present(message, await readable(ctx, user._id, message.repositoryIds));
 } });
 
-export const ask = mutation({ args: { token: v.string(), organizationId: v.id("organizations"), threadId: v.optional(v.id("chatThreads")), repositoryIds: v.array(v.id("repositories")), question: v.string() }, handler: async (ctx, a): Promise<{ threadId: Id<"chatThreads">; messageId: Id<"chatMessages"> }> => {
+// The thread of a message, for API callers holding only the message ID.
+export const threadOf = query({ args: { token: v.string(), messageId: v.id("chatMessages"), organizationId: v.id("organizations") }, handler: async (ctx, a) => {
+  const message = await ctx.db.get(a.messageId);
+  if (!message || message.organizationId !== a.organizationId) throw new Error("Message not found");
+  const { thread } = await ownThread(ctx, a.token, message.threadId);
+  return thread._id;
+} });
+
+export const ask = mutation({ args: { token: v.string(), organizationId: v.id("organizations"), threadId: v.optional(v.id("chatThreads")), repositoryIds: v.array(v.id("repositories")), question: v.string(), origin: v.optional(v.literal("api")) }, handler: async (ctx, a): Promise<{ threadId: Id<"chatThreads">; messageId: Id<"chatMessages"> }> => {
   const { user } = await authorize(ctx, a.token, a.organizationId);
   const question = a.question.trim();
   if (question.length < 2 || question.length > 4000) throw new Error("Ask a question of 2 to 4,000 characters");
@@ -70,7 +78,7 @@ export const ask = mutation({ args: { token: v.string(), organizationId: v.id("o
     const last = await ctx.db.query("chatMessages").withIndex("by_thread", (q) => q.eq("threadId", thread._id)).order("desc").first();
     if (last && (last.status === "pending" || last.status === "running")) throw new Error("Wait for the current answer to finish");
     await ctx.db.patch(thread._id, { repositoryIds: ids, updatedAt: now });
-  } else threadId = await ctx.db.insert("chatThreads", { organizationId: a.organizationId, userId: user._id, title: question.replace(/\s+/g, " ").slice(0, 80), repositoryIds: ids, createdAt: now, updatedAt: now });
+  } else threadId = await ctx.db.insert("chatThreads", { organizationId: a.organizationId, userId: user._id, title: question.replace(/\s+/g, " ").slice(0, 80), repositoryIds: ids, ...(a.origin ? { origin: a.origin } : {}), createdAt: now, updatedAt: now });
   await ctx.db.insert("chatMessages", { organizationId: a.organizationId, threadId, userId: user._id, role: "user", content: question, status: "completed", repositoryIds: ids, createdAt: now, updatedAt: now });
   const messageId = await ctx.db.insert("chatMessages", { organizationId: a.organizationId, threadId, userId: user._id, role: "assistant", content: "", status: "pending", repositoryIds: ids, events: [], createdAt: now, updatedAt: now });
   await ctx.scheduler.runAfter(0, internal.chatJobs.answer, { messageId });

@@ -1,6 +1,6 @@
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { apiIdentity } from "../../../src/api-auth";
+import { apiIdentity, apiDenied } from "../../../src/api-auth";
 import { backend } from "../../../src/server";
 export async function GET(request: Request) {
   try {
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         ? { path: data.file.path, sha: data.file.sha, content }
         : null,
     });
-  } catch {
+  } catch (error) { const denied = apiDenied(error); if (denied) return denied;
     return Response.json(
       { error: "Context unavailable or unauthorized" },
       { status: 400 },

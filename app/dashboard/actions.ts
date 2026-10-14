@@ -290,6 +290,7 @@ export async function createApiKey(
     name: text(form, "name"),
     hash: createHash("sha256").update(key).digest("hex"),
     prefix: key.slice(0, 11),
+    scopes: [z.enum(["read", "write", "admin"]).parse(text(form, "scope") || "read")],
   });
   revalidatePath("/dashboard/settings/keys");
   return key;

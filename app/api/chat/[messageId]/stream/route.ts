@@ -10,7 +10,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ mess
   const token = (await cookies()).get("openreview_session")?.value;
   if (!token) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { messageId } = await params;
-  if (!/^[a-z0-9]{8,64}$/.test(messageId)) return Response.json({ error: "Invalid message" }, { status: 400 });
+  if (!/^[A-Za-z0-9]{8,64}$/.test(messageId)) return Response.json({ error: "Invalid message" }, { status: 400 });
   const client = backend(), load = () => client.query(api.chat.progress, { token, messageId: messageId as Id<"chatMessages"> });
   try { await load(); } catch { return Response.json({ error: "Message unavailable or unauthorized" }, { status: 404 }); }
   return new Response(chatEventStream(load, { signal: request.signal }), { headers: sseHeaders });

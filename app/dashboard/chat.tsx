@@ -19,7 +19,7 @@ export async function ChatPanel({ token, organizationId, repositories, filters }
   return <div className="chat-layout">
     <aside className="chat-threads" aria-label="Chat threads">
       <Link className="button" href="/dashboard/chat">New chat</Link>
-      {threads.length === 0 ? <p className="muted">No conversations yet.</p> : <ul>{threads.map((t) => <li key={t._id}><Link href={`/dashboard/chat?thread=${t._id}`} aria-current={t._id === threadId ? "page" : undefined}>{t.title}</Link></li>)}</ul>}
+      {threads.length === 0 ? <p className="muted">No conversations yet.</p> : <ul>{threads.map((t) => <li key={t._id}><Link href={`/dashboard/chat?thread=${t._id}`} aria-current={t._id === threadId ? "page" : undefined}>{t.title}{t.origin === "api" && <span className="muted"> · API</span>}</Link></li>)}</ul>}
     </aside>
     <div className="chat-main">
       <p className="muted">Ask questions about up to five indexed repositories. Answers are investigated with read-only code tools, and every claim cites lines at the repository&apos;s indexed revision. Threads are visible only to you.</p>

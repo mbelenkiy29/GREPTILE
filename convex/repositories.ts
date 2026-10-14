@@ -56,6 +56,12 @@ export const list = query({
     return visibleRepositories(ctx, args.token, args.organizationId);
   },
 });
+// Index status for the public API (the key's workspace must own the repository).
+export const status = query({ args: { token: v.string(), organizationId: v.id("organizations"), repositoryId: v.id("repositories") }, handler: async (ctx, a) => {
+  const { repo } = await authorizeRepository(ctx, a.token, a.repositoryId);
+  if (repo.organizationId !== a.organizationId) throw new Error("Repository not found");
+  return { id: repo._id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, enabled: repo.enabled, indexStatus: repo.indexStatus, indexedSha: repo.indexedSha ?? null, pendingIndexSha: repo.pendingIndexSha ?? null, indexedAt: repo.indexedAt ?? null, knowledgeStatus: repo.knowledgeStatus ?? null, error: repo.error ?? null };
+} });
 export const configure = mutation({
   args: {
     token: v.string(),

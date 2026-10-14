@@ -11,6 +11,14 @@ export function ApiKeyForm({ organizationId }: { organizationId: string }) {
           API key name
           <input name="name" required maxLength={100} />
         </label>
+        <label>
+          Scope
+          <select name="scope" defaultValue="read">
+            <option value="read">Read: query, search, repositories and reviews</option>
+            <option value="write">Write: also request reviews, feedback and enable repositories</option>
+            <option value="admin">Admin: also administrator endpoints such as Perforce indexing</option>
+          </select>
+        </label>
         <button disabled={pending}>Generate API key</button>
       </form>
       {value && (

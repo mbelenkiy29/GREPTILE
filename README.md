@@ -188,8 +188,16 @@ Workspace owners/admins set the default coding agent in Personal agents. Persona
 
 ## API and MCP
 
-API keys are hashed at rest, scoped to one workspace, and revocable. Use `Authorization: Bearer or_...`.
+API keys are hashed at rest, scoped to one workspace, and revocable. Use `Authorization: Bearer or_...`. Each key has a scope:
+- **read:** query, search, repositories and reviews.
+- **write:** adds requesting reviews, feedback and enabling repositories.
+- **admin:** adds administrator endpoints.
 
+The key owner's role still applies, and keys created before scopes keep full access. The full reference is [docs/openapi.yaml](docs/openapi.yaml).
+
+* `POST /api/query` with `{question,repositoryIds,threadId?,stream?}`: a codebase answer with sources that exactly match lines at the indexed revision. Returns JSON, or Server-Sent Events when `stream` is true. `GET /api/query/:messageId` fetches a result later.
+* `POST /api/search` with `{query,repositoryIds?,limit?}`: hybrid full-text and semantic search, returning ranked snippets.
+* `POST /api/repositories` with `{repositoryId}` (write scope): enables an installed repository and indexes it. `GET /api/repositories/:id` returns its index status.
 * `GET /api/repositories`
 * `POST /api/p4/index` — admin-scoped metadata upload for manual submitted-revision indexing; see [Perforce setup](docs/perforce.md) and `openreview p4 upload --help`.
 * `GET /api/reviews?cursor=...`

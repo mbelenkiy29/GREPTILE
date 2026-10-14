@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, service, audit } from "./auth";
+import { apiScopes, legacyScopes } from "../src/api-scopes";
 export const create = mutation({
   args: {
     token: v.string(),
@@ -8,6 +9,7 @@ export const create = mutation({
     name: v.string(),
     hash: v.string(),
     prefix: v.string(),
+    scopes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const { user } = await authorize(
@@ -18,6 +20,8 @@ export const create = mutation({
     );
     if (!args.name.trim() || !/^[a-f0-9]{64}$/.test(args.hash))
       throw new Error("Invalid API key");
+    const scopes = [...new Set(args.scopes ?? ["read"])];
+    if (!scopes.length || scopes.some((s) => !(apiScopes as readonly string[]).includes(s))) throw new Error("Invalid API key scopes");
     const id=await ctx.db.insert("apiKeys", {
       organizationId: args.organizationId,
       userId: user._id,
@@ -26,6 +30,7 @@ export const create = mutation({
       prefix: args.prefix.slice(0, 16),
       revoked: false,
       createdAt: Date.now(),
+      scopes,
     });
     await audit(ctx,args.organizationId,user._id,"api_key.created",id);
     return id;
@@ -45,6 +50,8 @@ export const list = query({
       prefix: k.prefix,
       revoked: k.revoked,
       createdAt: k.createdAt,
+      scopes: k.scopes ?? legacyScopes,
+      legacy: !k.scopes,
     }));
   },
 });
@@ -77,6 +84,6 @@ export const resolve = query({
       .unique();
     if (!member)
       throw new Error("API key owner no longer has workspace access");
-    return { userId: key.userId, organizationId: key.organizationId };
+    return { userId: key.userId, organizationId: key.organizationId, scopes: key.scopes ?? legacyScopes };
   },
 });

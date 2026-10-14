@@ -1136,7 +1136,7 @@ export default async function Dashboard({
                 {apiKeys.map((k) => (
                   <form action={revokeApiKey} key={k._id}>
                     <p>
-                      {k.name} · {k.prefix}… ·{" "}
+                      {k.name} · {k.prefix}… · {k.legacy ? "all scopes (created before scopes)" : k.scopes.join(", ")} ·{" "}
                       {k.revoked ? "Revoked" : "Active"}
                     </p>
                     <input type="hidden" name="keyId" value={k._id} />

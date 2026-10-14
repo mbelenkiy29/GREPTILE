@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { apiIdentity } from "../../../src/api-auth";
+import { apiIdentity, apiDenied } from "../../../src/api-auth";
 import { backend } from "../../../src/server";
 import { runtimeEvidenceSchema } from "../../../src/engine/types";
 export async function GET(request: Request) {
@@ -14,13 +14,13 @@ export async function GET(request: Request) {
         cursor: new URL(request.url).searchParams.get("cursor") ?? undefined,
       }),
     );
-  } catch {
+  } catch (error) { const denied = apiDenied(error); if (denied) return denied;
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 }
 export async function POST(request: Request) {
   try {
-    const { token, organizationId } = await apiIdentity(request);
+    const { token, organizationId } = await apiIdentity(request, "write");
     const args = z
       .object({
         repositoryId: z.string(),
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       repositoryId: args.repositoryId as Id<"repositories">,
     });
     return Response.json({ reviewId }, { status: 202 });
-  } catch {
+  } catch (error) { const denied = apiDenied(error); if (denied) return denied;
     return Response.json(
       { error: "Invalid request or authorization" },
       { status: 400 },
