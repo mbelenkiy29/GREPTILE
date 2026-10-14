@@ -64,7 +64,7 @@ test('requests without a valid API key are rejected before any MCP handling',asy
  // The initialize handshake succeeds with a key.
  const ok=await raw(keys.read);
  expect(ok.status).toBe(200);
- expect((await ok.json()).result.serverInfo).toEqual({name:'openreview',version:'0.2.0'});
+ expect((await ok.json()).result.serverInfo).toEqual({name:'openreview',version:'0.3.0'});
 });
 
 test('tools/list exposes the stdio tools plus ask_codebase and search_code',async()=>{

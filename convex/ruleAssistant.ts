@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { audit, authorize } from "./auth";
 import { assertRuleScope } from "./dashboard";
+import { rateLimit } from "./rateLimit";
 import { duplicatesOf, ruleProblem } from "../src/rule-assistant";
 
 // AI rule assistant (dashboard side). Admins request a run (draft from a description, refine the
@@ -55,6 +56,27 @@ export const importRules = mutation({
       await ctx.db.insert("ruleSuggestions", { organizationId: a.organizationId, runId, kind: "import", status: "suggested", title: r.title, instructions: r.instructions, category: "rules", severity: "medium", globs: r.globs, ...(a.repositoryId ? { repositoryId: a.repositoryId } : {}), rationale: `Imported from ${r.source.path} (line ${r.source.line}).`, issues: duplicatesOf(r, existing, scope), sources: [{ kind: "file", label: r.source.path, ids: [], detail: `line ${r.source.line}` }], createdAt: now, updatedAt: now });
     await audit(ctx, a.organizationId, user._id, "rule_assistant.import", runId);
     return { runId, suggested: accepted.length, rejected };
+  },
+});
+
+// Custom context from an MCP client (add_custom_context): any member who can write may propose a rule;
+// it is guarded and stored as a suggestion for an admin to approve.
+export const suggestContext = mutation({
+  args: { token: v.string(), organizationId: v.id("organizations"), repositoryId: v.optional(v.id("repositories")), title: v.string(), instructions: v.string() },
+  handler: async (ctx, a): Promise<{ suggestionId: Id<"ruleSuggestions"> } | { rejected: string }> => {
+    const { user, member } = await authorize(ctx, a.token, a.organizationId);
+    if (member.role === "viewer") throw new Error("Viewers cannot suggest rules");
+    await rateLimit(ctx, `rule-context:${user._id}`, 20, 3_600_000);
+    await assertRuleScope(ctx, a.organizationId, { repositoryId: a.repositoryId });
+    const rule = { title: a.title.trim().slice(0, 120), instructions: a.instructions.trim(), globs: [] as string[] };
+    const problem = rule.instructions.length > 2000 ? "too long" : ruleProblem(rule);
+    const now = Date.now();
+    const runId = await ctx.db.insert("ruleAssistantRuns", { organizationId: a.organizationId, kind: "context", status: "completed", ...(a.repositoryId ? { repositoryId: a.repositoryId } : {}), suggestions: problem ? 0 : 1, ...(problem ? { rejected: [{ title: rule.title, reason: problem }] } : {}), requestedBy: user._id, createdAt: now, updatedAt: now });
+    await audit(ctx, a.organizationId, user._id, "rule_assistant.context", runId);
+    if (problem) return { rejected: problem };
+    const existing = (await ctx.db.query("customRules").withIndex("by_org", (q) => q.eq("organizationId", a.organizationId)).take(200)).map(ruleRow);
+    const suggestionId = await ctx.db.insert("ruleSuggestions", { organizationId: a.organizationId, runId, kind: "context", status: "suggested", ...rule, category: "rules", severity: "medium", ...(a.repositoryId ? { repositoryId: a.repositoryId } : {}), rationale: `Suggested from an MCP client by @${user.login}.`, issues: duplicatesOf(rule, existing, a.repositoryId ? { repositoryId: a.repositoryId as string } : {}), sources: [{ kind: "mcp", label: `@${user.login}`, ids: [] }], createdAt: now, updatedAt: now });
+    return { suggestionId };
   },
 });
 

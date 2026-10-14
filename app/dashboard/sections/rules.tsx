@@ -184,8 +184,8 @@ function RuleScopeFields({ teams, repositories, scope, pattern }: { teams: { _id
   </>;
 }
 
-const assistantKinds: Record<string, string> = { draft: "Drafted rule", refine: "Tighter wording", suggest: "Suggested rule", flag: "Rule overlap", import: "Imported rule" };
-const runKinds: Record<string, string> = { draft: "Draft", refine: "Review of existing rules", suggest: "Suggestions from fixed findings and conventions", import: "Import from AI rule files" };
+const assistantKinds: Record<string, string> = { draft: "Drafted rule", refine: "Tighter wording", suggest: "Suggested rule", flag: "Rule overlap", import: "Imported rule", context: "Suggested from an MCP client" };
+const runKinds: Record<string, string> = { draft: "Draft", refine: "Review of existing rules", suggest: "Suggestions from fixed findings and conventions", import: "Import from AI rule files", context: "Suggestion from an MCP client" };
 // AI rule assistant: every result is a suggestion an admin approves (optionally after editing) or dismisses.
 function RuleAssistant({ ctx }: { ctx: DashboardContext }) {
   const { ruleAssistant, organization, scopes, data, repoName } = ctx;

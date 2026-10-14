@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   const message = oauth ? await request.clone().json().catch(() => null) as { method?: string; params?: { name?: string } } | null : null;
   const required = message?.method === "tools/call" ? toolScopes[message.params?.name as keyof typeof toolScopes] : undefined;
   if (required && !hasScope(scopes, required)) return Response.json({ error: `This tool needs the ${required} scope` }, { status: 403, headers: { "www-authenticate": bearerChallenge(base, { error: "insufficient_scope", scope: required, description: `The ${message!.params!.name} tool needs the ${required} scope` }) } });
-  const server = new McpServer({ name: "openreview", version: "0.2.0" });
+  const server = new McpServer({ name: "openreview", version: "0.3.0" });
   registerOpenReviewTools(server, inProcessApi(new URL(request.url).origin, request.headers.get("authorization")!, request.signal));
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);

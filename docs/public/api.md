@@ -23,7 +23,11 @@ The key owner's role still applies.
 | `POST /api/repositories` | write | Enable and index an installed repository |
 | `GET /api/repositories/{id}` | read | Index status |
 | `GET /api/reviews`, `GET /api/reviews/{id}` | read | Reviews and their findings |
-| `POST /api/reviews` | write | Request a review of a revision |
+| `POST /api/reviews` | write | Request a review of a revision (`headSha` defaults to the pull request's current head) |
+| `GET /api/reviews/status?repositoryId=&prNumber=` | read | Latest review of a pull request and its open findings |
+| `GET /api/findings/unresolved` | read | Open findings on the key owner's open pull requests |
+| `POST /api/rules/suggestions` | write | Suggest a custom rule for an admin to approve |
+| `GET /api/analytics?since=&until=` | read | Analytics report as JSON (`team`, `repository`, `author` filters) |
 | `POST /api/findings/{id}/feedback` | write | Record feedback on a finding |
 | `GET /api/context` | read | Graph, knowledge, rules and source for coding agents |
 | `POST /api/rules/import` | admin | Import candidate rules as suggestions that need approval |

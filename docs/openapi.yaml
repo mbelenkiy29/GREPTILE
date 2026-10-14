@@ -294,6 +294,59 @@ paths:
         "400": { $ref: "#/components/responses/Invalid" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/reviews/status:
+    get:
+      summary: Latest review of a pull request (scope read)
+      parameters:
+        - { name: repositoryId, in: query, required: true, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: prNumber, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: "Pull request, latest readable review (status, verdict, coversCurrentHead) and the count of open findings.", content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "Repository not accessible to this key." }
+  /api/findings/unresolved:
+    get:
+      summary: Open findings on the key owner's own open pull requests (scope read)
+      parameters:
+        - { name: repositoryId, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+      responses:
+        "200": { description: "Findings with repository, pull request, file, line, priority and suggested fix.", content: { application/json: { schema: { type: object } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/rules/suggestions:
+    post:
+      summary: Suggest a custom rule for an admin to approve (scope write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, instructions]
+              properties:
+                title: { type: string, minLength: 3, maxLength: 120 }
+                instructions: { type: string, minLength: 20, maxLength: 2000 }
+                repositoryId: { $ref: "#/components/schemas/Id" }
+      responses:
+        "201": { description: "Suggestion stored.", content: { application/json: { schema: { type: object, properties: { suggestionId: { type: string }, status: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "The rule failed the safety checks (for example it would suppress findings)." }
+  /api/analytics:
+    get:
+      summary: Analytics report for the key's workspace as JSON (scope read)
+      parameters:
+        - { name: since, in: query, required: true, schema: { type: string, format: date } }
+        - { name: until, in: query, required: true, schema: { type: string, format: date } }
+        - { name: team, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: repository, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: author, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "Totals, severity, addressed rate, usefulness, cost and a daily series.", content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /api/repositories:
     get:
       summary: List repositories visible to the key owner (scope read)
@@ -348,11 +401,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [repositoryId, prNumber, headSha]
+              required: [repositoryId, prNumber]
               properties:
                 repositoryId: { $ref: "#/components/schemas/Id" }
                 prNumber: { type: integer, minimum: 1 }
-                headSha: { type: string, pattern: "^[a-f0-9]{40}$" }
+                headSha: { type: string, pattern: "^[a-f0-9]{40}$", description: "Defaults to the pull request head last observed by OpenReview." }
       responses:
         "202": { description: "Review queued.", content: { application/json: { schema: { type: object, properties: { reviewId: { $ref: "#/components/schemas/Id" } } } } } }
         "400": { $ref: "#/components/responses/Invalid" }

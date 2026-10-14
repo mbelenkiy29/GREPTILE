@@ -1,6 +1,10 @@
 import type { ApiCall } from "../../../src/mcp-tools";
 import { mcpRequests } from "../../../src/api-auth";
-import { GET as reviews } from "../reviews/route";
+import { GET as reviews, POST as requestReview } from "../reviews/route";
+import { GET as reviewStatus } from "../reviews/status/route";
+import { GET as unresolved } from "../findings/unresolved/route";
+import { POST as suggestRule } from "../rules/suggestions/route";
+import { GET as analytics } from "../analytics/route";
 import { GET as review } from "../reviews/[id]/route";
 import { POST as feedback } from "../findings/[id]/feedback/route";
 import { GET as context } from "../context/route";
@@ -13,6 +17,11 @@ import { POST as search } from "../search/route";
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 const routes: [string, RegExp, Handler, string?][] = [
   ["GET", /^\/api\/reviews$/, reviews as Handler],
+  ["POST", /^\/api\/reviews$/, requestReview as Handler],
+  ["GET", /^\/api\/reviews\/status$/, reviewStatus as Handler],
+  ["GET", /^\/api\/findings\/unresolved$/, unresolved as Handler],
+  ["POST", /^\/api\/rules\/suggestions$/, suggestRule as Handler],
+  ["GET", /^\/api\/analytics$/, analytics as Handler],
   ["GET", /^\/api\/reviews\/([^/]+)$/, review as Handler, "id"],
   ["POST", /^\/api\/findings\/([^/]+)\/feedback$/, feedback as Handler, "id"],
   ["GET", /^\/api\/context$/, context as Handler],
