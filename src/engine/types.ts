@@ -167,7 +167,8 @@ export type ReviewResult = {
     coverageLimits?: string[];
     skippedFiles?: SkippedFile[];
     failedSpecialists?: { category: string; error: string }[];
-    engine?: "pipeline" | "agentic";
+    engine?: "pipeline" | "agentic" | "hypotheses";
+    hypotheses?: { id: number; claim: string; category: string; filePath: string; startLine: number; status: string; stopReason?: string; toolCalls: number; turns: number; reported: number }[];
     agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
     baseSha: string;

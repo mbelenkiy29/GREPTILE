@@ -26,8 +26,8 @@ export const defaults = {
   instructions: "",
   rereview: true,
   mode: "standard",
-  // "agentic" uses the tool-calling investigator; the default stays on the fixed pipeline until
-  // an approved live comparison says otherwise.
+  // "agentic" uses the tool-calling investigator and "hypotheses" plans bug hypotheses investigated in
+  // parallel; the default stays on the fixed pipeline until an approved live comparison says otherwise.
   reviewEngine: "pipeline",
   // GitHub check run conclusion: "off" reports neutral; a severity fails the check when findings reach it.
   checkFailureSeverity: "off",
@@ -62,7 +62,7 @@ export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<S
   }
   return value;
 }
-export const reviewEngines=["pipeline","agentic"] as const;
+export const reviewEngines=["pipeline","agentic","hypotheses"] as const;
 export const validReviewEngine=(value:string|undefined)=>value===undefined||(reviewEngines as readonly string[]).includes(value);
 // Optional trigger/limit settings stay valid when absent (older saved settings).
 export const lockableKeys=["mode","minimumConfidence","severityThreshold","maxComments","categories","ignoredPaths","instructions","commentStyle","summarySections","strictness","reviewEngine"] as const;

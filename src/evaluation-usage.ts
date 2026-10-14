@@ -26,19 +26,22 @@ export class EvaluationUsage implements ModelProvider {
  readonly usage:ModelUsage[]=[];
  private pending=new Set<Promise<unknown>>();
  private unknownFailures=0;
- private toolMessages:ToolMessage[]=[];
+ // One transcript per tool-calling task: "agent", or "hypothesis:N" for each parallel investigation.
+ private toolMessages=new Map<string,ToolMessage[]>();
  /** Present only when the wrapped provider supports native tool calling, so engine selection matches it. */
  readonly runTools?:(request:ToolRequest)=>Promise<ToolTurn>;
  constructor(private source:ModelProvider){
   const runTools=source.runTools?.bind(source);
   // Each tool turn resends the whole conversation, so the latest request plus its reply is the full transcript.
-  if(runTools)this.runTools=async request=>{this.toolMessages=[...request.messages];const turn=await this.track(runTools(request));this.toolMessages.push(turn.message);return turn;};
+  if(runTools)this.runTools=async request=>{const messages=[...request.messages];this.toolMessages.set(request.task,messages);const turn=await this.track(runTools(request));messages.push(turn.message);return turn;};
  }
  async generate<T>(request:ModelRequest,schema:z.ZodType<T>){
   return this.track(this.source.generate(request,schema));
  }
- /** The tool-calling transcript so far (empty when no tool turn ran). */
- transcript(){return compactTranscript(this.toolMessages);}
+ /** The tool-calling transcript of one task so far (empty when no tool turn ran). */
+ transcript(task='agent'){return compactTranscript(this.toolMessages.get(task)??[]);}
+ /** Every task's transcript, in hypothesis order. */
+ transcripts(){return [...this.toolMessages.keys()].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(task=>({task,transcript:this.transcript(task)}));}
  private async track<R extends {usage:ModelUsage}>(started:Promise<R>){
   const call=started.then(result=>{this.usage.push(result.usage);return result;},error=>{if(error instanceof ModelFailure)this.usage.push(error.usage);else this.unknownFailures++;throw error;});
   this.pending.add(call);
@@ -48,4 +51,9 @@ export class EvaluationUsage implements ModelProvider {
   await Promise.allSettled([...this.pending]);
   return {tokens:this.usage.reduce((sum,u)=>sum+u.inputTokens+u.outputTokens,0),estimatedCost:this.usage.reduce((sum,u)=>sum+u.estimatedCost,0),usageComplete:this.unknownFailures===0};
  }
+}
+/** Report fields for an evaluation: the agent's trace and transcript, and one entry per hypothesis investigation. */
+export function evaluationTranscripts(tracked:EvaluationUsage){
+ const agent=tracked.transcript(),hypotheses=tracked.transcripts().filter(t=>t.task.startsWith('hypothesis:'));
+ return {...(agent.length?{trace:transcriptTrace(agent),transcript:agent}:{}),...(hypotheses.length?{hypothesisTranscripts:hypotheses.map(h=>({task:h.task,trace:transcriptTrace(h.transcript),transcript:h.transcript}))}:{})};
 }

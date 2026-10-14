@@ -25,6 +25,7 @@ import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
 import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
+import { runHypotheses, type HypothesesResult } from "./hypotheses";
 import { loadGrammars } from "./treesitter";
 import { suggestionProblem } from "../suggestions";
 import { diagramEligible, diagramSchema, renderSequence, validSequence } from "../diagrams";
@@ -34,7 +35,8 @@ import { reviewVerdict } from "../verdict";
 export type ReviewOptions = {
   // "agentic" runs the tool-calling investigator instead of fixed specialists when the
   // provider supports tool calling and a toolbox is supplied; every downstream gate is shared.
-  engine?: "pipeline" | "agentic";
+  // "hypotheses" plans concrete bug hypotheses and investigates each with a small budgeted agent.
+  engine?: "pipeline" | "agentic" | "hypotheses";
   tools?: AgentToolbox;
   agent?: AgentHooks;
 };
@@ -206,19 +208,38 @@ export async function reviewChange(
   const candidates: (Candidate & { agent: string })[] = [];
   const failedSpecialists: { category: string; error: string }[] = [];
   const engineLimits: string[] = [];
-  const agentic = options.engine === "agentic" && !!options.tools && !!model.runTools;
-  if (options.engine === "agentic" && !agentic) engineLimits.push("The agentic engine was requested but tool calling is unavailable for this provider; the specialist pipeline ran instead");
+  const toolsReady = !!options.tools && !!model.runTools;
+  let engineUsed: "pipeline" | "agentic" | "hypotheses" = options.engine && options.engine !== "pipeline" && toolsReady ? options.engine : "pipeline";
+  if (options.engine && options.engine !== "pipeline" && !toolsReady) engineLimits.push(`The ${options.engine} engine was requested but tool calling is unavailable for this provider; the specialist pipeline ran instead`);
   let agentRun: Awaited<ReturnType<typeof runReviewAgent>> | undefined;
-  if (agentic) {
+  let hypothesisRun: HypothesesResult | undefined;
+  // Files read through tools come from the reviewed revision; they can back evidence quotes.
+  const addSources = (sources: typeof index.files) => { safeInput.files = [...safeInput.files, ...sources.filter((source) => !safeInput.files.some((f) => f.path === source.path))]; };
+  if (engineUsed === "agentic") {
     agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent });
     usage.push(...agentRun.usage);
     candidates.push(...agentRun.candidates);
     engineLimits.push(...agentRun.limits);
-    // Files read through tools come from the reviewed revision; they can back evidence quotes.
-    safeInput.files = [...index.files, ...agentRun.sources.filter((source) => !index.files.some((f) => f.path === source.path))];
+    addSources(agentRun.sources);
+  }
+  if (engineUsed === "hypotheses") {
+    try {
+      hypothesisRun = await runHypotheses({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: { checkpoint: options.agent?.checkpoint } });
+      usage.push(...hypothesisRun.usage);
+      candidates.push(...hypothesisRun.candidates);
+      engineLimits.push(...hypothesisRun.limits);
+      addSources(hypothesisRun.sources);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const failure = error as { usage?: ModelUsage };
+      if (failure?.usage) usage.push(failure.usage);
+      // A failed plan must not leave the change unreviewed: fall back to the specialists.
+      engineLimits.push("Hypothesis planning failed; the specialist pipeline ran instead");
+      engineUsed = "pipeline";
+    }
   }
   // ponytail: two simultaneous calls bound cost/rate pressure; configurable concurrency if measured throughput requires it.
-  for (let i = 0; i < selected.length && !agentic; i += 2) {
+  for (let i = 0; i < selected.length && engineUsed === "pipeline"; i += 2) {
     signal?.throwIfAborted();
     const batch = selected.slice(i, i + 2);
     const results = await Promise.allSettled(
@@ -254,7 +275,7 @@ export async function reviewChange(
       failedSpecialists.push({ category: batch[j], error: redact(String(failure?.message ?? "Specialist failed")).slice(0, 500) });
     }
   }
-  if (!agentic && failedSpecialists.length && failedSpecialists.length === selected.length)
+  if (engineUsed === "pipeline" && failedSpecialists.length && failedSpecialists.length === selected.length)
     throw new Error("Every review specialist failed: " + failedSpecialists.map((f) => f.category + ": " + f.error).join("; ").slice(0, 2000));
   await progress("verifying");
   const minimum = input.settings?.minimumConfidence ?? 0.85;
@@ -371,7 +392,7 @@ export async function reviewChange(
     ...(defaultCategories.some(c => c !== "rules" && !selected.includes(c)) ? ["Some review categories were disabled"] : []),
   ];
   // Changed code went unreviewed, so the verdict cannot be "ready" whatever the score says.
-  const coverageIncomplete = skippedFiles.length > ignoredCount || failedSpecialists.length > 0 || !!agentRun?.limits.length ||
+  const coverageIncomplete = skippedFiles.length > ignoredCount || failedSpecialists.length > 0 || !!agentRun?.limits.length || !!hypothesisRun?.runs.some((r) => r.status !== "completed") ||
     diff.some(f => f.status !== "removed" && !index.files.some(source => source.path === f.path));
   // Sequence diagram of a changed cross-component interaction, grounded in exact source quotes.
   let diagram: string | undefined;
@@ -412,7 +433,8 @@ export async function reviewChange(
       coverageLimits,
       ...(skippedFiles.length ? { skippedFiles } : {}),
       ...(failedSpecialists.length ? { failedSpecialists } : {}),
-      engine: agentic ? "agentic" : "pipeline",
+      engine: engineUsed,
+      ...(hypothesisRun ? { hypotheses: hypothesisRun.runs.map(({ id, claim, category, filePath, startLine, status, stopReason, toolCalls, turns, reported }) => ({ id, claim, category, filePath, startLine, status, ...(stopReason ? { stopReason } : {}), toolCalls, turns, reported })) } : {}),
       ...(agentRun ? { agentRun: { toolCalls: agentRun.state.toolCalls, turns: agentRun.state.turns, resumes: agentRun.state.resumes, ...(agentRun.state.stopReason ? { stopReason: agentRun.state.stopReason } : {}) } } : {}),
       baseSha: input.baseSha,
       headSha: input.headSha,

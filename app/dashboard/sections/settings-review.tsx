@@ -134,6 +134,7 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     >
                       <option value="pipeline">pipeline (specialists)</option>
                       <option value="agentic">agentic (tool-calling, experimental)</option>
+                      <option value="hypotheses">hypotheses (parallel investigations, experimental)</option>
                     </select>
                   </label>
                   <label>

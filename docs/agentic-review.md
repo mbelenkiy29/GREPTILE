@@ -1,13 +1,14 @@
 # Agentic review engine (experimental)
 
-OpenReview has two review engines, selected per repository, team or workspace with the **Review engine** setting (`reviewEngine`):
+OpenReview has three review engines, selected per repository, team or workspace with the **Review engine** setting (`reviewEngine`) or `.openreview.json`:
 
 - **`pipeline`** (default): retrieval, up to seven category specialists, then a verifier. Its cost and behaviour are predictable.
 - **`agentic`**: a single investigator that calls read-only tools to follow data and control flow across files. It finds defects that only show at a caller several hops from the change.
+- **`hypotheses`**: a planner proposes concrete bug hypotheses about the change, and each one is investigated by a small, separately budgeted agent, several at a time. See [Hypothesis engine](#hypothesis-engine).
 
 Both engines share every publication gate: exact-quote grounding (`grounded()`), confidence and severity thresholds, dedup, the independent verifier, execution-claim checks, resolution checks and the summary validators. A finding the agent reports but cannot ground in real source lines is suppressed, exactly as in the pipeline.
 
-The default stays `pipeline` until a live pipeline-vs-agentic evaluation has been approved and reviewed (see `docs/parity/REPORT.md`).
+The default stays `pipeline` until a live three-way evaluation (pipeline, agentic, hypotheses) has been approved and reviewed (see `docs/parity/REPORT.md`).
 
 ## Tools
 
@@ -45,6 +46,20 @@ The loop state (transcript, reported findings, files read and counters) is saved
 
 The agentic engine needs a model adapter with native tool calling (OpenAI-compatible function calling or Anthropic tool use). Providers without it fall back to the pipeline, with a visible coverage note. Prompt caching keeps the shared review payload cheap across turns.
 
+## Hypothesis engine
+
+1. **Plan.** One structured model call proposes up to N hypotheses. Each names a claim, an allowed category, a changed file and line from the diff, and what to check. Hypotheses on files outside the diff or in disabled categories are rejected; the plan is capped per mode and repeats are dropped. Repository text cannot raise the cap: it is fixed in code.
+2. **Investigate.** Each hypothesis runs as its own tool-calling agent with the same read-only tools and system prompt, a brief that labels the hypothesis as untrusted, and its own budget. Up to the mode's concurrency run at once. An investigation that refutes its hypothesis replies `Refuted:` and stops.
+3. **Verify.** Every reported finding goes through the same grounding, dedup (across hypotheses), verifier and thresholds as the other engines.
+
+| Mode | Hypotheses | Concurrent | Per hypothesis (tool calls / tokens / wall / turns) | Total (tokens / wall) |
+| --- | --- | --- | --- | --- |
+| fast | 3 | 2 | 6 / 60,000 / 2 min / 5 | 180,000 / 3 min |
+| standard | 6 | 3 | 10 / 100,000 / 3 min / 8 | 600,000 / 6 min |
+| deep | 10 | 4 | 16 / 200,000 / 5 min / 12 | 2,000,000 / 8 min |
+
+The total budget is shared: when it runs out, running investigations stop before their next turn (keeping what they reported) and the remaining hypotheses are skipped. One investigation failing never fails the review, and a failed plan falls back to the pipeline. Every case leaves a coverage note, and the review page and evaluation reports list each hypothesis with its status. Hypothesis runs fit within one Convex action, so unlike the agentic engine they do not suspend and resume.
+
 ## Evaluation
 
-`pnpm eval --validate` checks all fixtures offline, including three multi-hop fixtures (`multi-hop-*`) whose defect sits two hops from the change. A live comparison (`pnpm eval --engine=agentic` vs. `pnpm eval`) spends inference budget and must be approved first.
+`pnpm eval --validate` checks all fixtures offline, including three multi-hop fixtures (`multi-hop-*`) whose defect sits two hops from the change. A live comparison (`pnpm eval`, `pnpm eval --engine=agentic` and `pnpm eval --engine=hypotheses`) spends inference budget and must be approved first. Agentic reports include the agent's tool trace and transcript; hypothesis reports include one per hypothesis (`hypothesisTranscripts`).
