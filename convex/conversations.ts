@@ -3,6 +3,30 @@ import { v } from "convex/values";
 import { rateLimit } from "./rateLimit";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
+import { threadReplyLimits } from "../src/thread-replies";
+// The OpenReview comment that started a thread in this pull request, if any.
+async function threadComment(ctx:QueryCtx,repositoryId:Id<"repositories">,prNumber:number,commentId:number|string){
+ for(const comment of await ctx.db.query("reviewComments").withIndex("by_github",q=>q.eq("githubId",commentId)).take(20)){
+  const review=await ctx.db.get(comment.reviewId);
+  if(review?.repositoryId===repositoryId&&review.prNumber===prNumber)return comment;
+ }
+ return null;
+}
+export const ownsThread=internalQuery({args:{repositoryId:v.id("repositories"),prNumber:v.number(),commentId:v.number()},handler:async(ctx,a)=>!!await threadComment(ctx,a.repositoryId,a.prNumber,a.commentId)});
+// A reply without a mention is answered only when it continues a thread OpenReview started, has
+// not been answered before and stays within per-thread and per-pull-request hourly limits.
+export const admitThreadReply=internalMutation({args:{repositoryId:v.id("repositories"),prNumber:v.number(),commentId:v.number(),parentCommentId:v.number()},handler:async(ctx,a)=>{
+ const repo=await ctx.db.get(a.repositoryId);if(!repo?.enabled)return false;
+ if(!await threadComment(ctx,repo._id,a.prNumber,a.parentCommentId))return false;
+ if(await ctx.db.query("conversations").withIndex("by_repository_comment",q=>q.eq("repositoryId",repo._id).eq("githubCommentId",a.commentId)).unique())return false;
+ try{
+  // Thread first, so a reply refused by its thread's limit does not use the pull request's budget.
+  await rateLimit(ctx,`thread-reply:${repo._id}:${a.prNumber}:${a.parentCommentId}`,threadReplyLimits.perThread,threadReplyLimits.windowMs);
+  await rateLimit(ctx,`thread-reply:${repo._id}:${a.prNumber}`,threadReplyLimits.perPullRequest,threadReplyLimits.windowMs);
+ }catch{return false;}
+ return true;
+}});
 export const requestReview=internalMutation({args:{repositoryId:v.id("repositories"),prNumber:v.number(),commentId:v.union(v.number(),v.string()),author:v.string(),question:v.string(),headSha:v.string(),revisionKey:v.optional(v.string()),category:v.optional(v.string())},handler:async(ctx,a):Promise<Id<"reviews">|null>=>{
  const repo=await ctx.db.get(a.repositoryId);if(!repo?.enabled)throw new Error("Repository disabled");
  const previous=await ctx.db.query("conversations").withIndex("by_repository_comment",q=>q.eq("repositoryId",a.repositoryId).eq("githubCommentId",a.commentId)).unique();if(previous)return null;
@@ -129,12 +153,7 @@ export const target = internalQuery({
     commentId: v.union(v.number(),v.string()),
   },
   handler: async (ctx, args) => {
-    const reviews = await ctx.db.query("reviews").withIndex("by_pr", q => q.eq("repositoryId", args.repositoryId).eq("prNumber", args.prNumber)).collect();
-    let comment = null;
-    for (const review of reviews) {
-      const found = await ctx.db.query("reviewComments").withIndex("by_review", q => q.eq("reviewId", review._id)).filter(q => q.eq(q.field("githubId"), args.commentId)).first();
-      if (found) { comment = found; break; }
-    }
+    const comment = await threadComment(ctx, args.repositoryId, args.prNumber, args.commentId);
     if (!comment?.fingerprint) return null;
     return ctx.db
       .query("findings")

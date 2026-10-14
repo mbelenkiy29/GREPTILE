@@ -41,6 +41,8 @@ export const defaults = {
   autoApproveConventions: false,
   // "@openreview fix this in a new PR" may open a fix pull request on a new branch (needs contents:write).
   fixPullRequests: false,
+  // Human replies in threads OpenReview started are answered without an @openreview mention.
+  threadReplies: true,
   commentStyle: "concise",
   summarySections:[...summarySections],
 };

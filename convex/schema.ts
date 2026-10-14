@@ -48,6 +48,7 @@ export const settingsValidator = v.object({
   lockedKeys:v.optional(v.array(v.string())),
   autoApproveConventions:v.optional(v.boolean()),
   fixPullRequests:v.optional(v.boolean()),
+  threadReplies:v.optional(v.boolean()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -80,6 +81,7 @@ export const findingValidator = v.object({
     fingerprint: v.string(),
     // Anchored on an unchanged line the change breaks; published in the summary only.
     outsideDiff: v.optional(v.boolean()),
+    question: v.optional(v.string()),
 });
 export default defineSchema({
   inferenceBudgets: defineTable({limitMicros:v.number(),baselineMicros:v.number(),source:v.string(),committedMicros:v.number(),reservedMicros:v.number(),createdAt:v.number()}),

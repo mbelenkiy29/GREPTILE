@@ -56,6 +56,20 @@ Collaborators with write access can mention `@openreview`:
 | `@openreview fix this in a new PR` | Also open a fix pull request on a new branch (opt-in) |
 | `@openreview ignore this pattern` | Save a learned preference for this kind of finding |
 
+### Replies without a mention
+
+On GitHub, a reply in a thread that OpenReview started (one of its inline findings) is answered without `@openreview`. The answer uses the same cited, revision-pinned conversation as a mention. OpenReview does not answer:
+- replies from bots, including itself, or from people without write access;
+- bare acknowledgements such as "thanks", "fixed" or 👍;
+- threads that a person started (mention `@openreview` there);
+- more than 3 replies per thread or 10 per pull request in an hour.
+
+Commands such as `fix this` and `ignore this pattern` still need the mention. Turn this off per repository under Settings → Review → Replies in OpenReview threads.
+
+### Questions for the author
+
+When a change's intent is unclear, a finding can end with one short **Question for the author** (at most 300 characters). The question is part of that finding: it never counts as a finding by itself and never blocks approval on its own. Reply in the thread to answer it.
+
 ## Learning
 
 Reactions (👍/👎) on findings, dashboard feedback and conventions learned from human review comments become memory. Memory is guidance that admins can inspect, edit, scope or disable. It never weakens security review.

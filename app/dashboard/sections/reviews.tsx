@@ -164,6 +164,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                         Verified at this revision · Current status: {finding.currentStatus}
                       </p>
                       <p>{finding.description}</p>
+                      {finding.question && <p><strong>Question for the author:</strong> {finding.question}</p>}
                       <p>Impact: {finding.impact}</p>
                       {finding.evidence.map((e, index) => (
                         <div key={index}>{e.sourceUrl&&<a href={e.sourceUrl} target="_blank" rel="noreferrer">{e.repository} · {e.revision?.slice(0,8)} · source</a>}<pre>{e.filePath}:{e.startLine}{"\n"}{e.quote}</pre></div>

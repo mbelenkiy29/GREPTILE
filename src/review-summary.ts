@@ -91,7 +91,7 @@ export function findingComment(f: Finding, style: string = "detailed", suggestio
     )
     .join("\n\n") + f.evidence.filter(e => e.sourceUrl).map(e => "\n\n[Source: "+e.repository+" @ "+e.revision+"]("+e.sourceUrl+")").join("");
   const fix = f.suggestion && suggestion ? suggestionBlock(f.suggestion, suggestion.syntax, suggestion) : "";
-  return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
+  return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}${f.question ? `\n\n**Question for the author:** ${f.question.replace(/[\r\n]+/g, " ").replace(/@(?=[\w-])/g, "@\u200b")}` : ""}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
 }
 
 export function reviewLinks(reviewId:string,unresolvedCount:number){

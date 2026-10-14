@@ -65,6 +65,9 @@ export const findingSchema = z
     suggestedFix: z.string().min(5),
     symbol: z.string(),
     ruleId: z.string().optional(),
+    // Optional question to the author when the change's intent is unclear; shown under the
+    // comment. It never counts as a finding or blocks approval on its own.
+    question: z.string().min(5).max(300).optional(),
     // Optional committable fix: replaces lines startLine..endLine (the finding's own range);
     // original must copy those head lines exactly. Dropped when it does not apply cleanly.
     suggestion: z.object({

@@ -272,6 +272,7 @@ export async function saveSettings(form: FormData) {
       lockedKeys: form.has("lockedConfigured") ? form.getAll("lockedKeys").map(String) : previous.settings.lockedKeys ?? [],
       autoApproveConventions: form.has("conventionsConfigured") ? form.has("autoApproveConventions") : previous.settings.autoApproveConventions ?? false,
       fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
+      threadReplies: form.has("threadRepliesConfigured") ? form.has("threadReplies") : previous.settings.threadReplies ?? true,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
