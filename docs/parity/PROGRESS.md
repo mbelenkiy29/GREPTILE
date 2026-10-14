@@ -113,7 +113,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   - [x] E4a Page split, component kit, loading/not-found, toasts — done
     plan: app/dashboard/[[...section]]/page.tsx (1,389 lines) split mechanically into app/dashboard/load.ts (all queries/redirects, typed DashboardContext) and app/dashboard/sections/{repositories,reviews,findings,rules,team,knowledge,usage,settings-review,shared}.tsx with JSX moved verbatim (page is now a 98-line shell); app/ui kit (Button, ButtonLink, Card, Badge, Stat, EmptyState, Skeleton) over existing tokens; dashboard loading.tsx skeleton, dashboard and global not-found pages; Toaster (one-shot cookie set by server actions) wired into 15 settings actions; OG image no longer fetches a font at build.
     evidence: typecheck + lint (only pre-existing warnings) + full tests (310 Node + 215 vitest) + build green; behaviour-preserving refactor (no selector changes); e2e still blocked (Needs human #10); commit: see git log feat(E4a)
-  - [ ] E4b Analytics aggregates and charts — todo
+  - [x] E4b Analytics aggregates and charts — done
+    plan: analyticsDaily table (repository × UTC day × PR author: reviews, completed, findings, high, addressed, useful, not useful) recomputed idempotently per org-day by analyticsRollup.rollupDay; crons roll up today+yesterday hourly and the last 35 days daily (addressed status changes after the fact); analytics.trends reads only the rollup (per-day series, totals, addressed rate, per-repository and per-author top 10, hours saved = addressed findings × configurable minutes, admin-only setMinutesPerFinding, audited); dependency-free SVG LineChart/BarList (src/charts.ts geometry, screen-reader tables) in a new Trends section of Analytics.
+    evidence: tested with fakes; tests: tests/charts.test.ts (geometry), tests/analytics-trends.spec.ts (3: series/totals/rate/time saved/repo+author totals/filters, idempotent re-rollup + later fixes + team visibility + sweep scheduling, admin-only validated audited estimate + period bound); commands: lint/typecheck/test (311 Node + 218 vitest)/build green; commit: see git log feat(E4b)
   - [ ] E4c Diff viewer with inline findings — todo
 - [ ] F1 Azure DevOps — todo
 - [ ] F2 Live-verification runbooks — todo
@@ -199,6 +201,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — The landing page's pricing section renders only when BILLING_ENABLED=true; the price label is operator-configured (BILLING_SEAT_PRICE_LABEL) so the page never invents prices.
 
 - 2026-10-14 — E4 component system: a small in-repo kit (app/ui) over the existing CSS tokens instead of Tailwind + shadcn/ui — Tailwind's preflight would restyle the hand-written CSS everywhere and both need new packages; the kit gives typed primitives that new UI adopts incrementally.
+
+- 2026-10-14 — Analytics rollups are recomputed from raw rows per org-day (hourly for the last 2 days, daily for the last 35) instead of incremented by event hooks, so every path that changes a finding's status is reflected without instrumenting each one; dashboards never scan raw tables. Time saved counts addressed findings only (not every finding), to avoid overstating. Charts are in-repo SVG (no chart dependency).
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

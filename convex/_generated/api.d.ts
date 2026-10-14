@@ -12,6 +12,7 @@ import type * as agentContext from "../agentContext.js";
 import type * as agentToolbox from "../agentToolbox.js";
 import type * as agentTools from "../agentTools.js";
 import type * as analytics from "../analytics.js";
+import type * as analyticsRollup from "../analyticsRollup.js";
 import type * as apiKeys from "../apiKeys.js";
 import type * as approvalJobs from "../approvalJobs.js";
 import type * as approvals from "../approvals.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   agentToolbox: typeof agentToolbox;
   agentTools: typeof agentTools;
   analytics: typeof analytics;
+  analyticsRollup: typeof analyticsRollup;
   apiKeys: typeof apiKeys;
   approvalJobs: typeof approvalJobs;
   approvals: typeof approvals;

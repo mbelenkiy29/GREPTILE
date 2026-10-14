@@ -212,7 +212,23 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_token", ["tokenHash"]).index("by_org", ["organizationId"]),
   loginTokens: defineTable({ email: v.string(), tokenHash: v.string(), expiresAt: v.number(), usedAt: v.optional(v.number()), createdAt: v.number() }).index("by_token", ["tokenHash"]),
-  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), createdAt: v.number() }),
+  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), createdAt: v.number() }),
+  // Daily analytics rollup per (repository, UTC day, PR author), recomputed from raw tables for
+  // recent days by a cron; dashboards read only these rows.
+  analyticsDaily: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    day: v.string(),
+    author: v.string(),
+    reviews: v.number(),
+    completed: v.number(),
+    findings: v.number(),
+    high: v.number(),
+    addressed: v.number(),
+    useful: v.number(),
+    notUseful: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_day", ["organizationId", "day"]),
   organizationMembers: defineTable({
     organizationId: org,
     userId: v.id("users"),

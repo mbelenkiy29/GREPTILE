@@ -278,6 +278,12 @@ export async function saveSettings(form: FormData) {
   await notify("Review settings saved.");
   revalidatePath("/dashboard", "layout");
 }
+export async function setMinutesPerFinding(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.analytics.setMinutesPerFinding, { token, organizationId: text(form, "organizationId") as Id<"organizations">, minutes: Number(text(form, "minutes")) }); await notify("Time-saved estimate updated."); }
+  catch { await notify("Only workspace admins can change the estimate (1–480 minutes).", "error"); }
+  revalidatePath("/dashboard", "layout");
+}
 export async function startCheckout(form: FormData) {
   const { token } = await current();
   let url: string;
