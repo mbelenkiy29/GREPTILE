@@ -86,6 +86,8 @@ export type Finding = Candidate & {
   // Anchored on a line the change did not modify (e.g. a caller it breaks); its evidence quotes a
   // changed line. Published only in the summary, never as an inline comment.
   outsideDiff?: boolean;
+  // Recorded result of a generated reproduction test run in the sandbox (J3).
+  generatedTest?: { path: string; command: string; code: string; status: "reproduced" | "not reproduced" | "inconclusive"; exitCode?: number | null; timedOut: boolean; executionStarted: boolean; output: string };
 };
 export type SourceFile = { path: string; content: string; sha: string; size?: number; provenance?: { repository: string; revision: string; sourceUrl: string } };
 export type ChangedFile = {

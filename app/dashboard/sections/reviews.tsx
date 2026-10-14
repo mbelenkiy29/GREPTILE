@@ -165,6 +165,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                       </p>
                       <p>{finding.description}</p>
                       {finding.question && <p><strong>Question for the author:</strong> {finding.question}</p>}
+                      {finding.generatedTest && <details><summary>Generated test: {finding.generatedTest.status}{finding.generatedTest.exitCode !== undefined && finding.generatedTest.exitCode !== null ? ` (exit ${finding.generatedTest.exitCode})` : ""} · never committed</summary><p><code>{finding.generatedTest.command}</code></p><pre>{finding.generatedTest.path}{"\n"}{finding.generatedTest.code}</pre><pre>{finding.generatedTest.output || "(no output)"}</pre></details>}
                       <p>Impact: {finding.impact}</p>
                       {finding.evidence.map((e, index) => (
                         <div key={index}>{e.sourceUrl&&<a href={e.sourceUrl} target="_blank" rel="noreferrer">{e.repository} · {e.revision?.slice(0,8)} · source</a>}<pre>{e.filePath}:{e.startLine}{"\n"}{e.quote}</pre></div>

@@ -424,6 +424,22 @@ export const suspendAgent = internalMutation({args:{reviewId:v.id("reviews")},ha
   await ctx.scheduler.runAfter(0,internal.jobs.review,{reviewId:review._id});
   return true;
 }});
+// Generated-test outcomes (J3) update the stored finding and this review's snapshot of it.
+export const attachGeneratedTests = internalMutation({
+  args: { reviewId: v.id("reviews"), findings: v.array(v.object({ fingerprint: v.string(), confidence: v.number(), generatedTest: findingValidator.fields.generatedTest })) },
+  handler: async (ctx, a) => {
+    const review = await ctx.db.get(a.reviewId);
+    if (!review) throw new Error("Review not found");
+    for (const f of a.findings) {
+      if (!f.generatedTest || f.confidence < 0 || f.confidence > 1) continue;
+      const row = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("repositoryId", review.repositoryId).eq("prNumber", review.prNumber).eq("fingerprint", f.fingerprint)).first();
+      if (!row || row.reviewId !== review._id) continue;
+      await ctx.db.patch(row._id, { confidence: f.confidence, generatedTest: f.generatedTest, updatedAt: Date.now() });
+      for (const snapshot of await ctx.db.query("reviewFindings").withIndex("by_review", (q) => q.eq("reviewId", review._id)).collect())
+        if (snapshot.findingId === row._id) await ctx.db.patch(snapshot._id, { snapshot: { ...snapshot.snapshot, confidence: f.confidence, generatedTest: f.generatedTest } });
+    }
+  },
+});
 // "Review N on this pull request": assigned once, before the first publication attempt, so
 // retries and resumed publications reuse it and concurrent reviews never share a number.
 export const assignNumber = internalMutation({

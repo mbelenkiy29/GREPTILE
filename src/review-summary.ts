@@ -5,6 +5,7 @@ import {changedLines} from "./engine/patch-lines";
 import {reviewVerdict,verdictLine} from "./verdict";
 import {priorityBadge,tagBadges} from "./priority";
 import {tipLine,type TicketKind,type TipKey} from "./feature-tips";
+import {generatedTestSection} from "./generated-tests";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -94,7 +95,7 @@ export function findingComment(f: Finding, style: string = "detailed", suggestio
     )
     .join("\n\n") + f.evidence.filter(e => e.sourceUrl).map(e => "\n\n[Source: "+e.repository+" @ "+e.revision+"]("+e.sourceUrl+")").join("");
   const fix = f.suggestion && suggestion ? suggestionBlock(f.suggestion, suggestion.syntax, suggestion) : "";
-  return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}${f.question ? `\n\n**Question for the author:** ${f.question.replace(/[\r\n]+/g, " ").replace(/@(?=[\w-])/g, "@\u200b")}` : ""}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
+  return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}${f.generatedTest ? generatedTestSection(f.generatedTest) : ""}${f.question ? `\n\n**Question for the author:** ${f.question.replace(/[\r\n]+/g, " ").replace(/@(?=[\w-])/g, "@\u200b")}` : ""}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
 }
 
 // Footer line: which review this is on the pull request, and the comment that re-runs it where the

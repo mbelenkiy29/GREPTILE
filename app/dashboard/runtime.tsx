@@ -31,7 +31,7 @@ export async function RuntimeReview({token,reviewId,evidence}:{token:string;revi
                   )}
                 </section>
               )}</>;
- return <section><h2>Automatic runtime validation</h2>{jobs.map(j=><article key={j._id}><p><span className={"badge "+j.status}>{j.status.replaceAll("_"," ")}</span> · Revision {j.headSha}</p><p>{j.policy.command} · Timeout {j.policy.timeout}s</p><p className="muted">{j.policy.image}</p>{j.error&&<p role="alert">{j.error}</p>}{j.evidence&&<><p>{j.evidence.executionStarted?"Approved command started":"Command execution not confirmed"} · Exit {j.evidence.exitCode??"unknown"} · Network disabled</p><pre>{j.evidence.output}</pre>{j.evidence.outputTruncated&&<p>Output truncated.</p>}</>}</article>)}</section>;
+ return <section><h2>Automatic runtime validation</h2>{jobs.map(j=><article key={j._id}><p><span className={"badge "+j.status}>{j.status.replaceAll("_"," ")}</span> · Revision {j.headSha}</p>{j.kind==="tests"?<p>Generated reproduction tests · {j.policy.testCommand} · {j.tests?.length??0} test{j.tests?.length===1?"":"s"}{j.testResults?` · ${j.testResults.length} recorded`:""} · Timeout {j.policy.timeout}s each</p>:<p>{j.policy.command} · Timeout {j.policy.timeout}s</p>}<p className="muted">{j.policy.image}</p>{j.error&&<p role="alert">{j.error}</p>}{j.evidence&&<><p>{j.evidence.executionStarted?"Approved command started":"Command execution not confirmed"} · Exit {j.evidence.exitCode??"unknown"} · Network disabled</p><pre>{j.evidence.output}</pre>{j.evidence.outputTruncated&&<p>Output truncated.</p>}</>}</article>)}</section>;
 }
 export async function ApprovalReview({token,reviewId}:{token:string;reviewId:Id<"reviews">}){
  const job=await backend().query(api.approvals.review,{token,reviewId});

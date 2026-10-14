@@ -32,6 +32,7 @@ import { loadGrammars } from "../src/engine/treesitter";
 import { reviewChange } from "../src/engine/review";
 import { inlineFindings, reviewFooter } from "../src/review-summary";
 import { osvClient, osvEnabled } from "../src/osv";
+import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
@@ -41,9 +42,28 @@ import {
   findingSchema,
   severities,
   type SourceFile,
+  type Finding,
+  type ReviewInput,
   type ModelProvider,
 } from "../src/engine/types";
 
+// Opt-in generated reproduction tests: draft one small test per selected finding, then hand them to
+// the sandbox; the review resumes publication when the worker reports. Drafting failures skip a finding.
+async function draftGeneratedTests(ctx: ActionCtx, a: { reviewId: Id<"reviews">; repositoryId: Id<"repositories">; findings: Finding[]; sources: SourceFile[]; existing: Set<string>; model: ModelProvider; runtimeEvidence?: ReviewInput["runtimeEvidence"] }) {
+  if (!(await ctx.runQuery(internal.runtime.testsEnabled, { repositoryId: a.repositoryId }))) return false;
+  const tests: { fingerprint: string; path: string; content: string }[] = [];
+  const testFiles = [...a.existing].filter((p) => /(?:^|\/)(?:tests?|__tests__|spec)\/|[._-](?:test|spec)\.|_test\.go$/i.test(p)).slice(0, 40);
+  for (const f of testCandidates(a.findings)) {
+    const paths = [...new Set([f.filePath, ...f.evidence.map((e) => e.filePath)])];
+    const sources = a.sources.filter((s) => paths.includes(s.path)).map((s) => ({ path: s.path, content: redact(s.content.slice(0, 15000)) }));
+    try {
+      const draft = await a.model.generate({ task: "reproduce", system: reproduceSystem, input: { finding: { title: f.title, description: f.description, impact: f.impact, suggestedFix: f.suggestedFix, filePath: f.filePath, startLine: f.startLine, endLine: f.endLine, evidence: f.evidence }, sources, existingTestFiles: testFiles } }, testDraftSchema(a.existing, a.runtimeEvidence));
+      a.existing.add(draft.value.path);
+      tests.push({ fingerprint: f.fingerprint, path: draft.value.path, content: draft.value.code });
+    } catch { /* recorded by the model wrapper; this finding simply gets no generated test */ }
+  }
+  return tests.length > 0 && await ctx.runMutation(internal.runtime.requestTests, { reviewId: a.reviewId, tests });
+}
 // One feature tip for the summary footer when the Feature tips section is on; the choice is recorded
 // for the per-repository cooldown, and a publish retry reuses it.
 async function chooseTip(ctx: ActionCtx, reviewId: Id<"reviews">, sections: readonly string[] | undefined, signals: { references: string; rules: number; strictness: number; engine: string; agenticAvailable: boolean }) {
@@ -351,6 +371,13 @@ export const review = internalAction({
         if(result.metadata?.context?.some(c=>c.path.startsWith("context/"))&&!result.repositoryContext)throw new Error("Legacy cross-repository result has no authorization receipt; re-review");
         if(result.repositoryContext){if(result.repositoryContext.repositoryId!==repo._id||result.repositoryContext.actor!==pr.user.login||result.repositoryContext.providerActor&&result.repositoryContext.providerActor.externalId!==pr.authorExternalId||result.repositoryContext.githubActorId&&result.repositoryContext.githubActorId!==pr.authorExternalId)throw new Error("Saved repository context author or repository changed");await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});}
         await ctx.runQuery(internal.integrations.validate,{repositoryId:repo._id,scopes:result.integrationScopes??[]});
+        // Generated reproduction tests ran while the review waited: attach their recorded outcomes.
+        const generated = await ctx.runQuery(internal.runtime.generatedTests, { reviewId: args.reviewId });
+        if (generated) {
+          const tested = applyGeneratedTests(result.findings, generated.tests.map((t) => ({ fingerprint: t.fingerprint, path: t.path, code: t.content, evidence: t.evidence, error: t.error ?? generated.error ?? `Generated test job ${generated.status}` })), effectiveThresholds(settings).minimumConfidence);
+          result.findings = tested;
+          await ctx.runMutation(internal.reviews.attachGeneratedTests, { reviewId: args.reviewId, findings: tested.flatMap((f) => f.generatedTest ? [{ fingerprint: f.fingerprint, confidence: f.confidence, generatedTest: f.generatedTest }] : []) });
+        }
         const published = await github.publish(
           repo.fullName,
           pr.number,
@@ -644,6 +671,7 @@ export const review = internalAction({
         resolved: result.metadata.resolvedFingerprints,
         usage: result.usage,
       }).catch(async(error)=>{await ctx.storage.delete(storageId);throw error;});
+      if (await draftGeneratedTests(ctx, { reviewId: args.reviewId, repositoryId: repo._id, findings: result.findings, sources, existing: new Set(head.keys()), model, runtimeEvidence: state.review.runtimeEvidence })) return;
       await ctx.runMutation(internal.reviews.stage, {
         ...args,
         status: "publishing",

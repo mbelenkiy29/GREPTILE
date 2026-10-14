@@ -75,5 +75,7 @@ export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:s
  [s.maxFiles??0,s.maxChangedLines??0].every(n=>Number.isInteger(n)&&n>=0&&n<=1_000_000)&&[0,1,2,3].includes(s.strictness??0);
 export const checkFailureSeverities=["off","critical","high","medium","low"] as const;
 export const validCheckFailureSeverity=(value:string|undefined)=>value===undefined||(checkFailureSeverities as readonly string[]).includes(value);
-export const runtimeDefaults={enabled:false,image:"",command:"",timeout:120,requiredForApproval:false};
+// generatedTests: opt-in reproduction tests for verified findings, run with testCommand ("{test}" is the
+// generated file's path) in the same approved image and sandbox.
+export const runtimeDefaults={enabled:false,image:"",command:"",timeout:120,requiredForApproval:false,generatedTests:false,testCommand:""};
 export const approvalDefaults={enabled:false,maximumRisk:"low" as "low"|"medium"|"high",excludedPaths:[] as string[],excludedAuthors:[] as string[],requiredChecks:[] as {name:string;appId?:number}[]};

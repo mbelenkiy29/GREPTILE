@@ -147,8 +147,8 @@ for(const operation of ["claim","heartbeat","snapshot","report"]){
     const blob=await ctx.storage.get(job.sourceStorageId);if(!blob)throw new Error("Runtime snapshot missing");
     return new Response(blob,{headers:{"content-type":"application/gzip","cache-control":"no-store"}});
    }
-   const report=z.object({error:z.string().max(1000).optional(),evidence:runtimeEvidenceSchema.optional()}).parse(body);
-   if(!report.error&&!report.evidence)throw new Error("Missing runtime result");
+   const report=z.object({error:z.string().max(1000).optional(),evidence:runtimeEvidenceSchema.optional(),tests:z.array(z.object({fingerprint:z.string().max(100),evidence:runtimeEvidenceSchema.optional(),error:z.string().max(1000).optional()})).max(3).optional()}).parse(body);
+   if(!report.error&&!report.evidence&&!report.tests)throw new Error("Missing runtime result");
    await ctx.runAction(internal.runtimeJobs.report,{hash,id,lease:a.lease,...report});return Response.json({ok:true});
   }catch(error){if(error instanceof ConvexError&&typeof error.data==="object"&&error.data!==null&&"code" in error.data&&error.data.code==="RUNTIME_WORKER_CREDENTIAL_REJECTED")return Response.json({code:"worker_credential_rejected",error:"Runtime worker credential expired or revoked"},{status:401});return Response.json({error:"Invalid, expired, unauthorized or unavailable runtime request"},{status:401});}
  })});

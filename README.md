@@ -14,6 +14,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
 - Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
 - Three engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions, and an optional hypothesis engine plans concrete bug hypotheses and investigates each one in parallel with its own budget.
 - Security checks: deterministic pattern checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization) and OSV.dev advisories for changed npm, PyPI, Go, crates.io and Maven dependencies; feedback cannot suppress them.
+- Opt-in generated reproduction tests: for up to three verified findings OpenReview drafts a test, runs it in the isolated runtime sandbox and attaches the recorded outcome to the finding (never committed).
 - Grounded findings. Each finding quotes exact lines from the reviewed revision and passes a second verification before it is posted.
 - Committable suggestion blocks for small fixes, and multi-line comments within a hunk.
 - One summary comment, edited in place on every push. It opens with a verdict computed from the score, findings and coverage, then has an overview, files changed, issues, a confidence score, skipped files and an optional Mermaid sequence diagram.
