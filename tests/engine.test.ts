@@ -110,6 +110,9 @@ class FixtureModel implements ModelProvider {
           ? { resolved: [] }
           : request.task === "diagram"
             ? { diagram: null }
+            // J2: model-reported security findings get one exploitability assessment.
+            : request.task === "exploit"
+              ? { assessments: [{ index: 0, exploitPath: true, reason: "route() returns the secret for any user the guard accepts, including a missing one." }] }
             : {
               reviewScore:{value:1,reason:"The verified defect needs correction before this change is ready to merge."},summary:
                 "This change updates authentication. One high severity authorization defect was verified.",
@@ -535,7 +538,7 @@ test("configurable summaries preserve evidence and validate risk prose, with one
  assert.equal(reviewSummarySchema(undefined,[]).safeParse({summary:data.overview,approvalAssessment:{risk:"low",confidence:1,reason:"Requirements confirmed at https://linear.app/team/issue/ENG-9/fake"}}).success,false);
  const model=new FixtureModel(),input:ReviewInput={repository:"acme/api",baseSha:"a".repeat(40),headSha:"b".repeat(40),title:"Update authentication",description:"",files:[],diff:[],rules:[],mode:"standard",settings:{summarySections:[]}};
  const review=await reviewChange(input,model);assert.equal(review.summary.includes("### Overview"),false);assert.match(review.summary,/### Test execution/);
- assert.equal(summarySections.length,9);
+ assert.equal(summarySections.length,11); // G5 added the "tips" footer toggle, J5 the requirements section
 });
 
 

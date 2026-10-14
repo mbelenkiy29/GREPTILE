@@ -3,15 +3,15 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { fixtures } from "./fixtures";
 import { modelFromEnvironment } from "../src/engine/model";
 import { reviewChange } from "../src/engine/review";
-import {EvaluationUsage,transcriptTrace} from "../src/evaluation-usage";
+import {EvaluationUsage,evaluationTranscripts} from "../src/evaluation-usage";
 import {memoryToolbox} from "../src/engine/agent";
 const args=process.argv.slice(2).filter(arg=>arg!=="--");
 if(args.includes("--help")||args.includes("-h")){
- console.log("Usage: pnpm eval [--validate] [--fixture=ID] [--engine=pipeline|agentic]\n--validate checks fixtures without model calls. Otherwise a configured model evaluation incurs inference cost.");
+ console.log("Usage: pnpm eval [--validate] [--fixture=ID] [--engine=pipeline|agentic|hypotheses]\n--validate checks fixtures without model calls. Otherwise a configured model evaluation incurs inference cost.");
  process.exit(0);
 }
-if(args.some(arg=>arg!=="--validate"&&!arg.startsWith("--fixture=")&&!/^--engine=(pipeline|agentic)$/.test(arg)))throw new Error("Unknown evaluation argument; use --help");
-const engine=args.find(a=>a.startsWith("--engine="))?.slice("--engine=".length) as "pipeline"|"agentic"|undefined;
+if(args.some(arg=>arg!=="--validate"&&!arg.startsWith("--fixture=")&&!/^--engine=(pipeline|agentic|hypotheses)$/.test(arg)))throw new Error("Unknown evaluation argument; use --help");
+const engine=args.find(a=>a.startsWith("--engine="))?.slice("--engine=".length) as "pipeline"|"agentic"|"hypotheses"|undefined;
 try {
   loadEnvFile(".env.local");
 } catch {
@@ -58,17 +58,18 @@ if (process.argv.includes("--validate")) {
   process.exitCode = 2;
 } else {
   const results = [];
-  // Agentic runs keep the agent's tool transcript (tool results clipped) so misses can be diagnosed.
-  const transcriptOf=(tracked:EvaluationUsage)=>{const transcript=tracked.transcript();return transcript.length?{trace:transcriptTrace(transcript),transcript}:{};};
+  // Agentic runs keep the agent's tool transcript, and hypothesis runs one per hypothesis (tool results
+  // clipped), so misses can be diagnosed.
+  const transcriptOf=evaluationTranscripts;
   const only=process.argv.find(a=>a.startsWith("--fixture="))?.slice("--fixture=".length);
   if(only && !fixtures.some(f=>f.id===only))throw new Error("Unknown fixture");
   for (const fixture of fixtures.filter(f=>!only || f.id===only)) {
     const started = Date.now();
     const tracked=new EvaluationUsage(modelFromEnvironment());
     try {
-      const result = await reviewChange(fixture.input, tracked, undefined, undefined, engine==="agentic"?{engine,tools:memoryToolbox([...fixture.input.files,...(fixture.repositoryFiles??[])],fixture.input.headSha)}:{});
-      // A silent fallback to the pipeline would be scored as an agentic result; record it as a failure instead.
-      if(engine==="agentic"&&result.metadata.engine!=="agentic")throw new Error("Agentic engine did not run: "+(result.metadata.coverageLimits??[]).join("; "));
+      const result = await reviewChange(fixture.input, tracked, undefined, undefined, engine==="agentic"||engine==="hypotheses"?{engine,tools:memoryToolbox([...fixture.input.files,...(fixture.repositoryFiles??[])],fixture.input.headSha)}:{});
+      // A silent fallback to the pipeline would be scored as a tool-engine result; record it as a failure instead.
+      if((engine==="agentic"||engine==="hypotheses")&&result.metadata.engine!==engine)throw new Error(`The ${engine} engine did not run: `+(result.metadata.coverageLimits??[]).join("; "));
       const expected=fixture.expected;
       const matched = expected ? result.findings.filter(
         (f) =>
@@ -83,6 +84,7 @@ if (process.argv.includes("--validate")) {
         id: fixture.id,
         engine: result.metadata.engine,
         agentRun: result.metadata.agentRun,
+        hypotheses: result.metadata.hypotheses,
         truePositives: matched.length ? 1 : 0,
         trueNegatives: !expected && !result.findings.length ? 1 : 0,
         expectedFindings: expected ? 1 : 0,
@@ -164,7 +166,7 @@ if (process.argv.includes("--validate")) {
         ...report,
         results: results.map((r) => ({
           id: r.id,
-          ...("engine" in r ? { engine: r.engine, agentRun: r.agentRun } : {}),
+          ...("engine" in r ? { engine: r.engine, agentRun: r.agentRun, ...(r.hypotheses ? { hypotheses: r.hypotheses.map((h) => ({ id: h.id, claim: h.claim, status: h.status, reported: h.reported })) } : {}) } : {}),
           truePositives: r.truePositives,
           trueNegatives: r.trueNegatives,
           falsePositives: r.falsePositives,
@@ -174,6 +176,7 @@ if (process.argv.includes("--validate")) {
           tokens: r.tokens,
           estimatedCost: r.estimatedCost,
           ...("trace" in r ? { trace: r.trace } : {}),
+          ...("hypothesisTranscripts" in r && r.hypothesisTranscripts ? { hypothesisTraces: r.hypothesisTranscripts.map((h) => ({ task: h.task, trace: h.trace })) } : {}),
         })),
       },
       null,

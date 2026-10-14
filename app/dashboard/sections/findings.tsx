@@ -7,7 +7,7 @@ import { feedback } from "../actions";
 import { Copy } from "../live";
 import { FixButton } from "../fix-button";
 import { AgentLinks } from "../agent-links";
-import { status, Empty } from "./shared";
+import { status, priority, Empty } from "./shared";
 import type { DashboardContext } from "../load";
 
 export function FindingsSection({ ctx }: { ctx: DashboardContext }) {
@@ -114,7 +114,7 @@ export function FindingsSection({ ctx }: { ctx: DashboardContext }) {
                   <div className="row">
                     <h2>{f.title}</h2>
                     <div>
-                      {status(f.severity)} {status(f.status)}
+                      {priority(f)} {status(f.status)}
                     </div>
                   </div>
                   <p className="muted">

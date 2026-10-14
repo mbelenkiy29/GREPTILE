@@ -30,6 +30,11 @@ import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
 import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
+import { inlineFindings, reviewFooter } from "../src/review-summary";
+import { osvClient, osvEnabled } from "../src/osv";
+import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
+import { knowledgeTokenBudgets, selectKnowledge } from "../src/knowledge-context";
+import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
 import { ModelFailure, configuredModel } from "../src/engine/model";
@@ -38,9 +43,35 @@ import {
   findingSchema,
   severities,
   type SourceFile,
+  type Finding,
+  type ReviewInput,
   type ModelProvider,
 } from "../src/engine/types";
 
+// Opt-in generated reproduction tests: draft one small test per selected finding, then hand them to
+// the sandbox; the review resumes publication when the worker reports. Drafting failures skip a finding.
+async function draftGeneratedTests(ctx: ActionCtx, a: { reviewId: Id<"reviews">; repositoryId: Id<"repositories">; findings: Finding[]; sources: SourceFile[]; existing: Set<string>; model: ModelProvider; runtimeEvidence?: ReviewInput["runtimeEvidence"] }) {
+  if (!(await ctx.runQuery(internal.runtime.testsEnabled, { repositoryId: a.repositoryId }))) return false;
+  const tests: { fingerprint: string; path: string; content: string }[] = [];
+  const testFiles = [...a.existing].filter((p) => /(?:^|\/)(?:tests?|__tests__|spec)\/|[._-](?:test|spec)\.|_test\.go$/i.test(p)).slice(0, 40);
+  for (const f of testCandidates(a.findings)) {
+    const paths = [...new Set([f.filePath, ...f.evidence.map((e) => e.filePath)])];
+    const sources = a.sources.filter((s) => paths.includes(s.path)).map((s) => ({ path: s.path, content: redact(s.content.slice(0, 15000)) }));
+    try {
+      const draft = await a.model.generate({ task: "reproduce", system: reproduceSystem, input: { finding: { title: f.title, description: f.description, impact: f.impact, suggestedFix: f.suggestedFix, filePath: f.filePath, startLine: f.startLine, endLine: f.endLine, evidence: f.evidence }, sources, existingTestFiles: testFiles } }, testDraftSchema(a.existing, a.runtimeEvidence));
+      a.existing.add(draft.value.path);
+      tests.push({ fingerprint: f.fingerprint, path: draft.value.path, content: draft.value.code });
+    } catch { /* recorded by the model wrapper; this finding simply gets no generated test */ }
+  }
+  return tests.length > 0 && await ctx.runMutation(internal.runtime.requestTests, { reviewId: a.reviewId, tests });
+}
+// One feature tip for the summary footer when the Feature tips section is on; the choice is recorded
+// for the per-repository cooldown, and a publish retry reuses it.
+async function chooseTip(ctx: ActionCtx, reviewId: Id<"reviews">, sections: readonly string[] | undefined, signals: { references: string; rules: number; strictness: number; engine: string; agenticAvailable: boolean }) {
+  if (!sections?.includes("tips")) return null;
+  const tip = await ctx.runMutation(internal.featureTips.choose, { reviewId, ...signals });
+  return tip ? { sections, ...tip } : null;
+}
 export const backfillReviewFindings=internalAction({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
  const {review}=await ctx.runQuery(internal.reviews.data,a);
  if(review.findingsRecorded)return {status:"already_recorded"};
@@ -327,6 +358,7 @@ export const review = internalAction({
                   fingerprint: z.string(),
                   agent: z.string(),
                   commitSha: z.string(),
+                  outsideDiff: z.boolean().optional(),
                 }),
               ),
             ),
@@ -340,12 +372,19 @@ export const review = internalAction({
         if(result.metadata?.context?.some(c=>c.path.startsWith("context/"))&&!result.repositoryContext)throw new Error("Legacy cross-repository result has no authorization receipt; re-review");
         if(result.repositoryContext){if(result.repositoryContext.repositoryId!==repo._id||result.repositoryContext.actor!==pr.user.login||result.repositoryContext.providerActor&&result.repositoryContext.providerActor.externalId!==pr.authorExternalId||result.repositoryContext.githubActorId&&result.repositoryContext.githubActorId!==pr.authorExternalId)throw new Error("Saved repository context author or repository changed");await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});}
         await ctx.runQuery(internal.integrations.validate,{repositoryId:repo._id,scopes:result.integrationScopes??[]});
+        // Generated reproduction tests ran while the review waited: attach their recorded outcomes.
+        const generated = await ctx.runQuery(internal.runtime.generatedTests, { reviewId: args.reviewId });
+        if (generated) {
+          const tested = applyGeneratedTests(result.findings, generated.tests.map((t) => ({ fingerprint: t.fingerprint, path: t.path, code: t.content, evidence: t.evidence, error: t.error ?? generated.error ?? `Generated test job ${generated.status}` })), effectiveThresholds(settings).minimumConfidence);
+          result.findings = tested;
+          await ctx.runMutation(internal.reviews.attachGeneratedTests, { reviewId: args.reviewId, findings: tested.flatMap((f) => f.generatedTest ? [{ fingerprint: f.fingerprint, confidence: f.confidence, generatedTest: f.generatedTest }] : []) });
+        }
         const published = await github.publish(
           repo.fullName,
           pr.number,
           state.review.headSha,
-          result.summary,
-          result.findings.slice(0, settings.maxComments),
+          result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other", await chooseTip(ctx, args.reviewId, settings.summarySections, { references: [pr.title, pr.body ?? "", pr.head.ref].join("\n"), rules: rules.length, strictness: settings.strictness ?? 0, engine: settings.reviewEngine, agenticAvailable: false })),
+          inlineFindings(result.findings).slice(0, settings.maxComments),
           args.reviewId,
           settings.commentStyle,
           state.review.revisionKey,
@@ -546,7 +585,7 @@ export const review = internalAction({
           }
         },
       };
-      const agentic = effective.reviewEngine === "agentic";
+      const engine = effective.reviewEngine === "agentic" || effective.reviewEngine === "hypotheses" ? effective.reviewEngine : undefined;
       const result = {...await reviewChange(
         {
           repository: repo.fullName,
@@ -590,6 +629,7 @@ export const review = internalAction({
             enabled: r.enabled,
           })), ...repoConfig.rules],
           preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
+          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[z.enum(["fast", "standard", "deep"]).parse(effective.mode)]).selected,
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
@@ -605,6 +645,7 @@ export const review = internalAction({
               : effective.categories.map((c) => z.enum(categories).parse(c)),
             instructions: effective.instructions,
             summarySections:effective.summarySections,
+            securityScan: effective.securityScan !== false,
           },
         },
         model,
@@ -612,7 +653,8 @@ export const review = internalAction({
           await ctx.runMutation(internal.reviews.stage, { ...args, status });
         },
         undefined,
-        agentic ? { engine: "agentic", tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: reviewAgentHooks(ctx, args.reviewId, stepStarted) } : {},
+        // Hypothesis runs fit in one action and do not suspend; they only honour cancellation.
+        { ...(osvEnabled() ? { advisories: osvClient({ base: process.env.OSV_API_URL || undefined }) } : {}), ...(engine ? { engine, tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: engine === "agentic" ? reviewAgentHooks(ctx, args.reviewId, stepStarted) : { checkpoint: reviewAgentHooks(ctx, args.reviewId, stepStarted).checkpoint } } : {}) },
       ),integrationScopes:requirements.scopes,repositoryContext:cross.receipt??undefined};
       const storageId = await ctx.storage.store(
         new Blob([JSON.stringify(result)], { type: "application/json" }),
@@ -625,11 +667,14 @@ export const review = internalAction({
         repositoryContext:cross.receipt??undefined,
         approvalAssessment: result.metadata.approvalAssessment,
         reviewScore: result.metadata.reviewScore,
+        verdict: result.metadata.verdict,
+        requirementsNotMet: result.metadata.requirementsNotMet,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,
         usage: result.usage,
       }).catch(async(error)=>{await ctx.storage.delete(storageId);throw error;});
+      if (await draftGeneratedTests(ctx, { reviewId: args.reviewId, repositoryId: repo._id, findings: result.findings, sources, existing: new Set(head.keys()), model, runtimeEvidence: state.review.runtimeEvidence })) return;
       await ctx.runMutation(internal.reviews.stage, {
         ...args,
         status: "publishing",
@@ -640,8 +685,8 @@ export const review = internalAction({
         repo.fullName,
         pr.number,
         pr.head.sha,
-        result.summary,
-        result.findings.slice(0, effective.maxComments),
+        result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other", await chooseTip(ctx, args.reviewId, effective.summarySections, { references: [pr.title, pr.body ?? "", pr.head.ref].join("\n"), rules: rules.length + repoConfig.rules.length, strictness: effective.strictness ?? 0, engine: effective.reviewEngine, agenticAvailable: typeof modelProvider.runTools === "function" })),
+        inlineFindings(result.findings).slice(0, effective.maxComments),
         args.reviewId,
         effective.commentStyle,
           state.review.revisionKey,
@@ -678,11 +723,11 @@ export const review = internalAction({
   },
 });
 
-export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[]} | null>=>{
+export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[];hypotheses:{id:number;claim:string;category:string;filePath:string;startLine:number;status:string;stopReason?:string;toolCalls:number;turns:number;reported:number}[]} | null>=>{
  const {review}=await ctx.runQuery(api.reviews.detail,a);
  if(!review.resultStorageId)return null;
  const blob=await ctx.storage.get(review.resultStorageId);if(!blob||blob.size>2000000)throw new Error("Saved review diagnostics unavailable");
- const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([])})}).parse(JSON.parse(await blob.text()));
+ const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([]),hypotheses:z.array(z.object({id:z.number(),claim:z.string(),category:z.string(),filePath:z.string(),startLine:z.number(),status:z.string(),stopReason:z.string().optional(),toolCalls:z.number(),turns:z.number(),reported:z.number()})).max(30).default([])})}).parse(JSON.parse(await blob.text()));
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
  return {...result.metadata,diagrams:result.diagrams.filter(validSequence).slice(0,1),suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});

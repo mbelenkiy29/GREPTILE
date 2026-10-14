@@ -28,7 +28,7 @@ export const repoSettingsSchema = z.object({
   commentStyle: z.enum(["concise", "detailed"]),
   summarySections: z.array(z.enum(summarySections)).max(summarySections.length),
   strictness: z.number().int().min(0).max(3),
-  reviewEngine: z.enum(["pipeline", "agentic"]),
+  reviewEngine: z.enum(["pipeline", "agentic", "hypotheses"]),
 }).partial().strict();
 export const repoConfigSchema = z.object({
   $schema: z.string().optional(),

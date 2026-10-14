@@ -50,6 +50,7 @@ export const findings = [
   {
     _id: "f1",
     severity: "critical",
+    category: "correctness",
     title: "total() now returns dollar value instead of cents, breaking charge() expectations",
     filePath: "src/cart.ts",
     startLine: 4,
@@ -67,6 +68,7 @@ export const findings = [
   {
     _id: "f2",
     severity: "medium",
+    category: "testing",
     title: "Updated test asserts the dollar value, so the billing regression passes CI",
     filePath: "test/cart.test.ts",
     startLine: 4,

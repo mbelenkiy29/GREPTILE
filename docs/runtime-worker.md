@@ -31,6 +31,19 @@ A real 130-second validation also verified busy-worker liveness beyond the 120-s
 Bitbucket Cloud now builds exact-revision source from its unfiltered native tree/raw file API, preserving binary bytes and executable attributes within the shared regular-file USTAR limits. It rejects LFS redirects, symlinks, subrepositories, unknown metadata and incomplete/oversized inventories. Native-response/durable worker-source tests pass; live Forge installation and Docker source/execution acceptance remain pending. See [Bitbucket Cloud runtime](bitbucket-cloud.md#exact-revision-runtime-snapshot).
 
 
+## Generated reproduction tests
+
+Opt in per organization, team or repository in the same runtime policy: check **Generate reproduction tests** and set a **test command template** containing `{test}` exactly once, for example `node --test {test}` or `pytest -q {test}`. The image must be digest-pinned, as for the approved command.
+
+After a review is verified and saved, OpenReview asks the model to draft one minimal test for each of up to three verified findings (highest severity first; deterministic security findings are skipped). A draft must be a new, test-named, repository-relative file without `..`, must not print the runtime start marker and must not claim results. The review then waits for a `tests` runtime job on a connected worker. The worker downloads the exact-revision snapshot once and runs each test separately on a fresh copy: the fixed container wrapper extracts the source, decodes the test file from a base64 argument (never interpolated as shell text) and runs the template with `{test}` replaced by the quoted path. Every isolation limit above applies (no network, read-only root, 512 MB, one CPU, the policy timeout per test). The image needs `base64` and `dirname`, which BusyBox and coreutils provide.
+
+Results attach to their findings as recorded evidence: the outcome follows the exit status, and the comment shows the command, the test code and the trimmed, redacted output in a collapsed block. Policy:
+- **Started and failed** (non-zero exit): the defect was reproduced; confidence rises by 0.05, to at most 0.99.
+- **Started and passed** (exit 0): not reproduced; confidence falls by 0.15 but never below the repository's minimum confidence, so the finding stays, with the passing test shown.
+- **Timed out, crashed before a recorded exit, did not start, or no result**: inconclusive; confidence is unchanged.
+
+Generated tests are never committed, pushed or written to the repository: they exist only in the job record and inside the disposable container. Without a connected worker or the opt-in, reviews publish immediately as before. A changed policy or revision while the job runs cancels the results. A live run on a real repository is still a human step (see the parity ledger).
+
 ## Linux supervisor deployment
 
 Place a reviewed checkout and its frozen pnpm dependencies at `/opt/openreview`, readable by a dedicated `openreview-runtime` account. Install Node 24 and Docker, pre-pull each approved digest-pinned runtime image, and verify `/usr/bin/node`, `/usr/bin/docker` and the standard `/run/docker.sock` path on that host. Adjust the unit for different verified executable/socket paths; rootless Docker hosts need their own configuration and acceptance. The dedicated account needs access to this isolated Docker daemon through its `docker` supplementary group.

@@ -67,6 +67,8 @@ test('Windows Codex npm fallback launches its fixed JS entry without a command s
   assert.deepEqual(await resolveCodexAgent(env,'linux'),{file:'codex',prefix:[]});
  }finally{await rm(root,{recursive:true,force:true});}
 });
+// Single-quoted POSIX shell literal.
+const sh=(value:string)=>"'"+value.replaceAll("'","'\\''")+"'";
 test("dispatch records agent exit failures and signals without treating launch as resolution",async()=>{
  const execute=promisify(execFile),root=await mkdtemp(path.join(tmpdir(),"openreview-bridge-"));
  const repo=path.join(root,"repo"),bin=path.join(root,"bin"),home=path.join(root,"bridge");
@@ -87,9 +89,13 @@ test("dispatch records agent exit failures and signals without treating launch a
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   const address=server.address();assert.ok(address&&typeof address!=="string");
   await writeFile(path.join(home,"config.json"),JSON.stringify({url:`http://127.0.0.1:${address.port}`,token:"obr_"+"a".repeat(64),repositories:{"github.com/alice/example":repo}}),{mode:0o600});
-  for(const [index,script] of ["process.exit(0)","process.exit(7)","process.kill(process.pid,'SIGTERM')",null].entries()){
+  // Fake agents are POSIX shell scripts, not Node scripts. With system CAs enabled
+  // (NODE_USE_SYSTEM_CA=1 or --use-system-ca), Node 24 before 24.9 loads certificates on a thread at
+  // startup, and a process.exit() that races it intermittently dies with SIGSEGV/SIGBUS
+  // (nodejs/node#59856), which the dispatcher would then correctly report as the agent's status.
+  for(const [index,script] of ["exit 0","exit 7","kill -TERM $$",null].entries()){
    reports.length=0;
-   if(script===null)await rm(path.join(bin,"codex"));else await writeFile(path.join(bin,"codex"),`#!${process.execPath}\n${script}\n`,{mode:0o700});
+   if(script===null)await rm(path.join(bin,"codex"));else await writeFile(path.join(bin,"codex"),`#!/bin/sh\n${script}\n`,{mode:0o700});
    const run=execute(process.execPath,[path.resolve("bin/openreview.mjs"),"bridge","dispatch",`openreview://fix?request=abcdefghijklmnop${index}`],{env:{...process.env,OPENREVIEW_BRIDGE_HOME:home,PATH:script===null?bin:bin+path.delimiter+process.env.PATH},timeout:15000});
    if(index===0){await run;assert.deepEqual(reports.map(r=>r.status),["launched","finished"]);}
    else if(index===3){await assert.rejects(run);assert.deepEqual(reports.map(r=>r.status),["failed"]);assert.match(reports[0].error!,/ENOENT/);}
@@ -97,7 +103,7 @@ test("dispatch records agent exit failures and signals without treating launch a
   }
   for(const mode of ['launch-report','finished-report']){
    reports.length=0;rejectLaunchOnce=mode==='launch-report';rejectFinished=mode==='finished-report';
-   const marker=path.join(repo,'agent-completed-'+mode);await writeFile(path.join(bin,'codex'),`#!${process.execPath}\nsetTimeout(()=>{require('node:fs').writeFileSync(${JSON.stringify(marker)},'done');},150);\n`,{mode:0o700});
+   const marker=path.join(repo,'agent-completed-'+mode);await writeFile(path.join(bin,'codex'),`#!/bin/sh\nsleep 0.15\nprintf done > ${sh(marker)}\n`,{mode:0o700});
    const run=execute(process.execPath,[path.resolve('bin/openreview.mjs'),'bridge','dispatch','openreview://fix?request=abcdefghijklmnop'+mode.replaceAll('-','')],{env:{...process.env,OPENREVIEW_BRIDGE_HOME:home,PATH:bin+path.delimiter+process.env.PATH},timeout:15000});
    if(mode==='launch-report'){await run;assert.deepEqual(reports.map(r=>r.status),['launched','launched','finished']);}
    else {await assert.rejects(run,/successfully.*status.*confirmed/);assert.deepEqual(reports.map(r=>r.status),['launched','finished']);}
@@ -107,10 +113,11 @@ test("dispatch records agent exit failures and signals without treating launch a
   selectedAgent='cursor';
   for(const adapter of ['cursor-agent','cursor']){
    const marker=path.join(repo,'cursor-argv-'+adapter);
-   await writeFile(path.join(bin,adapter),`#!${process.execPath}\nconst args=process.argv.slice(2);if(args.includes('--help'))process.exit(0);require('node:fs').writeFileSync(${JSON.stringify(marker)},JSON.stringify(args));\n`,{mode:0o700});
+   // Records its argv NUL-separated (any characters survive) unless it is the --help probe.
+   await writeFile(path.join(bin,adapter),`#!/bin/sh\nfor a in "$@"; do [ "$a" = "--help" ] && exit 0; done\nprintf '%s\\0' "$@" > ${sh(marker)}\n`,{mode:0o700});
    reports.length=0;
    await execute(process.execPath,[path.resolve('bin/openreview.mjs'),'bridge','dispatch','openreview://fix?request=abcdefghijklmnop'+adapter.replaceAll('-','')],{env:{...process.env,OPENREVIEW_BRIDGE_HOME:home,PATH:bin},timeout:15000});
-   const {readFile}=await import('node:fs/promises');const argv=JSON.parse(await readFile(marker,'utf8')) as string[];
+   const {readFile}=await import('node:fs/promises');const argv=(await readFile(marker,'utf8')).split('\0').slice(0,-1);
    assert.equal(argv.length,adapter==='cursor'?2:1);if(adapter==='cursor')assert.equal(argv[0],'agent');
    assert.match(argv.at(-1)!,/Read the fix request at/);assert.deepEqual(reports.map(r=>r.status),['launched','finished']);
    await rm(path.join(bin,adapter));
@@ -119,8 +126,10 @@ test("dispatch records agent exit failures and signals without treating launch a
   const nativeRoot=await realpath(repo),source='export const cents = 199;\n',file=path.join(nativeRoot,'price.ts');await writeFile(file,source);
   head='p4:12:1:14:'+ 'a'.repeat(64);nativeTask={instance:'https://p4.example',project:'payments',serverId:'native-server',files:[{depotFile:'//depot/main/price.ts',haveRevision:1,revision:'@=14',digest:createHash('md5').update(source).digest('hex'),fileSize:Buffer.byteLength(source)}]};
   await writeFile(path.join(home,'config.json'),JSON.stringify({url:`http://127.0.0.1:${address.port}`,token:'obr_'+'a'.repeat(64),p4Repositories:{'p4:https://p4.example:payments':{root:nativeRoot,server:'ssl:p4.example:1666',serverId:'native-server',client:'native-client',username:'author'}}}));
-  await writeFile(path.join(bin,'p4'),`#!${process.execPath}\nconst args=process.argv.slice(2),cmd=['info','client','fstat','print'].find(cmd=>args.includes(cmd));const rows=cmd==='info'?{ServerID:'native-server',userName:'author',clientName:'native-client'}:cmd==='client'?{Client:'native-client',Root:${JSON.stringify(nativeRoot)},Owner:'author',LineEnd:'unix',Options:'noallwrite noclobber'}:cmd==='fstat'?{depotFile:'//depot/main/price.ts',clientFile:${JSON.stringify(file)},haveRev:'1'}:null;if(cmd==='print')process.stdout.write(${JSON.stringify(source)});else if(rows)process.stdout.write(JSON.stringify(rows)+'\\n');else process.exit(9);\n`,{mode:0o700});
-  await writeFile(path.join(bin,'codex'),`#!${process.execPath}\nif(process.env.P4PORT!=='ssl:p4.example:1666'||process.env.P4CLIENT!=='native-client'||process.env.P4USER!=='author')process.exit(9);process.exit(0)\n`,{mode:0o700});
+  // Fake p4: the first of info/client/fstat/print among its arguments selects the JSON row it prints.
+  const rows={info:{ServerID:'native-server',userName:'author',clientName:'native-client'},client:{Client:'native-client',Root:nativeRoot,Owner:'author',LineEnd:'unix',Options:'noallwrite noclobber'},fstat:{depotFile:'//depot/main/price.ts',clientFile:file,haveRev:'1'}};
+  await writeFile(path.join(bin,'p4'),`#!/bin/sh\ncmd=\nfor c in info client fstat print; do for a in "$@"; do [ "$a" = "$c" ] && cmd=$c && break 2; done; done\ncase "$cmd" in\n${Object.entries(rows).map(([cmd,row])=>`${cmd}) printf '%s\\n' ${sh(JSON.stringify(row))};;`).join('\n')}\nprint) printf '%s' ${sh(source)};;\n*) exit 9;;\nesac\n`,{mode:0o700});
+  await writeFile(path.join(bin,'codex'),`#!/bin/sh\n[ "$P4PORT" = 'ssl:p4.example:1666' ] && [ "$P4CLIENT" = 'native-client' ] && [ "$P4USER" = 'author' ] || exit 9\nexit 0\n`,{mode:0o700});
   reports.length=0;await execute(process.execPath,[path.resolve('bin/openreview.mjs'),'bridge','dispatch','openreview://fix?request=abcdefghijklmnopnative'],{env:{...process.env,OPENREVIEW_BRIDGE_HOME:home,PATH:bin+path.delimiter+process.env.PATH},timeout:15000});assert.deepEqual(reports.map(r=>r.status),['launched','finished']);
   await writeFile(file,'unrelated existing work');reports.length=0;await assert.rejects(execute(process.execPath,[path.resolve('bin/openreview.mjs'),'bridge','dispatch','openreview://fix?request=abcdefghijklmnopstale'],{env:{...process.env,OPENREVIEW_BRIDGE_HOME:home,PATH:bin+path.delimiter+process.env.PATH},timeout:15000}));assert.deepEqual(reports.map(r=>r.status),['failed']);assert.match(reports[0].error!,/preserve the changes/);
  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(root,{recursive:true,force:true});}

@@ -78,6 +78,7 @@ All of these are global classes in `app/globals.css`.
 - **Data.**
   - `.metrics` is a hairline-divided grid with mono labels and 36px tabular numbers.
   - `.badge` is a mono 11px tinted chip, and status names map to tones. For example, `critical` and `high` are red, `medium` is amber, `completed` is green, `running` is ember, and `low` and `queued` are muted.
+  - Findings show priority rather than raw severity: `priority(f)` in `app/dashboard/sections/shared.tsx` renders P0–P3 (from `src/priority.ts`) in the severity's badge tone, plus a Security tag for security findings.
   - Tables use mono muted headers and hairline rows.
   - `LineChart` and `BarList` (`app/ui/charts.tsx`) use ink, ember, green and amber series.
 - **Diff** (`app/dashboard/diff-files.tsx`): mono text, translucent green and red line tints, and a finding inset card after the line it anchors to.

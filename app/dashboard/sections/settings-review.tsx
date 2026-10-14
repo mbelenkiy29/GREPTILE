@@ -134,6 +134,7 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     >
                       <option value="pipeline">pipeline (specialists)</option>
                       <option value="agentic">agentic (tool-calling, experimental)</option>
+                      <option value="hypotheses">hypotheses (parallel investigations, experimental)</option>
                     </select>
                   </label>
                   <label>
@@ -170,6 +171,16 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     <legend>Fix pull requests</legend>
                     <input type="hidden" name="fixConfigured" value="true" />
                     <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
+                  </fieldset>
+                  <fieldset className="wide">
+                    <legend>Security checks</legend>
+                    <input type="hidden" name="securityScanConfigured" value="true" />
+                    <label className="check"><input type="checkbox" name="securityScan" defaultChecked={repoSettings.settings.securityScan ?? true} /> Run deterministic security checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic code evaluation, shell commands, unsafe deserialization) and look up changed dependency versions in OSV.dev (outbound requests can be turned off for the whole install with OSV_ENABLED=false)</label>
+                  </fieldset>
+                  <fieldset className="wide">
+                    <legend>Replies in OpenReview threads</legend>
+                    <input type="hidden" name="threadRepliesConfigured" value="true" />
+                    <label className="check"><input type="checkbox" name="threadReplies" defaultChecked={repoSettings.settings.threadReplies ?? true} /> Answer replies to OpenReview’s inline findings without an @openreview mention (GitHub; people with write access; never bots; limited to 3 answers per thread and 10 per pull request each hour)</label>
                   </fieldset>
                   <fieldset className="wide">
                     <legend>Lock against the repository config file</legend>

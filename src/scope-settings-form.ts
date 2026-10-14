@@ -19,5 +19,7 @@ export function scopeSettingsFromForm(form:FormData){
   lockedKeys:form.has('lockedConfigured')?form.getAll('lockedKeys').map(String):defaults.lockedKeys,
   autoApproveConventions:form.has('autoApproveConventions'),
   fixPullRequests:form.has('fixPullRequests'),
+  threadReplies:form.has('threadRepliesConfigured')?form.has('threadReplies'):defaults.threadReplies,
+  securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
  };
 }

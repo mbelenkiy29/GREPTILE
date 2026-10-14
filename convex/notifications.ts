@@ -114,7 +114,7 @@ export const reviewTargets = internalQuery({ args: { reviewId: v.id("reviews") }
   const repo = await ctx.db.get(review.repositoryId);
   if (!repo) return null;
   const pr = await ctx.db.query("pullRequests").withIndex("by_repo_number", (q) => q.eq("repositoryId", repo._id).eq("number", review.prNumber)).first();
-  const findings = (await ctx.db.query("reviewFindings").withIndex("by_review", (q) => q.eq("reviewId", review._id)).take(200)).map((f) => ({ title: f.snapshot.title, severity: f.snapshot.severity, filePath: f.snapshot.filePath, startLine: f.snapshot.startLine }));
+  const findings = (await ctx.db.query("reviewFindings").withIndex("by_review", (q) => q.eq("reviewId", review._id)).take(200)).map((f) => ({ title: f.snapshot.title, severity: f.snapshot.severity, category: f.snapshot.category, filePath: f.snapshot.filePath, startLine: f.snapshot.startLine }));
   const slack = await activeSlack(ctx, repo.organizationId);
   const channels = slack ? (await ctx.db.query("notificationChannels").withIndex("by_org", (q) => q.eq("organizationId", repo.organizationId)).take(500)).filter((c) => c.installationId === slack._id && (!c.repositoryIds.length || c.repositoryIds.includes(repo._id))).map((c) => ({ channelId: c.channelId, events: c.events })) : [];
   const recipients: { userId: Id<"users">; email: string; events: string[] }[] = [];
