@@ -14,6 +14,7 @@
     "cli": "tsx src/cli.ts",
     "backend": "convex dev",
     "test:e2e": "tsx scripts/browser.ts",
+    "test:smoke": "tsx scripts/smoke.ts",
     "setup:local": "tsx scripts/bootstrap.ts",
     "mcp": "tsx src/mcp.ts",
     "runtime:worker": "tsx scripts/runtime-worker.ts",

@@ -163,9 +163,19 @@ try {
     ),
     "Mobile page overflows horizontally",
   );
+  // Dark theme at mobile and desktop widths: no overflow, no console errors.
+  await page.emulateMedia({ colorScheme: "dark" });
+  for (const path of ["/dashboard", "/dashboard/chat", "/dashboard/settings/billing", "/docs/quickstart"]) {
+    await page.goto(url + path);
+    await page.screenshot({ path: `output/playwright/dark-mobile${path.replaceAll("/", "-")}.png`, fullPage: true });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Dark mobile ${path} overflows horizontally`);
+  }
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${url}/dashboard`);
+  await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    "Browser verification passed: landing, docs, changelog, onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
+    "Browser verification passed: landing, docs, changelog, onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.",
   );
 } finally {
   await browser.close();

@@ -789,3 +789,15 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 .bar-track { height: 8px; background: var(--soft); border-radius: 4px; overflow: hidden; }
 .bar-fill { display: block; height: 100%; background: var(--accent); }
 .bar-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.review-diff .diff-file { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; background: var(--surface); }
+.review-diff summary { padding: 8px 12px; cursor: pointer; overflow-wrap: anywhere; }
+.diff-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.diff-table td { padding: 0 8px; vertical-align: top; white-space: pre; }
+.diff-table code { background: none; white-space: pre; }
+.diff-num { width: 1%; color: var(--muted); text-align: right; user-select: none; }
+.diff-add { background: var(--success-bg); }
+.diff-del { background: var(--error-bg); }
+.diff-hunk td { color: var(--muted); background: var(--soft); }
+.diff-finding td { white-space: normal; background: var(--warning-bg); border-left: 3px solid var(--warning); padding: 8px; }
+.diff-finding p { margin: 4px 0 0; }
+.diff-note { margin: 8px 12px; }

@@ -11,6 +11,7 @@ import { Copy } from "../live";
 import { FixButton } from "../fix-button";
 import { PullList } from "../pulls";
 import { RuntimeReview, ApprovalReview } from "../runtime";
+import { ReviewDiff } from "../review-diff";
 import { when, status } from "./shared";
 import type { DashboardContext } from "../load";
 
@@ -51,6 +52,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                   {detail.review.headBranch} → {detail.review.baseBranch}
                 </p>
               )}
+              <ReviewDiff token={user.token} reviewId={detail.review._id} open={filters.diff === "1"} finished={["completed", "failed", "cancelled"].includes(detail.review.status)} findings={detail.findings.map((f) => ({ _id: String(f._id), title: f.title, severity: f.severity, filePath: f.filePath, startLine: f.startLine, endLine: f.endLine, description: f.description }))} />
               <p className="muted">
                 Started {when(detail.review.createdAt)} · {detail.review.status === "cancelled" ? "Cancelled" : "Finished"}{" "}
                 {detail.review.finishedAt
