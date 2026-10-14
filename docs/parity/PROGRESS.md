@@ -24,7 +24,11 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: tree-sitter loader (lazy, fallback) + per-language extraction/resolution; resolved edge storage; ranked multi-hop neighborhood (Convex + memory); wire into retrieval and agent tools; bump index version.
   evidence: verified locally end-to-end for WASM loading (all 11 grammars load and parse inside a local Convex Node action via `npx convex run graphDiagnostics:status`); extraction tested with fakes; tests: tests/graph.test.ts (18: grammar load, one fixture per language with symbols + resolved edges, visibility, resolution edge cases, regex fallback, TS call resolution, multi-hop ranking/bounds/packages, agent related files), tests/graph.spec.ts (Convex neighborhood: 2 hops, package expansion, legacy raw calls ignored, tenant isolation); commands: lint/typecheck/test (241 Node + 165 vitest)/build green; commit: 2b1885e
   notes: web-tree-sitter ≥0.25 cannot load the tree-sitter-wasms builds (dylink format) → pinned 0.22.6. Node 24 crashes (Zone OOM) tiering up large grammar WASM → loader sets --no-wasm-tier-up --no-wasm-dynamic-tiering (stress-tested). Dashboard now imports fixPrompt from src/fix-prompt directly to keep the parser out of the web bundle.
-- [ ] A4 Semantic retrieval — todo
+- [x] A4 Semantic retrieval — done
+  plan: semantic chunks from graph symbols; chunkEmbeddings table (1,536); idempotent backfill + model-change re-embed + removal cleanup; hybrid rank (vector/text/graph) in review retrieval and agent search; dashboard status.
+  evidence: tested with fakes; tests: tests/hybrid.test.ts (3: chunk boundaries/coverage/windowing, hybrid ranking with fake cosine embeddings, embeddings-disabled ranking), tests/semantic.spec.ts (3: backfill once per blob+model with cost recorded, re-index makes no provider calls, model change re-embeds, file removal deletes vectors, embeddings-off indexing makes no calls + status off, chunk hits tenant filter); commands: lint/typecheck/test (244 Node + 168 vitest)/build green; commit: 97e1f8c
+  notes: deliberately migrated tests/backend.spec.ts embedding assertions to the chunk API (same superseded-job and graph-only-upgrade properties). Legacy file-level `embeddings` rows are never written again and are deleted when their file is re-embedded or removed.
+- Phase A end: `pnpm build` green; `pnpm test:e2e` not run — Playwright Chromium is not installed and downloading it needs approval (Needs human).
 - [ ] B1 Committable suggestions — todo
 - [ ] B2 Multi-line comments — todo
 - [ ] B3 Summary redesign, edited in place — todo
@@ -60,7 +64,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
 8. (A3) After deploying, run `npx convex run graphDiagnostics:status --prod` once to confirm tree-sitter grammars load in the hosted Node runtime; re-index repositories (INDEX_GRAPH_VERSION 4 reparses graph data automatically on the next index job).
 9. (A4) Optional: set `EMBEDDING_MODEL` (e.g. `text-embedding-3-small`) and `EMBEDDING_API_KEY` in Convex production, then re-index enabled repositories to backfill chunk embeddings; the repository settings page shows the status.
-10. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+10. (Phase A) Approve installing the Playwright browser so `pnpm test:e2e` can run locally: `pnpm exec playwright install chromium` (downloads Chromium, ~150 MB, from the Playwright CDN into ~/Library/Caches/ms-playwright).
+11. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
