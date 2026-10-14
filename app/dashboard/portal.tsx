@@ -14,6 +14,7 @@ const settingsGroups = [
   { label: "Agent Config", links: [["review", "Code Review"], ["agents", "Personal agents"], ["automation", "Runtime & Approval"]] },
   { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"]] },
   { label: "Developer", links: [["keys", "API Keys"], ["audit", "Audit Log"]] },
+  { label: "Personal", links: [["account", "Account & sessions"]] },
 ];
 export const settingsNavigation = settingsGroups.flatMap(group => group.links);
 

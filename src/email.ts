@@ -6,6 +6,9 @@ export const emailAddress = z.string().trim().toLowerCase().max(254).email();
 export function emailConfigured() {
   return Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
 }
+// The web app shows email sign-in and email invitations when Convex can send mail; the Resend key
+// lives in Convex, so the web app needs EMAIL_SIGN_IN=true (or the same keys) to know.
+export const emailOnWeb = () => process.env.EMAIL_SIGN_IN === "true" || emailConfigured();
 export async function sendEmail(message: { to: string; subject: string; text: string }, fetchImpl: typeof fetch = fetch): Promise<{ id: string } | { skipped: string }> {
   if (!emailConfigured()) return { skipped: "Email delivery is not configured" };
   const to = emailAddress.parse(message.to);

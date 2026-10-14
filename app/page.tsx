@@ -1,9 +1,11 @@
+import { SignInOptions } from "./sign-in";
+
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; email?: string; signedout?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, email, signedout } = await searchParams;
   return (
     <main className="welcome">
       <div className="brand">
@@ -21,13 +23,13 @@ export default async function Home({
       </p>
       {error && (
         <p role="alert" className="error">
-          GitHub sign-in failed. Check the OAuth callback URL and server
-          configuration, then try again.
+          {error === "link" ? "That sign-in link is invalid, expired or already used. Request a new one." : "Sign-in failed. Check the OAuth callback URL and server configuration, then try again."}
         </p>
       )}
-      <a className="button primary" href="/api/auth/login">
-        Sign in with GitHub
-      </a>
+      {email === "sent" && <p role="status">Check your inbox for a sign-in link. It expires in 15 minutes.</p>}
+      {email === "error" && <p role="alert" className="error">The sign-in link could not be sent. Check the address, or try again in a few minutes.</p>}
+      {signedout && <p role="status">You have been signed out.</p>}
+      <SignInOptions />
       <div className="welcome-details">
         <span>Bring your model</span>
         <span>Keep your data</span>

@@ -39,6 +39,8 @@ import type * as fileReads from "../fileReads.js";
 import type * as findings from "../findings.js";
 import type * as graphDiagnostics from "../graphDiagnostics.js";
 import type * as http from "../http.js";
+import type * as identity from "../identity.js";
+import type * as identityJobs from "../identityJobs.js";
 import type * as indexAuthority from "../indexAuthority.js";
 import type * as inferenceBudget from "../inferenceBudget.js";
 import type * as integrationJobs from "../integrationJobs.js";
@@ -137,6 +139,8 @@ declare const fullApi: ApiFromModules<{
   findings: typeof findings;
   graphDiagnostics: typeof graphDiagnostics;
   http: typeof http;
+  identity: typeof identity;
+  identityJobs: typeof identityJobs;
   indexAuthority: typeof indexAuthority;
   inferenceBudget: typeof inferenceBudget;
   integrationJobs: typeof integrationJobs;

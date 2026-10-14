@@ -177,8 +177,43 @@ export async function revokeInvitation(_state:{error?:string},form:FormData):Pro
   return {};
 }
 export async function logout() {
-  (await cookies()).delete("openreview_session");
+  const jar = await cookies(), token = jar.get("openreview_session")?.value;
+  if (token) await backend().mutation(api.identity.signOut, { token }).catch(() => undefined);
+  jar.delete("openreview_session");
   redirect("/");
+}
+export async function signOutEverywhere() {
+  const { token } = await current();
+  await backend().mutation(api.identity.signOutEverywhere, { token });
+  (await cookies()).delete("openreview_session");
+  redirect("/?signedout=1");
+}
+export async function revokeSession(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.identity.revokeSession, { token, sessionId: text(form, "sessionId") as Id<"sessions"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function inviteByEmail(form: FormData) {
+  const { token } = await current();
+  let outcome = "sent";
+  try { outcome = await backend().action(api.identityJobs.inviteByEmail, { token, organizationId: text(form, "organizationId") as Id<"organizations">, email: text(form, "email"), role: z.enum(["admin", "member", "viewer"]).parse(text(form, "role")) }); }
+  catch { outcome = "error"; }
+  revalidatePath("/dashboard", "layout");
+  redirect(`/dashboard/settings/people?emailInvite=${outcome}`);
+}
+export async function revokeEmailInvitation(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.identity.revokeEmailInvitation, { token, invitationId: text(form, "invitationId") as Id<"emailInvitations"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function acceptEmailInvitation(form: FormData) {
+  const { token } = await current();
+  const raw = text(form, "token");
+  let organizationId: string;
+  try { organizationId = await backend().mutation(api.identity.acceptEmailInvitation, { token, tokenHash: createHash("sha256").update(raw).digest("hex") }); }
+  catch { redirect("/invite?error=1"); }
+  (await cookies()).set("openreview_workspace", organizationId, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" });
+  redirect("/dashboard");
 }
 export async function cancelReview(form: FormData) {
   const { token } = await current();

@@ -41,6 +41,8 @@ import {PreferencesPanel} from "../preferences";
 import {ChatPanel} from "../chat";
 import {NotificationsPanel} from "../notifications";
 import {BillingPanel} from "../billing";
+import {AccountPanel} from "../account";
+import {EmailInvitations} from "../email-invitations";
 import { ScopePanel, AuditPanel } from "../scopes";
 import { AgentSettings } from "../agents";
 import { Onboarding } from "../onboarding";
@@ -1122,6 +1124,8 @@ export default async function Dashboard({
         )}
         {route === "settings" && section[1] === "agents" && <AgentSettings token={user.token} organizationId={organization._id} />}
         {route === "settings" && section[1] === "automation" && (isAdmin?<RuntimeSettings token={user.token} organizationId={organization._id}/>:<p>Workspace admin access required.</p>)}
+        {route === "settings" && section[1] === "account" && <AccountPanel token={user.token}/>}
+        {route === "settings" && section[1] === "people" && isAdmin && <EmailInvitations token={user.token} organizationId={organization._id} status={filters.emailInvite}/>}
         {route === "settings" && section[1] === "billing" && <BillingPanel token={user.token} organizationId={organization._id} filters={filters}/>}
         {route === "settings" && section[1] === "notifications" && <NotificationsPanel token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters}/>}
         {route === "chat" && <ChatPanel token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters}/>}

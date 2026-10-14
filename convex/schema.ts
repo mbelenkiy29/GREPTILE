@@ -169,11 +169,49 @@ export default defineSchema({
       filterFields: ["scope"],
     }),
   users: defineTable({
-    githubId: v.number(),
+    // Legacy GitHub identity; new accounts link providers through `identities`.
+    githubId: v.optional(v.number()),
     login: v.string(),
     avatar: v.string(),
+    // Tokens issued before this time are rejected ("sign out everywhere", member removal).
+    sessionsValidAfter: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_github", ["githubId"]),
+  // Sign-in identities: one row per provider account. Accounts link only through a verified
+  // email on both sides, so an unverified address can never take over an existing user.
+  identities: defineTable({
+    userId: v.id("users"),
+    provider: v.string(), // github | gitlab | google | email
+    providerUserId: v.string(),
+    email: v.optional(v.string()),
+    emailVerified: v.boolean(),
+    createdAt: v.number(),
+    lastLoginAt: v.number(),
+  }).index("by_provider_user", ["provider", "providerUserId"]).index("by_user", ["userId"]).index("by_email", ["email"]),
+  // Server-side browser sessions; the session cookie carries a random ID whose SHA-256 is stored.
+  sessions: defineTable({
+    userId: v.id("users"),
+    hash: v.string(),
+    provider: v.string(),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  }).index("by_hash", ["hash"]).index("by_user", ["userId"]),
+  // Email invitations and magic links: single-use, expiring, stored as token hashes only.
+  emailInvitations: defineTable({
+    organizationId: org,
+    email: v.string(),
+    role: v.union(v.literal("admin"), v.literal("member"), v.literal("viewer")),
+    tokenHash: v.string(),
+    invitedBy: v.id("users"),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    acceptedBy: v.optional(v.id("users")),
+    revokedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_token", ["tokenHash"]).index("by_org", ["organizationId"]),
+  loginTokens: defineTable({ email: v.string(), tokenHash: v.string(), expiresAt: v.number(), usedAt: v.optional(v.number()), createdAt: v.number() }).index("by_token", ["tokenHash"]),
   organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), createdAt: v.number() }),
   organizationMembers: defineTable({
     organizationId: org,

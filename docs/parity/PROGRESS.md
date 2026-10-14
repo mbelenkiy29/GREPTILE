@@ -101,7 +101,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: src/billing.ts (config with BILLING_ENABLED off by default, seat counting without viewers, monthly period, quota decision for trial/team/past-due grace/lapsed, Stripe-Signature verification via Web Crypto, minimal form-encoded Stripe client with idempotency keys and test-mode-only keys unless BILLING_ALLOW_LIVE); tables billingAccounts/billingUsage/stripeEvents; convex/billing.ts (reviewAllowance gate in reviews.enqueue → blocked reviews recorded as failed with a "Billing:" reason + usage counters; status query; idempotent applyStripeEvent with stale-event ordering and workspace/customer cross-checks; seat-sync scheduling on role change and invitation acceptance); convex/billingJobs.ts (Checkout, Customer Portal, syncSeats); Convex HTTP /stripe/webhook; Settings → Billing page; docs/billing.md, .env.example.
   evidence: tested with fakes; tests: tests/billing.test.ts (5: config defaults, seat counting, quota decision matrix, signature verification incl. rotation/tolerance, Stripe client key/encoding/idempotency), tests/billing.spec.ts (4: trial quota enforcement + monthly reset + expiry, disabled = no enforcement + 404 webhook, signed webhook linking + replay + out-of-order + team quota + spoofed workspace + past-due grace + recovery + cancellation, checkout/portal admin-only + seat sync on role change + live-key refusal); commands: lint/typecheck/test (303 Node + 210 vitest; bridge flake rerun once)/build green; commit: see git log feat(E1)
   notes: Stripe was never contacted (fake fetch only). Needs human #18.
-- [ ] E2 Identity — todo
+- [x] E2 Identity — done
+  plan: identities table (provider + providerUserId, email + verified flag), users.githubId optional + sessionsValidAfter, sessions (hashed random IDs), emailInvitations, loginTokens; convex/identity.ts (linkIdentity: same provider account → same user, legacy githubId → link, verified-email-on-both-sides → link, else new user; signIn with optional explicit linkToken; sessions list/revoke/signOut/signOutEverywhere; revokeMemberAccess on removal = sessions + that workspace's API keys + bridges; magic links; email invitations; backfillIdentities migration); convex/auth.authenticated checks sid sessions and the cutoff for session-less tokens; src/session-hash.ts (sync SHA-256 for the Convex runtime); src/identity.ts (GitLab/Google profiles, safeNext, newSession); src/oauth-flow.ts shared OAuth begin/finish; routes for GitHub (updated), GitLab, Google, email link; src/server.session() checks the server-side session; /invite page; Settings → Account & sessions; People → invite by email; legacy users.login kept (records identities).
+  evidence: tested with fakes; tests: tests/identity.test.ts (4: safe redirects, session hashing, GitLab confirmed/self-managed email trust, Google email_verified), tests/identity.spec.ts (5: migration backfill + legacy/new login convergence, linking matrix with no takeover via unverified email + explicit linking refusal, session revocation/sign out/everywhere/expiry/forged sid/legacy tokens, member removal revocation scope, magic link + invitation single-use/expiry/revocation/hash-only); tests/backend.spec.ts deliberately updated: a removed member's token is now rejected as Unauthorized (sessions revoked) instead of Forbidden; commands: lint/typecheck/test (307 Node + 215 vitest; bridge flake rerun once)/build green; commit: see git log feat(E2)
+  notes: SSO/SAML deferred (Decisions). Needs human #19.
 - [ ] E3 Marketing and docs — todo
 - [ ] E4 UI polish — todo
 - [ ] F1 Azure DevOps — todo
@@ -133,6 +136,11 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
    4. In Convex prod, set `STRIPE_SECRET_KEY` (sk_test_…), `STRIPE_WEBHOOK_SECRET`, `STRIPE_SEAT_PRICE_ID` and `BILLING_ENABLED=true`. Paste the values at the `npx convex env set NAME --prod` prompt.
    5. Optional: set `BILLING_TRIAL_DAYS`, `BILLING_TRIAL_REVIEWS`, `BILLING_REVIEWS_PER_SEAT` and `BILLING_GRACE_DAYS`.
    6. Go live only after a test-mode checkout, then set `BILLING_ALLOW_LIVE=true` with live keys.
+19. (E2) After deploying, run `npx convex run identity:backfillIdentities --prod` once. Optional sign-in methods:
+   - **GitLab:** create a GitLab OAuth application with the `read_user` scope and redirect URI `<APP_URL>/api/auth/gitlab/callback`. Set `GITLAB_OAUTH_CLIENT_ID`/`GITLAB_OAUTH_CLIENT_SECRET` in Vercel, plus `GITLAB_OAUTH_URL` for a self-managed instance.
+   - **Google:** create a Google Cloud OAuth client (Web) with redirect URI `<APP_URL>/api/auth/google/callback`. Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in Vercel.
+   - **Email sign-in and invitations:** after #16, set `EMAIL_SIGN_IN=true` in Vercel.
+   - Redeploy.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -173,6 +181,11 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — Billing seats = owners + admins + members (viewers free); quota = seats × reviews per seat per UTC calendar month, counted at enqueue in a per-period counter table (no review scans).
 - 2026-10-14 — A review blocked by billing is stored as a `failed` review with a `Billing:` error (not a new status), so existing lifecycle, retry-on-new-request and UI paths handle it unchanged.
 - 2026-10-14 — Stripe is called with a tiny fetch client instead of the stripe SDK (only four endpoints are needed; keeps the Convex bundle small); live keys are refused unless BILLING_ALLOW_LIVE=true.
+
+- 2026-10-14 — SSO/SAML deferred: a self-hostable OIDC/SAML broker in front of OpenReview can be added later as one more OIDC provider using the same identity/linking rules; no tenant has requested it and it needs per-tenant IdP configuration UI.
+- 2026-10-14 — Account linking only via verified email on both sides (GitHub contributes no email; self-managed GitLab emails are untrusted); explicit linking while signed in covers everything else.
+- 2026-10-14 — Email invitations are bearer links (single use, 7 days, revocable) accepted by whichever account signs in, because GitHub sign-ins carry no verified email to compare; the invitee's address only receives the link.
+- 2026-10-14 — Removal from a workspace signs the member out everywhere (sessions are per user, not per workspace) and revokes that workspace's API keys and bridges.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

@@ -114,6 +114,8 @@ Requirements context from Notion: connect a Notion workspace in Memory → Integ
 
 Billing (cloud mode only, see [docs/billing.md](docs/billing.md)): when `BILLING_ENABLED=true`, a workspace gets a 14-day trial, then a Stripe per-seat subscription with a monthly review quota, grace for past-due payments, and Settings → Billing with Checkout and the Customer Portal. Self-hosted deployments leave it off and have no quotas.
 
+Sign-in and accounts (see [docs/identity.md](docs/identity.md)): GitHub, GitLab, Google or an emailed magic link. Accounts link only when both sides have the same verified email. Server-side sessions can be revoked individually or all at once. Workspace removal signs the member out and revokes their API keys and bridges for that workspace. Admins can also invite by email with single-use, expiring links.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

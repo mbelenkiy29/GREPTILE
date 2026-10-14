@@ -1158,7 +1158,8 @@ test("security lifecycle audit records authorized changes atomically without cre
  expect(forTarget(member._id,"workspace.member_removed")).toHaveLength(1);
  expect(events.every(e=>e.organizationId===organizationId&&!!e.userId)).toBe(true);
  const recorded=JSON.stringify(events);expect(recorded).not.toContain(hash);expect(recorded).not.toContain("or_fixture");expect(recorded).not.toContain("Private key label");
- await expect(t.query(api.scopes.activity,{token:bob,organizationId})).rejects.toThrow("Forbidden");
+ // E2: removal revokes the member's sessions, so the old token itself is rejected.
+ await expect(t.query(api.scopes.activity,{token:bob,organizationId})).rejects.toThrow("Unauthorized");
 });
 
 test("audit pagination reaches activity beyond 100 events and authorizes every page before reading",async()=>{

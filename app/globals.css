@@ -724,3 +724,6 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 520px) { .facts { grid-template-columns: 1fr; } .facts dd { margin-bottom: 6px; } }
+.sign-in-options { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; justify-content: center; }
+.sign-in-options .email-sign-in { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.inline-form { display: inline-flex; margin-left: 8px; }

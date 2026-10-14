@@ -1,6 +1,7 @@
 import { jwtVerify } from "jose";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { sessionHash } from "../src/session-hash";
 
 export async function authenticated(
   ctx: QueryCtx | MutationCtx,
@@ -17,6 +18,15 @@ export async function authenticated(
   if (typeof payload.sub !== "string") throw new Error("Unauthorized");
   const user = await ctx.db.get(payload.sub as Id<"users">);
   if (!user) throw new Error("Unauthorized");
+  // Server-side session check: tokens carrying a session ID need an active session row; tokens
+  // without one (legacy cookies, API-key calls) are rejected if issued before the user's cutoff
+  // (sign out everywhere, workspace removal).
+  if (payload.sid === undefined && user.sessionsValidAfter && (payload.iat ?? 0) * 1000 < user.sessionsValidAfter) throw new Error("Unauthorized");
+  if (payload.sid !== undefined) {
+    if (typeof payload.sid !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(payload.sid)) throw new Error("Unauthorized");
+    const session = await ctx.db.query("sessions").withIndex("by_hash", (q) => q.eq("hash", sessionHash(payload.sid as string))).unique();
+    if (!session || session.userId !== user._id || session.revokedAt || session.expiresAt <= Date.now()) throw new Error("Unauthorized");
+  }
   return user;
 }
 export async function authorize(

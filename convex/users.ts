@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { scheduleSeatSync } from "./billing";
+import { linkIdentity } from "./identity";
 import { v } from "convex/values";
 import { authenticated, authorize, service, audit } from "./auth";
 import { rateLimit } from "./rateLimit";
@@ -13,20 +14,8 @@ export const login = mutation({
   },
   handler: async (ctx, args) => {
     service(args.secret);
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_github", (q) => q.eq("githubId", args.githubId))
-      .unique();
-    if (user) {
-      await ctx.db.patch(user._id, { login: args.login, avatar: args.avatar });
-      return user._id;
-    }
-    return ctx.db.insert("users", {
-      githubId: args.githubId,
-      login: args.login,
-      avatar: args.avatar,
-      createdAt: Date.now(),
-    });
+    // Legacy GitHub login (no server-side session); identities are recorded the same way.
+    return linkIdentity(ctx, { provider: "github", providerUserId: String(args.githubId), login: args.login, avatar: args.avatar, emailVerified: false });
   },
 });
 export const me = query({
