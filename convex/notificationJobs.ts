@@ -53,6 +53,26 @@ export const reviewCompleted = internalAction({ args: { reviewId: v.id("reviews"
   return outcome;
 } });
 
+// Spending-cap notices (M1): workspace admins by verified email and the linked Slack channels, once per
+// period and threshold.
+export const billingCapNotice = internalAction({ args: { organizationId: v.id("organizations"), period: v.string(), percent: v.number(), capUsd: v.number() }, handler: async (ctx, a): Promise<Record<string, string>> => {
+  const targets = await ctx.runQuery(internal.billing.capNoticeTargets, { organizationId: a.organizationId });
+  const origin = appOrigin(), link = origin ? `${origin}/dashboard/settings/billing` : "Settings → Billing";
+  const cap = `$${a.capUsd.toFixed(2)}`;
+  const text = a.percent >= 100 ? `OpenReview reached this workspace's monthly spending cap of ${cap} for ${a.period}. Reviews are paused until next month unless an admin raises the cap: ${link}` : `OpenReview used ${a.percent}% of this workspace's monthly spending cap of ${cap} for ${a.period}. Reviews pause at the cap: ${link}`;
+  const outcome: Record<string, string> = {};
+  for (const r of targets.emails) {
+    const key = `billing.cap:${a.period}:${a.percent}:email:${r.userId}`;
+    outcome[key] = await deliver(ctx, a.organizationId, key, "email", () => sendEmail({ to: r.email, subject: a.percent >= 100 ? "OpenReview spending cap reached" : `OpenReview spending at ${a.percent}% of the cap`, text }));
+  }
+  const slack = targets.installationId && targets.channels.length ? await slackClient(ctx, targets.installationId) : null;
+  if (slack) for (const channel of targets.channels) {
+    const key = `billing.cap:${a.period}:${a.percent}:slack:${channel}`;
+    outcome[key] = await deliver(ctx, a.organizationId, key, "slack", () => slack.postMessage({ channel, text: escapeSlack(text) }));
+  }
+  return outcome;
+} });
+
 // Email verification: a random token (only its hash is stored) mailed as a one-hour link.
 export const sendVerification = internalAction({ args: { preferenceId: v.id("notificationPreferences") }, handler: async (ctx, a): Promise<string> => {
   const target = await ctx.runQuery(internal.notifications.verificationTarget, { preferenceId: a.preferenceId });

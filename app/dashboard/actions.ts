@@ -305,6 +305,19 @@ export async function startCheckout(form: FormData) {
   catch { redirect("/dashboard/settings/billing?billing=error"); }
   redirect(url);
 }
+export async function setSpendingCap(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.billing.setSpendingCap, { token, organizationId: text(form, "organizationId") as Id<"organizations">, capUsd: Number(text(form, "capUsd")) }); await notify("Spending cap saved."); }
+  catch { await notify("Could not save the spending cap.", "error"); }
+  revalidatePath("/dashboard/settings/billing");
+}
+export async function buyCredits(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.buyCredits, { token, organizationId: text(form, "organizationId") as Id<"organizations">, credits: Number(text(form, "credits")) }); }
+  catch { redirect("/dashboard/settings/billing?billing=error"); }
+  redirect(url);
+}
 export async function openBillingPortal(form: FormData) {
   const { token } = await current();
   let url: string;

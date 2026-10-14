@@ -541,9 +541,14 @@ export default defineSchema({
     currentPeriodEnd: v.optional(v.number()),
     pastDueSince: v.optional(v.number()),
     lastEventCreated: v.optional(v.number()),
+    // Credits (M1): purchased credits not yet used, and the admin-set monthly overage cap in dollars.
+    extraCredits: v.optional(v.number()),
+    spendCapUsd: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]).index("by_customer", ["customerId"]),
-  billingUsage: defineTable({ organizationId: org, period: v.string(), reviews: v.number(), blocked: v.number() }).index("by_org_period", ["organizationId", "period"]),
+  billingUsage: defineTable({ organizationId: org, period: v.string(), reviews: v.number(), blocked: v.number(), credits: v.optional(v.number()), overageCredits: v.optional(v.number()), capNotices: v.optional(v.array(v.number())) }).index("by_org_period", ["organizationId", "period"]),
+  // Overage credits waiting to be reported to Stripe as meter events (identifier = this row's id).
+  billingMeterEvents: defineTable({ organizationId: org, period: v.string(), credits: v.number(), status: v.string() /* pending | reported | skipped | failed */, attempts: v.number(), error: v.optional(v.string()), createdAt: v.number(), reportedAt: v.optional(v.number()) }).index("by_org_status", ["organizationId", "status"]),
   stripeEvents: defineTable({ eventId: v.string(), type: v.string(), outcome: v.string(), createdAt: v.number() }).index("by_event", ["eventId"]),
   // Slack app installs (one per Slack workspace); the bot token is encrypted with scope `<org>:slack`.
   slackInstallations: defineTable({

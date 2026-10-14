@@ -1,4 +1,5 @@
 import { mutation,query,internalMutation,internalQuery } from "./_generated/server";
+import { chargeCredits } from "./billing";
 import type { QueryCtx,MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -67,6 +68,8 @@ export const requestTests=internalMutation({args:{reviewId:v.id("reviews"),tests
  const policy=await runtimePolicy(ctx,repo);if(!policy.generatedTests||!policy.testCommand)return false;
  if((await ctx.db.query("runtimeJobs").withIndex("by_review",q=>q.eq("reviewId",review._id)).collect()).some(j=>j.kind==="tests"))return false;
  if(!await workerOnline(ctx,repo.organizationId))return false;
+ // Generated tests make this a generated-test review (M1 credits); without credits the review goes on untested.
+ if(!(await chargeCredits(ctx,repo.organizationId,"generated-tests")).allowed)return false;
  const tests=a.tests.slice(0,3).map(t=>({...t,command:testCommand(policy.testCommand!,t.path)}));
  const id=await ctx.db.insert("runtimeJobs",{organizationId:repo.organizationId,repositoryId:repo._id,reviewId:review._id,headSha:review.headSha,revisionKey:review.revisionKey,policy,policyKey:generatedTestsKey(policy),kind:"tests",tests,status:"preparing",attempts:0,createdAt:Date.now(),updatedAt:Date.now()});
  await ctx.db.patch(review._id,{status:"waiting_runtime",updatedAt:Date.now()});

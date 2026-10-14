@@ -61,7 +61,7 @@ http.route({
   }),
 });
 // Stripe webhooks (cloud billing): signed with STRIPE_WEBHOOK_SECRET, applied idempotently.
-const stripeObject = z.object({ id: z.string().max(255).optional(), customer: z.string().max(255).nullish(), subscription: z.string().max(255).nullish(), status: z.string().max(40).optional(), client_reference_id: z.string().max(255).nullish(), mode: z.string().optional(), metadata: z.record(z.string()).nullish(), current_period_end: z.number().optional(), items: z.object({ data: z.array(z.object({ id: z.string(), quantity: z.number().int().nonnegative().optional(), current_period_end: z.number().optional() })).max(20) }).optional() }).passthrough();
+const stripeObject = z.object({ id: z.string().max(255).optional(), customer: z.string().max(255).nullish(), subscription: z.string().max(255).nullish(), status: z.string().max(40).optional(), client_reference_id: z.string().max(255).nullish(), mode: z.string().optional(), payment_status: z.string().max(40).optional(), metadata: z.record(z.string()).nullish(), current_period_end: z.number().optional(), items: z.object({ data: z.array(z.object({ id: z.string(), quantity: z.number().int().nonnegative().optional(), current_period_end: z.number().optional() })).max(20) }).optional() }).passthrough();
 const stripeEvent = z.object({ id: z.string().regex(/^evt_[A-Za-z0-9_]{1,250}$/), type: z.string().max(100), created: z.number().int().positive(), data: z.object({ object: stripeObject }) }).passthrough();
 http.route({
   path: "/stripe/webhook",
@@ -74,7 +74,8 @@ http.route({
     let event;
     try { event = stripeEvent.parse(JSON.parse(body)); } catch { return new Response("Invalid event", { status: 400 }); }
     const o = event.data.object, created = event.created * 1000, base = { eventId: event.id, type: event.type, created };
-    if (event.type === "checkout.session.completed" && o.mode === "subscription" && o.client_reference_id && o.customer) await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, checkout: { organizationId: o.client_reference_id, customer: o.customer, ...(o.subscription ? { subscription: o.subscription } : {}) } });
+    if (event.type === "checkout.session.completed" && o.mode === "payment" && o.payment_status === "paid" && o.client_reference_id && o.customer && o.metadata?.credits) await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, credits: { organizationId: o.client_reference_id, customer: o.customer, credits: Number(o.metadata.credits) } });
+    else if (event.type === "checkout.session.completed" && o.mode === "subscription" && o.client_reference_id && o.customer) await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, checkout: { organizationId: o.client_reference_id, customer: o.customer, ...(o.subscription ? { subscription: o.subscription } : {}) } });
     else if (event.type.startsWith("customer.subscription.") && o.id && o.customer && o.status) {
       const item = o.items?.data[0];
       await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, subscription: { id: o.id, customer: o.customer, status: o.status, quantity: item?.quantity ?? 1, ...(item ? { itemId: item.id } : {}), ...((item?.current_period_end ?? o.current_period_end) ? { currentPeriodEnd: (item?.current_period_end ?? o.current_period_end)! * 1000 } : {}), ...(o.metadata?.organizationId ? { organizationId: o.metadata.organizationId } : {}) } });

@@ -32,7 +32,7 @@ test('trial quota is enforced at enqueue; blocked reviews are recorded with the 
  const {t,alice,org,repo}=await setup();
  const first=await enqueue(t,repo._id,1),second=await enqueue(t,repo._id,2),third=await enqueue(t,repo._id,3);
  expect((await reviewOf(t,first))?.status).toBe('queued');expect((await reviewOf(t,second))?.status).toBe('queued');
- expect(await reviewOf(t,third)).toMatchObject({status:'failed',error:'Billing: The trial includes 2 reviews per month. Subscribe in Settings → Billing for more.'});
+ expect(await reviewOf(t,third)).toMatchObject({status:'failed',error:'Billing: The trial includes 2 credits per month. Subscribe in Settings → Billing for more.'});
  // Re-requesting an existing queued head does not count again.
  expect(await enqueue(t,repo._id,1)).toBe(first);
  const status=await t.query(api.billing.status,{token:alice.token,organizationId:org});
@@ -71,7 +71,7 @@ test('signed Stripe webhooks link the workspace, apply once, and ignore replays 
  expect(await t.run(ctx=>ctx.db.query('billingAccounts').collect())).toEqual([expect.objectContaining({organizationId:org,customerId:'cus_1',subscriptionId:'sub_1',subscriptionItemId:'si_1',status:'active',seats:3})]);
  // Team plan: 3 seats × 2 reviews.
  for(let pr=1;pr<=6;pr++)expect((await reviewOf(t,await enqueue(t,repo._id,pr)))?.status).toBe('queued');
- expect((await reviewOf(t,await enqueue(t,repo._id,7)))?.error).toMatch(/used its 6 reviews/);
+ expect((await reviewOf(t,await enqueue(t,repo._id,7)))?.error).toMatch(/used its 6 credits/);
  // A subscription for another workspace cannot hijack this customer.
  await deliver(t,subscription('evt_spoof','customer.subscription.updated','active',99,created+30,'k57abc0000000000000000organizations'));
  expect((await t.run(ctx=>ctx.db.query('billingAccounts').collect()))[0].seats).toBe(3);
