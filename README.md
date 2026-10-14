@@ -80,6 +80,7 @@ Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, J
 Review summary: each pull request (or GitLab merge request) has exactly one OpenReview summary comment. It is found by a hidden marker and edited in place on every run, while inline findings are posted as review comments; GitHub creates no review when there are no inline findings. Sections can be toggled per scope under Review formatting:
 - overview
 - a per-file table (file and one-line change description)
+- a Mermaid sequence diagram, generated only when the change alters an interaction between at least two components; every arrow is backed by an exact source quote, OpenReview renders the Mermaid itself, and the diagram is omitted if validation fails
 - an issues table (severity, linked location, title)
 - a confidence score `n/5` with a one-sentence rationale, capped by the most severe verified finding
 - risk assessment

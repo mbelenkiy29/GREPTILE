@@ -37,7 +37,8 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
     "### Coverage\n3 changed files; 3 retrieved context files. 4 candidates; 2 verified findings; 2 suppressed.\n\n- Some review categories were disabled",
   ].join("\n\n");
   assert.equal(reviewSummary(data), expected);
-  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "findings", "score", "risk", "resolved", "skipped", "testSource"]);
+  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "diagram", "findings", "score", "risk", "resolved", "skipped", "testSource"]);
+  assert.doesNotMatch(reviewSummary(data), /### Sequence diagram/, "the diagram section is omitted when no diagram was generated");
 });
 
 test("summary sections toggle independently; skipped files fall back into coverage when their section is off", () => {

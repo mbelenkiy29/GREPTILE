@@ -8,7 +8,7 @@ export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  return evidence.exitCode===0?"passed":evidence.exitCode===null?"outcome unavailable":"failed";
 }
 const code=(value:string)=>"`"+value.replaceAll("`","").replace(/[\r\n]/g," ")+"`";
-type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined};
+type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];diagram?:string;sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined};
 const label=(value:string)=>value.slice(0,200).replace(/[\r\n]/g," ").replace(/[\\[\]*_<>]/g,"\\$&");
 function requirementsLinks(context:Summary["requirementsContext"],cross=false,seen=new Set<string>()){
  const links:string[]=[];let bytes=0,omitted=0;
@@ -41,6 +41,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
  const files=data.files.slice(0,60);
  const sections:Record<(typeof summarySections)[number],string>={
   overview:data.overview,
+  diagram:data.diagram?"```mermaid\n"+data.diagram+"\n```":"",
   affectedAreas:files.length?"| File | Change |\n| --- | --- |\n"+files.map(f=>"| "+code(f.path)+" | "+cell(describe.get(f.path)??(f.status+" · "+lineStats(f.patch)))+" |").join("\n")+(data.files.length>files.length?"\n\n…and "+(data.files.length-files.length)+" more changed files.":""):"No remaining changed files.",
   findings:data.findings.length?"| Severity | Location | Issue |\n| --- | --- | --- |\n"+[...data.findings].sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]).map(f=>"| **"+f.severity+"** | "+location(f)+" | "+cell(f.title)+" |").join("\n"):"No verified findings. This does not establish that the change is risk-free.",
   score:data.score?"**"+data.score.value+"/5** — "+firstSentence(data.score.reason):"Not recorded for this review.",
@@ -50,7 +51,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   testSource:data.files.filter(f=>/(?:^|\/)(?:tests?|__tests__)(?:\/|\.)|\.(?:test|spec)\.[^/]+$/.test(f.path)).map(f=>"- "+code(f.path)).join("\n")||"No changed test source identified by filename. This does not measure test coverage.",
  };
  const runtime=data.runtimeEvidence;
- return [...selected.map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]),
+ return [...selected.filter(s=>s!=="diagram"||data.diagram).map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]),
   "### Test execution\n"+(runtime?"Recorded command: "+code(runtime.command)+" · "+runtimeStatus(runtime)+" at "+runtime.headSha+".":"Not executed by OpenReview. Test files and CI metadata are context, not proof of a successful test run."),
   `### Coverage\n${data.files.length} changed files; ${data.contextCount} retrieved context files. ${data.candidates} candidates; ${data.findings.length} verified findings; ${data.suppressed} suppressed.`+(data.coverageLimits.length?"\n\n"+data.coverageLimits.map(l=>"- "+l).join("\n"):"")+(selected.includes("skipped")?"":skippedList(data.skippedFiles))+fetchedContextLinks(data.requirementsContext)].join("\n\n");
 }

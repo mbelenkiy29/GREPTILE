@@ -1903,7 +1903,7 @@ test("failed provider delivery retry requires workspace admin, preserves signed 
   const resultStorageId=await ctx.storage.store(new Blob([JSON.stringify({metadata:{suppressions:[{title:"Rejected candidate",agent:"correctness",reason:"Quote does not match source"}],coverageLimits:["No runtime evidence"]},privateContent:"not exposed"})]));
   return ctx.db.insert("reviews",{organizationId,repositoryId,prNumber:1,headSha:"a".repeat(40),status:"completed",mode:"standard",attempts:1,createdAt:Date.now(),updatedAt:Date.now(),resultStorageId});
  });
- expect(await t.action(api.jobs.diagnostics,{token:alice,reviewId})).toEqual({suppressions:[{title:"Rejected candidate",agent:"correctness",reason:"Quote does not match source"}],coverageLimits:["No runtime evidence"],skippedFiles:[],failedSpecialists:[]});
+ expect(await t.action(api.jobs.diagnostics,{token:alice,reviewId})).toEqual({suppressions:[{title:"Rejected candidate",agent:"correctness",reason:"Quote does not match source"}],coverageLimits:["No runtime evidence"],skippedFiles:[],failedSpecialists:[],diagrams:[]});
  await expect(t.action(api.jobs.diagnostics,{token:bob,reviewId})).rejects.toThrow("Forbidden");
  await t.run(async ctx=>{
   const resultStorageId=await ctx.storage.store(new Blob([JSON.stringify({metadata:{suppressions:[{title:"Tests passed",agent:"testing",reason:"The defect is test-verified by the existing suite."}],coverageLimits:[]}})]));

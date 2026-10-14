@@ -41,7 +41,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: GitHub upsertSummary (issue comment by marker, PATCH) + review only for findings; GitLab note PUT; new section renderers + skipped key + Last reviewed commit; per-file summaries in schema; preview/label updates.
   evidence: tested with fakes; tests: tests/summary.test.ts (4: full-markdown snapshot, toggles + coverage fallback + link safety + row cap, file-summary validation, GitHub edit-in-place replay across runs/retries/spoofed/legacy duplicates); updated tests/publication.test.ts (one summary across run+replay), tests/providers.test.ts (GitLab second run edits note), tests/github.test.ts, engine/pipeline/resilience label tests; commands: lint/typecheck/test (254 Node + 168 vitest)/build green; commit: 6f3cfc4
   notes: deliberate label changes ("Overview", "Files changed", "Issues", "Confidence score", new "Skipped files"); saved settings without "skipped" still list skipped files inside Coverage. Gitea/Bitbucket/Perforce/Origin keep per-run summaries. Known pre-existing flake (Node child SIGSEGV under parallel spawns) in tests/bridge.test.ts flagged as a separate task.
-- [ ] B4 Sequence diagrams — todo
+- [x] B4 Sequence diagrams — done
+  plan: eligibility (≥2 components or graph-related context); structured diagram schema with exact-quote evidence; OpenReview renders restricted Mermaid + validator; "diagram" summary key (default on); dashboard renders via lazily loaded mermaid@11.17.2 (strict) with source fallback; stub removed.
+  evidence: tested with fakes; tests: tests/diagrams.test.ts (4: grounded schema accept/reject, sanitization + validator rejects injected directives, eligibility, engine generation/omission/null/toggle); updated engine FixtureModel (answers diagram:null), section-count assertions; commands: lint/typecheck/test (258 Node + 168 vitest)/build green; commit: see git log feat(B4)
 - [ ] B5 Incremental review and thread hygiene — todo
 - [ ] B6 Check runs — todo
 - [ ] B7 Triggers and comment types — todo

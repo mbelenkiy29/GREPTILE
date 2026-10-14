@@ -16,6 +16,7 @@ import { Github } from "../src/github";
 import { Gitlab } from "../src/gitlab";
 import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
+import { validSequence } from "../src/diagrams";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
@@ -648,13 +649,13 @@ export const review = internalAction({
   },
 });
 
-export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[]} | null>=>{
+export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[]} | null>=>{
  const {review}=await ctx.runQuery(api.reviews.detail,a);
  if(!review.resultStorageId)return null;
  const blob=await ctx.storage.get(review.resultStorageId);if(!blob||blob.size>2000000)throw new Error("Saved review diagnostics unavailable");
- const result=z.object({metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([])})}).parse(JSON.parse(await blob.text()));
+ const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([])})}).parse(JSON.parse(await blob.text()));
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
- return {...result.metadata,suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
+ return {...result.metadata,diagrams:result.diagrams.filter(validSequence).slice(0,1),suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});
 
 // Line links for the summary issue table on providers with stable line anchors.

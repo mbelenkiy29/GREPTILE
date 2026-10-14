@@ -697,3 +697,6 @@ label.repository-choice span {min-width:0;overflow-wrap:anywhere}
 
 form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 .catalog-review [role="alert"] { max-width: 280px; white-space: normal; overflow-wrap: anywhere; margin: 0; }
+
+.sequence-diagram { margin: 0; overflow-x: auto; }
+.sequence-diagram svg { max-width: 100%; height: auto; }
