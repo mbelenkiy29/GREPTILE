@@ -1,4 +1,5 @@
 import {beginCatalog} from "./pullCatalogs";
+import { autoEnableNewRepository } from "./repositoryOnboarding";
 import {
   internalMutation,
   internalQuery,
@@ -189,6 +190,7 @@ export const connect = mutation({
           inherit: true,
           settings: defaults,
         });
+        await autoEnableNewRepository(ctx, repositoryId);
       }
     }
   },

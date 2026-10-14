@@ -24,6 +24,10 @@ Then open http://localhost:3000. `pnpm setup:local` generates the session, servi
 3. Enable a repository. OpenReview indexes its default branch: files, symbols, the call/import graph and optional embeddings.
 4. Open a pull request. The review appears as a summary comment and inline findings, and on the dashboard.
 
+Repositories added to the installation later start disabled. To enable and index them automatically, turn on **Enable newly installed repositories** on the Teams page. You can set it for the workspace and override it per team. It is off unless an admin turns it on, and each change and each automatic enable is recorded in the audit log.
+
+To share context across related repositories, open Memory → Cross-repo context and select **Suggest clusters**. OpenReview proposes groups from the repositories' indexed root manifests (`package.json`, `go.mod`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`): one repository using a package another publishes, or uncommon dependencies they share. It also groups repositories whose names share a distinctive word. Each suggestion lists its reasons. Nothing is applied until an admin creates the cluster. Dismissed suggestions are not proposed again.
+
 ## Choose a model
 
 Set `LLM_PROVIDER` (`anthropic`, `openai` or `compatible`) and `LLM_API_KEY` on the backend. Optionally set `LLM_MODEL` and per-task overrides. Every model call counts against the workspace inference budget.

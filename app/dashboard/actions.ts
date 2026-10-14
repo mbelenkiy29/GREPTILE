@@ -495,6 +495,26 @@ export async function saveScope(form:FormData) {
 export async function saveCluster(form:FormData) {
  const {token}=await current();await backend().mutation(api.scopes.cluster,{token,organizationId:text(form,"organizationId") as Id<"organizations">,...(text(form,"id")?{id:text(form,"id") as Id<"repositoryClusters">}:{}),name:text(form,"name"),repositoryIds:form.getAll("repositoryIds").map(String) as Id<"repositories">[],remove:text(form,"remove")==="true"});revalidatePath("/dashboard","layout");
 }
+// Repository onboarding automation: auto-enable for newly installed repositories and suggested clusters.
+export async function setAutoEnable(form:FormData) {
+ const {token}=await current(),teamId=text(form,"teamId");
+ try{await backend().mutation(api.repositoryOnboarding.setAutoEnable,{token,organizationId:text(form,"organizationId") as Id<"organizations">,...(teamId?{teamId:teamId as Id<"teams">}:{}),value:z.enum(["on","off","inherit"]).parse(text(form,"value"))});await notify("Auto-enable setting saved.");}
+ catch{await notify("Could not save the auto-enable setting.","error");}
+ revalidatePath("/dashboard","layout");
+}
+export async function requestClusterSuggestions(form:FormData) {
+ const {token}=await current();
+ try{await backend().mutation(api.repositoryOnboarding.requestClusterSuggestions,{token,organizationId:text(form,"organizationId") as Id<"organizations">});await notify("Looking for related repositories. Refresh in a moment to see suggestions.");}
+ catch{await notify("Could not start cluster suggestions (at most three scans per hour).","error");}
+ revalidatePath("/dashboard","layout");
+}
+export async function decideClusterSuggestion(form:FormData) {
+ const {token}=await current();
+ try{const result=await backend().mutation(api.repositoryOnboarding.decideClusterSuggestion,{token,suggestionId:text(form,"suggestionId") as Id<"clusterSuggestions">,decision:z.enum(["approved","dismissed"]).parse(text(form,"decision")),...(form.has("name")?{name:text(form,"name")}:{})});
+  await notify(result.status==="approved"?"Cluster created.":result.status==="stale"?"Those repositories changed; the suggestion was closed.":"Suggestion dismissed.");}
+ catch{await notify("Could not save this suggestion.","error");}
+ revalidatePath("/dashboard","layout");
+}
 export async function saveClusterForm(_previous:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}> {
  const name=text(form,"name").trim(),ids=form.getAll("repositoryIds").map(String);
  if(!name||name.length>100)return {error:"Enter a cluster name of 1–100 characters."};

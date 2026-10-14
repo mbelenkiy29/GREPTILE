@@ -1,4 +1,5 @@
 import { effectiveSettings } from "./scopes";
+import { autoEnableNewRepository } from "./repositoryOnboarding";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -184,7 +185,8 @@ export const installationEvent = internalMutation({
         continue;
       }
       if (!existing)
-        await ctx.db.insert("repositories", {
+        // Newly installed: disabled unless the workspace (or team) turned on auto-enable.
+        await autoEnableNewRepository(ctx, await ctx.db.insert("repositories", {
           organizationId: install.organizationId,
           installationId: install.installationId,
           githubId: r.id,
@@ -193,7 +195,7 @@ export const installationEvent = internalMutation({
           enabled: false,
           indexStatus: "not_indexed",
           createdAt: Date.now(),
-        });
+        }));
     }
   },
 });
