@@ -505,6 +505,7 @@ The pilot ran fixture `multi-hop-currency` with OpenAI `gpt-4.1`. The runs were 
 
 **Before the full run**, consider two changes:
 - ~~Save the agent's tool transcript in eval reports, so misses can be diagnosed.~~ **Done.** Each agentic result now includes a `trace` and a `transcript`.
+- ~~Prompt the agent to start with tool calls and to reuse files it has already read.~~ **Done**, but not yet measured live. Both valid agentic runs opened with prose, and run 4 re-read two files. The system prompt and the opening turn now ask for tool calls first and for reuse of earlier tool results. The reminder remains as a fallback.
 - Run the agentic engine with the default Claude model as well as gpt-4.1. The engine was designed around Claude's native tool use.
 
 ### Cost estimate

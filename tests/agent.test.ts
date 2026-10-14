@@ -68,6 +68,17 @@ test("agent follows references across files to a multi-hop defect that the pipel
   assert.ok(model.requests.every((r) => r.system === agentSystem && JSON.stringify(r.tools) === JSON.stringify(agentTools)));
 });
 
+test("agent prompts ask for tool calls before prose and reuse of files already read", async () => {
+  const model = new ScriptedAgent(() => null);
+  await reviewChange(input, model, async () => {}, undefined, { engine: "agentic", tools: memoryToolbox(repoFiles, head) });
+  // A live gpt-4.1 pilot opened with a prose plan and re-read files it already had.
+  const [opening] = model.requests[0].messages;
+  assert.equal(opening.role, "user");
+  assert.match((opening as { content: string }).content, /Start now with tool calls .*do not reply with a plan first/);
+  assert.match(agentSystem, /Investigate through tool calls, not prose/);
+  assert.match(agentSystem, /reuse files and line ranges you have already read instead of reading them again/);
+});
+
 test("a turn that ends in prose before anything is reported gets one reminder to use the tools", async () => {
   // Real models often explain their reasoning in text first; that text is never a finding.
   const model = new ScriptedAgent((turn, request) => {
