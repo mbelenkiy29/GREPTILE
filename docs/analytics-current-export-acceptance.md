@@ -1,0 +1,13 @@
+# Current analytics recovery and export acceptance
+
+October 4, 2026, hosted release `dpl_GqVdoJFqYHjVQe88bdfN9FRj9CKB`, canonical production portal and Convex tidy-ocelot-457. This is fresh live acceptance evidence, with no implementation changes, indexing, reviews, inference or new credentials.
+
+Native Chrome opened Analytics with the invalid date February 30. The page displayed its inline “Choose valid From and Through dates” recovery message, no report, and disabled Export CSV. Correcting From to October 4 and selecting Apply recovered the report for October 4 inclusive UTC, all accessible teams/repositories: 4 PRs, 5 reviews, 3 findings, $0.29 rounded cost, 111,730 recorded tokens and 45 seconds average duration.
+
+Clicking Export CSV downloaded the actual native attachment. Its single row was `2026-10-04,5,3,0.288734`, matching the visible review/finding counts and rounded cost. Copy: `output/setup/analytics-current-native.csv`. Screenshot: `output/setup/analytics-current-recovered.png`. Native warning/error logs were empty. This capture is desktop evidence, not dark-mode or mobile proof.
+
+Separately, authenticated read-only HTTP requests to the hosted CSV endpoint tested a rolled date, reversed period and oversized period. Each returned HTTP 400, plain text `Invalid filters or access`, and no attachment disposition. The valid October 4 request returned HTTP 200, `text/csv`, attachment filename `openreview-analytics.csv`, `cache-control: no-store`, and exactly the same CSV row as the native download. Authentication remained in memory and was not included in the receipt. Receipt: `output/setup/analytics-current-http-receipt.json`.
+
+The native browser also opened the legacy detail link `/dashboard/reviews/mx73hb4bq7admdsc7jtcbqg83h8fmbtd?repository=m97ecnwd3d1y88k0r038ps0j858fhkp7`. It redirected to the corresponding `/dashboard/pulls/` detail while preserving the repository query, rendered completed GitHub PR #4 at approved head `40d7a953b03946632f2e643096b4227b6a705483`, its resolved-finding section and explicit “Not executed by OpenReview” test status. Warning/error logs were empty. Receipt: `output/setup/legacy-detail-current-receipt.json`. This proves the actual review-ID suffix case, not every arbitrary suffix on every alias.
+
+These checks close the previously source-only live invalid-filter HTTP branch and actual legacy review-detail redirect gap. Large-period load acceptance, current dark recovery states, separate restricted-user browser acceptance and the complete provider/agent/OS matrix remain open. Existing 346 passing tests and builds are prior release evidence; no code change required a new regression run.

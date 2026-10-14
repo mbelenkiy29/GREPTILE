@@ -1,0 +1,12 @@
+{
+  "headSha": "7a76236a5dca808add859b99849ef27b9983d07a",
+  "image": "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+  "command": "node --test check.test.cjs",
+  "exitCode": 0,
+  "timedOut": false,
+  "output": "✔ isolated committed source executes (0.740584ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 31.07113\n",
+  "outputTruncated": false,
+  "network": "none",
+  "memoryMb": 512,
+  "cpus": 1
+}

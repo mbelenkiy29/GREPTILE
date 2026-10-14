@@ -1,0 +1,7 @@
+node_modules
+.next
+convex/_generated
+output
+.playwright-cli
+pnpm-lock.yaml
+.env*

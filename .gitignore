@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env*
+!.env.example
+coverage/
+*.tsbuildinfo
+.convex/
+.openreview/
+
+output/
+.playwright-cli/
+.vercel/
+.vercel
+forge/bitbucket/static/build/

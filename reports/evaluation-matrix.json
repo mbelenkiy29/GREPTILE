@@ -1,0 +1,241 @@
+{
+  "verifiedAt": "2026-10-03T03:05:37.862Z",
+  "model": "gpt-4.1",
+  "status": "completed",
+  "fixtures": 12,
+  "matchedSeededDefects": 10,
+  "cleanChangesWithoutFindings": 2,
+  "extraFindings": 0,
+  "missedSeededDefects": 0,
+  "duplicateFindings": 0,
+  "allRunEstimatedCost": 0.331056,
+  "selectedResultEstimatedCost": 0.30523799999999995,
+  "sources": [
+    {
+      "path": "reports/evaluation.json",
+      "sha256": "39fde0531fa8a409d1cbaf22f681f49a2737a55b32ebd5d81d6e6f2985f5f703"
+    },
+    {
+      "path": "reports/evaluation-clean-refactor.json",
+      "sha256": "325be8980f36afbcd529a4fba520de1e54fee9b9016f9046495445dc76137db6"
+    },
+    {
+      "path": "reports/evaluation-clean-guard.json",
+      "sha256": "a98c8e30983b1d8bf2649b2242d02a08e4154f3ae825649e6cea46ef6763d8cb"
+    },
+    {
+      "path": "reports/evaluation-sql-query.json",
+      "sha256": "aaf6de1aa2c9994dc1fdafeae8480b6dcc614d8262d3b26a55028ee53ca13d8c"
+    }
+  ],
+  "results": [
+    {
+      "id": "clean-refactor",
+      "expectedDefect": false,
+      "findings": [],
+      "reviewScore": 5,
+      "approvalConfidence": 0.9,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.012374,
+      "source": "reports/evaluation-clean-refactor.json"
+    },
+    {
+      "id": "clean-guard",
+      "expectedDefect": false,
+      "findings": [],
+      "reviewScore": 4,
+      "approvalConfidence": 0.9,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.010932,
+      "source": "reports/evaluation-clean-guard.json"
+    },
+    {
+      "id": "authentication",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "canAccess now grants access to non-object/non-user inputs",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 0,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.026921999999999998,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "authorization",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Authorization check removed: orgId constraint dropped from document lookup",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 0,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.027886,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "null-handling",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Null or undefined 'user' argument causes TypeError",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 1,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.04196,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "concurrency",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Race condition: Stock may become negative due to lost update",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 1,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.034654000000000004,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "data-loss",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "All events deleted regardless of userId in purge()",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 0,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.025008,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "breaking-api",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Renamed property breaks downstream code expecting 'id'",
+          "filePath": "src/change.ts",
+          "severity": "high",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 1,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.022708,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "sql-query",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "SQL Injection vulnerability due to unsafe query interpolation",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 0,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.022362,
+      "source": "reports/evaluation-sql-query.json"
+    },
+    {
+      "id": "cross-file",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Change of 'total' function from returning cents to dollars may break dependent code expecting integer cents",
+          "filePath": "src/change.ts",
+          "severity": "high",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 1,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.026258,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "missing-validation",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "Removed validation introduces open redirect vulnerability",
+          "filePath": "src/change.ts",
+          "severity": "critical",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 0,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.026402,
+      "source": "reports/evaluation.json"
+    },
+    {
+      "id": "regression",
+      "expectedDefect": true,
+      "findings": [
+        {
+          "title": "expiresAt no longer converts seconds to milliseconds, causing incorrect expiry",
+          "filePath": "src/change.ts",
+          "severity": "high",
+          "confidence": 1
+        }
+      ],
+      "reviewScore": 1,
+      "approvalConfidence": 1,
+      "executionStatus": "not executed",
+      "summaryValidationPassed": true,
+      "estimatedCost": 0.027772000000000005,
+      "source": "reports/evaluation.json"
+    }
+  ],
+  "limitations": [
+    "Small synthetic fixtures; not representative repository-scale quality or provider/OS acceptance.",
+    "Keyword/location scoring supplemented by assistant inspection of findings and supplied source. Independent human adjudication remains required.",
+    "Original SQL overview contained malformed control characters. The preserved original report records this failure; the selected SQL result is a new live run after validation was tightened."
+  ],
+  "parityClaim": false
+}

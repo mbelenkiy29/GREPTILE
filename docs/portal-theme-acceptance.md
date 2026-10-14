@@ -1,0 +1,13 @@
+# Portal appearance preference
+
+The portal previously followed only the operating system's color scheme. The profile menu now offers System, Light and Dark appearance. The preference is an allowlisted, same-site browser cookie, applied to the root during server rendering and updated immediately from the selector. Invalid values fall back to System. It stores no identity or access credential and does not change account permissions or review policies.
+
+System mode continues to follow the system color scheme. Explicit Light and Dark modes override it, including native form controls, status badges, errors and primary actions. The existing profile disclosure supplies outside-click dismissal and Escape-to-trigger keyboard behavior.
+
+Local typecheck, lint and production build pass. Lint has zero errors and two existing unused-variable warnings. No backend/schema or agent behavior changes are introduced. The last full regression run remains 353 tests.
+
+Production release `dpl_8uF7Yay4CsuNQnxX9cSEoPJ3ZGzA` is READY on https://openreview-flame-two.vercel.app with the integrated hosted build and Convex deployment passing. Native profile-menu selection switches immediately to Dark, with a dark native color scheme and `rgb(18, 28, 44)` body background. Reload preserves Dark; Light also switches immediately and survives reload. Escape from Appearance closes the menu and restores focus to the profile trigger. The original System preference was restored and verified on Analytics after navigation; the current OS resolves it to Light. An actual OS theme transition was not exercised.
+
+Nineteen current-owner desktop routes were visited: Analytics; all five Memory sections; PR list and GitHub #4 detail; all ten Settings sections; and Ready onboarding. All show the dark preference, expected heading, `1126px` viewport/document width and no alert state. Six mobile routes (Analytics, clusters, PR list/detail, teams, onboarding) retain `390px` viewport/document width. At mobile size the profile menu is 240px wide, bounded between x138 and x378. Native screenshots establish the current rendered dark controls, metrics, severity badges, menu and Ready onboarding. This is rendering and preference acceptance, not a claim that every feature/action or viewer role was exercised.
+
+Browser warning/error logs are empty and the viewport override was reset. No indexing, review, policy, credential, membership or integration action was submitted; no inference occurred. System remains the saved appearance. Receipts in `output/setup/`: `portal-theme-{types,lint,build,deploy}.log`, `portal-theme-dark-routes.json`, `portal-theme-dark-mobile.json`, and `portal-theme-{menu-dark,mobile-menu,onboarding-dark}.png`.

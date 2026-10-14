@@ -1,0 +1,17 @@
+# Origin context authorization acceptance
+
+October 4, 2026. Origin's confirmed primary identity previously received native access validation at publication time, but the pre/post retrieval guard handled only Forge identities. Origin source repositories also lacked source-specific personal identity receipts. A valid installation token could therefore read an Origin context source without independently rechecking the person's native access to that source.
+
+Origin now requires a current confirmed personal identity for each selected Origin source, bound to the exact connection, user and generation. Missing links produce explicit coverage omissions. Receipts without this identity are rejected. Native read access to the exact repository is checked before App source reads, after retrieval and before publication. Origin primary authors receive the same pre/post retrieval checks. Tokens are scoped to metadata, contents and PR reads for one repository, remain in memory, and are never stored. Existing Forge guards remain in place; the existing internal guard name is retained for callers.
+
+Regression coverage proves source omission without a link; exact selected-repository native token scope; successful retrieval; legacy receipt rejection; native denial before any App read; native denial after reading preventing result return; publication rejection; local expiry/revocation; and denied Origin primary access at the retrieval guard. Full verification: **171 Node + 142 Convex = 313 tests**, lint, typecheck and production build passed.
+
+The backend dry-run and actual deployment succeeded on `tidy-ocelot-457`. No frontend code changed in this increment; production remains READY Vercel `dpl_9dfjSheqs8F8kX7uwwjpfgr2URx2`.
+
+Live acceptance used the existing GitHub and Origin acceptance repositories, one temporary explicitly selected cluster, the actual GitHub PR #1 author and actual Origin PR #1 author, and the current confirmed Origin identity generation 1. The two directions each retrieved two files with pinned revision and native source links. The Origin source receipt references the confirmed personal identity. The returned context passed the deployed publication guard; removing its personal identity from a copied receipt was denied. Missing/wrong GitHub author IDs were denied. The cluster was removed in `finally`, with absence read back afterward.
+
+Before/after model-call totals both equal **403**. Recorded usage cost remains **$2.173082**, with no inference requested. This application ledger is not the authoritative provider-key spend total; the separate $5 cap and [provider reconciliation](inference-budget-reconciliation.md) remain in force. A first live probe recorded a requested call count rather than measuring the ledger; the final bidirectional probe adds independent before/after counts and supersedes that weaker evidence.
+
+Evidence under ignored `output/setup/`: `origin-source-context-live-evidence.json`, `origin-source-context-bidirectional-live.log`, live script, and `origin-context-guard-{regression,tests,lint,typecheck,build,convex-dry-run,convex-deploy}.log`.
+
+These checks establish actual native read authorization and deployed context retrieval/validation. They do not publish a new AI review, exercise native personal revocation through Cursor UI, prove follow-up write permission, or complete the human-reviewed fix push/resolution workflow. Old Origin source receipts without personal authority now fail validation and require a fresh authorized review.

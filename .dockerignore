@@ -1,0 +1,9 @@
+node_modules
+.git
+.next
+.convex
+.env*
+output
+.playwright-cli
+reports
+*.tsbuildinfo

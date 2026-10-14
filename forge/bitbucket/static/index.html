@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OpenReview workspace connection</title><link rel="stylesheet" href="./styles.css"></head>
+<body><main>
+ <h1>Connect OpenReview</h1>
+ <p>In OpenReview, open Settings → Code providers and create a five-minute Bitbucket authorization for your workspace. Paste it here while signed in as this Bitbucket workspace’s owner.</p>
+ <p>Connecting grants the OpenReview app access to repository contents, pull requests and comments in this Bitbucket workspace. Select repositories and configure review behavior in OpenReview after connection. Automatic approval is unavailable.</p>
+ <p>Your configured OpenReview server stores authorized repository indexes, review data and encrypted app credentials. Source context is sent to its configured model provider during reviews.</p>
+ <form id="connect"><label for="code">OpenReview authorization code</label><input id="code" name="code" type="password" autocomplete="off" required minlength="64" maxlength="64" pattern="[a-f0-9]{64}" aria-describedby="help"><p id="help">The code is single use and expires after five minutes. No account password is needed.</p><button type="submit">Connect workspace</button></form>
+ <p id="status" role="status" aria-live="polite"></p>
+ <p>You can revoke an unused code or disconnect this integration in OpenReview. Uninstalling the Forge app also disables its connection and repositories.</p>
+<section><h2>Link personal identity</h2><p>In OpenReview Settings → Personal setup, generate a personal identity code for this connection. This verifies the account you are signed in as and its read access to the selected repository. OpenReview stores your short-lived token encrypted for at most one hour and rechecks access before cross-repository review or publication. No workspace-owner role is needed. Disconnect in OpenReview or confirm again after expiry.</p><form id="personal"><label for="personal-code">Personal identity authorization code</label><input id="personal-code" type="password" autocomplete="off" required minlength="64" maxlength="64" pattern="[a-f0-9]{64}"><button type="submit">Link personal identity</button></form><p id="personal-status" role="status" aria-live="polite"></p></section></main><script src="./index.js" defer></script></body></html>

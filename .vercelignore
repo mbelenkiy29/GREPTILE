@@ -1,0 +1,9 @@
+output
+reports
+.convex
+.openreview
+.env*
+!.env.example
+.playwright-cli
+coverage
+*.tsbuildinfo

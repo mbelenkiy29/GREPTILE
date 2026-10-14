@@ -1,0 +1,15 @@
+# Scoped rules and inherited workspace indicators
+
+The custom-rules portal previously listed the bounded overview's first 200 records and labeled workspace scope without distinguishing inheritance in a repository view. Review retrieval already loaded all enabled applicable rules, so later rules could affect reviews while being absent from management.
+
+`convex/dashboard.ts:rulesPage` now authorizes the workspace and selected team/repository, filters to accessible repository rules plus workspace defaults, and paginates 30 rules at a time. The portal provides a repository filter, retains team/repository selection across pagination, labels workspace rules **Inherited from workspace** within a repository view and **Workspace default** in the full view, and preselects the current repository for rule creation. Disabled rules remain visible and labeled disabled; their inclusion does not enable them or change review retrieval.
+
+The durable regression seeds 205 workspace rules, a public local rule, a private-team rule and a foreign-workspace rule. A viewer traverses all 206 applicable rules exactly once across seven pages, including both ends of the workspace history. Private repository, wrong-team repository and foreign-workspace requests fail. This is controlled pagination/authorization evidence, not a manufactured live 200-rule workspace claim.
+
+Current local validation: 177 Node + 147 Convex = 324 tests, lint, typecheck and production build pass. Logs: ignored `output/setup/rules-inheritance-*.log`. Native deployment and browser acceptance are recorded after completion below.
+
+Production release `dpl_GiJNHT54V5fRnbDJMheWCm8JxC75` is READY at https://openreview-flame-two.vercel.app. Its hosted build deployed the new query to tidy-ocelot-457, with no schema changes or deleted indexes.
+
+Computer use temporarily moved the existing **disabled** “Native portal acceptance: integer cents” acceptance rule from openreview-incremental-acceptance to workspace scope. The all-repository view displayed **Workspace default**. Filtering mbelenkiy29/openreview-acceptance displayed the same disabled rule as **Inherited from workspace**, with the selected repository retained and preselected for creation. At 390×844 the viewport/document/body widths were all 390; keyboard Tab from Apply filter advanced without submitting an edit.
+
+The rule was restored to its original incremental repository scope. It disappeared from the GitHub repository filter; selecting the incremental repository and reloading displayed the original disabled title, instructions, high severity and `**/src/billing.ts` glob, with no inherited badge. No enable/delete action, review or inference was requested. Chrome warning/error logs were empty; viewport restored. Evidence: ignored `output/setup/rules-inherited-desktop.png`, `rules-inherited-mobile.png`, `rules-scope-restored-mobile.png`. The live workspace has one rule, so seven-page pagination remains controlled test evidence rather than a live pagination claim. New-viewer browser restrictions and the rest of the expanded matrix remain pending.

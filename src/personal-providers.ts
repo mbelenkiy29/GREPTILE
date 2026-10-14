@@ -1,0 +1,3 @@
+export const personalIdentityProviders=['gitlab','gitea','github-enterprise','bitbucket-dc','origin','bitbucket-cloud'];
+export function personalProviderLabel(kind:string){return kind==='bitbucket-cloud'?'Bitbucket Cloud':kind==='origin'?'Cursor Origin':kind==='bitbucket-dc'?'Bitbucket Data Center':kind==='github-enterprise'?'GitHub Enterprise':kind==='gitlab'?'GitLab':'Gitea';}
+export function personalProfilePermission(kind:string){return kind==='bitbucket-dc'?'a personal HTTP access token and authenticated user lookup':kind==='github-enterprise'?'authenticated profile access':kind==='gitlab'?'read_user':'read:user';}

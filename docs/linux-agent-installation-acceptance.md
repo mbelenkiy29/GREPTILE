@@ -1,0 +1,15 @@
+# Native Linux installation of all three agents
+
+October 4, 2026. The isolated Ubuntu aarch64 acceptance VM now has actual Codex, Claude Code and Cursor Agent executables. This extends [Cursor native compatibility acceptance](linux-cursor-cli-acceptance.md) with installation/detection evidence, not authenticated fix execution.
+
+The guest originally had 2 GB RAM and only about 700 MB available disk after Cursor installation. Claude's [official requirements](https://code.claude.com/docs/en/setup) specify 4 GB RAM. Stopped the VM, used Lima's supported edit command to increase RAM to 4 GiB and disk to 10 GiB, then restarted successfully. The guest filesystem expanded to about 8.7 GiB with adequate installation space. Current native configuration confirms no host mounts, no additional port forwards, no SSH agent forwarding and only loopback management SSH. No graphical display was provisioned.
+
+Installed Codex `0.160.0` using the official npm package and registry, as documented in [OpenAI's repository](https://github.com/openai/codex#installing-and-running-codex-cli). The command pinned its version, used a guest-only `.local` prefix and disabled lifecycle scripts, audit and funding requests. Installed Claude using the inspected official `https://claude.ai/install.sh` installer with the stable channel; its resulting version is `2.1.285`. The script verifies the downloaded binary against its vendor manifest. Cursor remains `2026.10.01-e373342` from the previous official installation.
+
+All three real executables return exit 0 for `--version` and `--help`. The actual current Linux OpenReview bridge now reports Codex, Claude and Cursor available. It still returns exit 1 with pairing instructions because no bridge config exists. Native inspection confirms no Codex auth file, Claude credential file or runtime worker credential. The runtime service stayed disabled and inactive across the resize/restart.
+
+No agent prompt was submitted, no model inference occurred, and no user credentials or host repository checkout were copied. Availability/help evidence does not establish agent authentication, browser-to-terminal protocol dispatch, a regression-tested fix or any Windows behavior. Linux still requires a graphical terminal/session, scoped pairing, agent authentication and the complete registered-checkout/recovery/fix matrix. The VM can continue to be provisioned; it is not declared unprovisionable or always-on cloud hosting.
+
+No product source changed in this step, so no additional regression suite or hosted deployment was needed. The preceding 351 tests, lint, both typechecks and production build remain source verification for the current CLI. No inference budget or automation policy was changed.
+
+Artifacts under `output/setup/`: `linux-agent-vm-stop.log`, `linux-agent-vm-resize.log`, `linux-agent-vm-start.log`, `linux-agent-vm-resource-receipt.json`, `linux-codex-install.log`, `linux-codex-help.log`, `linux-claude-install.log`, `linux-claude-help.log`, and `linux-all-agents-native-receipt.json`.

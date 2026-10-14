@@ -1,0 +1,201 @@
+# OpenReview
+
+OpenReview is an open-source, self-hostable, repository-aware AI pull request reviewer. It uses a GitHub App, Convex for durable application state and jobs, Next.js for the dashboard, and your model credentials. The same TypeScript review engine powers GitHub and the local CLI.
+
+**Status:** implemented with passing local unit/integration, production browser, web build, and self-hosted Docker checks. Live GitHub installation and model quality require credentials and separate verification. This project makes no Greptile parity claims.
+
+## Architecture
+
+```
+GitHub App → signed Convex HTTP webhook → durable delivery → scheduled review
+                                                        ↓
+                 incremental blob index → code graph → ranked context
+                                                        ↓
+                  specialty reviewers → evidence checks → verifier
+                                                        ↓
+                    stored findings/usage → GitHub batch review
+                                                        ↓
+                     Next.js dashboard / authenticated API / MCP
+
+Local Git branch → CLI → the same reviewChange engine
+```
+
+Repository content and model output are untrusted. Findings require exact source evidence and a changed-line location before a second model verification pass. Duplicate delivery IDs and review head SHAs are persisted. Reviews record stages and retries; publishing resumes stored results after failures.
+
+![OpenReview sign-in page](docs/images/sign-in.png)
+
+## Local quickstart
+
+Use Node.js 24 and pnpm 11.
+
+```sh
+pnpm install
+CONVEX_AGENT_MODE=anonymous pnpm exec convex dev --once
+pnpm setup:local
+pnpm backend
+# In another terminal:
+pnpm dev
+```
+
+Open http://localhost:3000. Local setup generates independent session, service, and webhook secrets and synchronizes them to the local backend without printing their values. `.env.local` and `.env.backend` are ignored by Git. For provider/GitHub settings, edit `.env.local`, then run `pnpm setup:local` again. Backend changes must be deployed with `pnpm backend` or `convex dev --once`.
+
+## GitHub App setup
+
+Register your own GitHub App in GitHub Settings → Developer settings → GitHub Apps.
+
+* Homepage: your `APP_URL`.
+* User authorization callback: `APP_URL/api/auth/callback`.
+* Setup URL: `APP_URL/api/github/callback`.
+* Webhook URL: `NEXT_PUBLIC_CONVEX_SITE_URL/github/webhook`.
+* Webhook secret: your `GITHUB_WEBHOOK_SECRET`.
+* Repository permissions: Contents **read**, Metadata **read**, Pull requests **read/write**, Issues **read**, Checks **read**. No code-write permission is required.
+* Subscribe to Installation, Installation repositories, Pull request, Pull request review, Pull request review comment, Issue comment, Push, and Repository events. Installation events are provided automatically where GitHub requires them.
+* Enable user authorization during installation if desired; use the App's client ID/secret for sign-in.
+* Generate a private key. Convert GitHub's PKCS#1 key to PKCS#8 with `openssl pkcs8 -topk8 -nocrypt -in github-key.pem -out app-key.pem`.
+
+Set `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8, literal `\n` accepted), `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, and `GITHUB_CLIENT_SECRET`. Synchronize App credentials to Convex. Keep the App private key on server infrastructure only. Installation tokens are minted as needed and never persisted.
+
+Sign in → create workspace → install App → choose authorized repositories in GitHub → save repository selection in workspace setup → configure behavior → enable selected repositories and start indexing → open a PR. Return to `/dashboard/onboarding` to resume saved selection and inspect progress, skipped files, revisions or retryable failures. Existing enabled repositories remain enabled when setup selection changes. Sign-in/installation state expires after ten minutes; sign in again if installation takes longer. GitHub webhooks need a public HTTPS backend URL; a localhost backend cannot receive public GitHub deliveries without a tunnel.
+
+Supported follow-ups from repository collaborators with write/admin/maintain permission: `@openreview explain this`, `@openreview suggest a fix`, `@openreview what code depends on this`, `@openreview review again`, and `@openreview review security`. `@openreview ignore this pattern` in a finding thread saves an inspectable repository preference. Dashboard feedback/settings can reset preferences.
+
+Follow-up answers retrieve current changed files and indexed dependencies/callers, then validate exact quoted source lines before publication. Source links pin the inspected revision. Historical reviews are unverified context; test source does not establish execution. Retrieval is bounded to 20 files and 40,000 characters, with generated/binary/secret files excluded. Invalid citations fail without posting and use the existing bounded recovery path. Model failures now record their usage as well as successful calls.
+
+PR comments use Pull requests write; the Issues read permission is required for the [issue-comment webhook subscription](https://docs.github.com/en/webhooks/webhook-events-and-payloads#issue_comment). See the [comment endpoint permissions](https://docs.github.com/en/rest/issues/comments#create-an-issue-comment).
+
+Official setup references: [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app), [GitHub App webhooks](https://docs.github.com/en/enterprise-cloud@latest/apps/creating-github-apps/registering-a-github-app/using-webhooks-with-github-apps).
+
+## Models
+
+Configure `LLM_PROVIDER=openai|anthropic|openrouter|compatible`, `LLM_MODEL`, and `LLM_API_KEY`. A compatible endpoint may run without a key if your server allows it. Set `LLM_BASE_URL` to its API base (for example `https://models.example.com/v1`). Responses must support JSON objects and validate against Zod schemas. Anthropic uses its native Messages API; other adapters use OpenAI-compatible chat completions.
+
+`LLM_ALLOW_LOCAL=true` explicitly permits private/local endpoints, including local HTTP. This is an operator setting; end users cannot supply arbitrary model URLs. Configure token prices using `LLM_INPUT_COST_PER_MILLION` and `LLM_OUTPUT_COST_PER_MILLION`. A zero estimate means unknown pricing, not a claim that inference is free.
+
+Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMARY`, `LLM_MODEL_KNOWLEDGE`, and `LLM_MODEL_CONVERSATION`. Review depth adjusts context budgets: Fast 8k, Standard 16k, Deep 40k estimated tokens. Two simultaneous specialist calls bound inference concurrency. Provider rate limits and transient failures receive bounded backoff. Review cancellation stops between persisted stages; an already-running HTTP model call may finish.
+
+Optional semantic retrieval: set `EMBEDDING_MODEL` with an OpenAI-compatible embedding endpoint/key (`EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`) supporting exactly 1,536 dimensions. Set `EMBEDDING_COST_PER_MILLION` for cost reporting and re-index to backfill existing sources. Full-text and graph retrieval work without embeddings.
+
+## Environment
+
+See [.env.example](.env.example) for the full variable list. Web and Convex must share `SESSION_SECRET` and `SERVICE_SECRET`. GitHub private key/webhook secret and model keys must exist in Convex's environment; setting them only in the web process is insufficient.
+
+Convex local environment:
+
+```sh
+pnpm exec convex env set --from-file .env.backend
+```
+
+Self-hosted production environment:
+
+```sh
+CONVEX_SELF_HOSTED_URL=https://backend.example.com \
+CONVEX_SELF_HOSTED_ADMIN_KEY='<admin-key>' \
+pnpm exec convex env set --from-file .env.backend
+```
+
+Avoid printing secrets in logs, terminal transcripts, or CI output. Rotate session/service secrets together on both services.
+
+## CLI
+
+```sh
+pnpm cli --help
+pnpm cli review --base main
+pnpm cli review --json
+pnpm cli review --agent
+pnpm cli review --security --mode deep
+```
+
+To install the `openreview` command from this checkout, run `npm link` (Node.js 24). Then run `openreview review --agent` from your repository. Local review compares committed HEAD with the merge base; commit your working changes first. Configure model credentials through the environment or `.env.local` in that repository. Local indexing respects ignored paths and limits eligible source to 5,000 files / 20 MB; it does not execute repository code.
+
+Optional `.openreview.json`:
+
+```json
+{"rules":[{"id":"membership","instructions":"Every organization API must validate membership.","severity":"high","category":"security","globs":["src/api/**"],"enabled":true}]}
+```
+
+Generate an API key in dashboard Settings, then `openreview login --url https://review.example.com --token <key>` and `openreview status`. CLI configuration is saved with owner-only filesystem permissions. Local review works independently of server login.
+
+For local agent fixes, install the selected Codex, Claude Code, or Cursor Agent CLI and sign in to it. Pair and register the checkout:
+
+```sh
+openreview bridge install
+openreview bridge pair --url https://review.example.com
+# Approve the displayed code in Settings → Personal agent.
+openreview bridge register /absolute/path/to/repository
+openreview bridge status
+```
+
+`bridge status` checks local agent availability even before pairing or while the server is unavailable. It also shows registered checkout counts when the local configuration is readable. An unpaired, unreadable, disconnected or rejected bridge retains a nonzero exit status with recovery instructions; this diagnostic command does not replace credentials or modify registered checkouts.
+
+If dispatch says the agent started but its server status is unconfirmed, keep the terminal open and check its output before creating another Fix request. The bridge continues tracking the agent and retries launch reporting after successful completion. A reporting error does not establish agent failure or finding resolution; review the local diff and test output.
+
+Cursor setup supports the official standalone `cursor-agent` CLI and falls back to the desktop `cursor agent` command. Keep the installed command on your terminal PATH; `bridge status` verifies its help command without authenticating or requesting inference.
+
+Click Fix on an eligible finding or Fix All on the latest completed review. The registered checkout must match the repository and reviewed revision; existing uncommitted changes are preserved. Before releasing fix context, OpenReview checks the provider’s current open revision and rechecks workspace/repository authorization. A changed or closed PR, unavailable provider, revoked access, expired request or replay blocks dispatch. Re-review changed revisions before retrying. The portal shows launch, successful process exit, or failure, including nonzero exits and termination signals. A successful agent exit does not prove a correct fix or passing tests. Inspect the diff and test output, then commit and push yourself; the next review assesses resolution. Pairing credentials expire after 90 days and can be revoked in personal settings. Real macOS CLI dispatch, agent changes and regression checks have been verified for Codex, Claude Code and Cursor Agent; browser/protocol click acceptance is verified for Codex only. The remaining agent/OS acceptance matrix is still outstanding. Agents retain their native permission prompts and use their own authenticated accounts.
+
+Workspace owners/admins set the default coding agent in Personal agents. Personal preferences inherit it until explicitly overridden; choose “Use workspace default” to reset an override. Review detail, individual findings, Fix All, and authenticated Fix links use the same effective preference. Viewers cannot pair bridges or launch fixes.
+
+## API and MCP
+
+API keys are hashed at rest, scoped to one workspace, and revocable. Use `Authorization: Bearer or_...`.
+
+* `GET /api/repositories`
+* `POST /api/p4/index` — admin-scoped metadata upload for manual submitted-revision indexing; see [Perforce setup](docs/perforce.md) and `openreview p4 upload --help`.
+* `GET /api/reviews?cursor=...`
+* `POST /api/reviews` with `{repositoryId,prNumber,headSha}`
+* `GET /api/reviews/:id`
+* `POST /api/findings/:id/feedback` with `{value,comment}`
+* `GET /api/context?repositoryId=...&query=...`
+* `GET /api/context?repositoryId=...&path=...`
+
+For MCP clients:
+
+```json
+{"mcpServers":{"openreview":{"command":"pnpm","args":["--dir","/absolute/path/to/openreview","--silent","mcp"],"env":{"OPENREVIEW_URL":"https://review.example.com","OPENREVIEW_API_KEY":"or_..."}}}}
+```
+
+The stdio server exposes review/finding/context/search/rule tools and a mark-resolved tool. Keep keys in your client's secret configuration. Portable fix prompts support Codex, Claude Code, Cursor, and Fix All; they contain evidence and commit coordinates rather than relying on unverified application deep links.
+
+## Self-hosting
+
+See [deployment documentation](docs/deployment.md). Both web and Convex backend run on your infrastructure. Convex's open-source backend provides persistent scheduling and file storage. Source files use Convex storage blobs; file metadata, symbols, and relationships are indexed in tables.
+
+## Local demo without GitHub
+
+Configure the same model environment used by the CLI, then run `pnpm demo --fixture cross-file`. This simulates a known PR using the real review engine and writes actual results to `reports/demo.json` and `reports/demo.md`, including evidence, retrieved context, usage, and a portable fix prompt. `pnpm demo --list` lists the ten fixtures. No findings are seeded; zero findings remains a valid model result. The demo does not create production repository records or require a GitHub App.
+
+## Optional runtime validation
+
+From the committed target repository, an operator can run:
+
+```sh
+openreview runtime --image 'trusted-image@sha256:<digest>' --command 'npm test' --timeout 120 > runtime.json
+```
+
+Use a prebuilt image with offline dependencies. Network access is disabled. The helper sends the committed checkout into bounded container tmpfs, captures commit-bound JSON evidence, and exposes no host mounts/application secrets. Save its output to `runtime.json`, then use `openreview review --json --runtime-evidence runtime.json`. The CLI evidence file is operator-supplied local context and must match the committed HEAD. Hosted `POST /api/reviews` and direct review-request mutations reject caller-supplied runtime evidence; hosted results must come from a paired runtime worker with an authorized exact-revision job. Logs are redacted before persistence/inference and shown in review details. Execution is explicitly operator initiated or enabled through trusted administrator runtime policy, never triggered by repository instructions.
+
+## Checks and evaluation
+
+```sh
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm test:e2e # requires running local web and Convex services
+pnpm eval
+```
+
+`pnpm test` runs unit and Convex integration tests. Browser checks authenticate a dedicated local fixture identity, visit onboarding/all dashboard sections, and save real rules/settings. They do not simulate successful GitHub OAuth or live inference. `pnpm eval` requires a real model and writes `reports/evaluation.json`; without credentials it exits with a blocked report, without inventing scores. `pnpm eval --validate` checks fixture identities, source/diff presence and expected finding locations without making model calls. The suite includes ten seeded defects and two behavior-preserving changes; clean fixtures contribute true negatives or false positives rather than missed bugs. Use `--fixture=<id>` for a targeted run. Evaluation scores use location/keyword matching and require human adjudication before quality claims. Provider/schema failures are unscored, return a nonzero exit code, and are reported separately from missed bugs.
+
+## Troubleshooting
+
+* Sign-in unavailable: configure GitHub client ID/secret and exact callback URL.
+* Invalid installation state: sign in again and restart installation within ten minutes.
+* No reviews: verify App permissions, webhook URL/secret, repository enabled status, draft behavior, branch filters, and automatic reviews.
+* Model failures: ensure model env variables exist in Convex, verify endpoint/model support JSON output, and inspect persisted review errors.
+* Failed indexing: inspect the repository error and retry indexing. GitHub tree truncation and source-size limits are explicit errors rather than silent partial coverage.
+* Unknown cost: set provider/model token prices.
+
+See the [implementation and verification report](docs/implementation-status.md), [architecture](docs/architecture.md), [database](docs/database.md), [security policy](SECURITY.md), and [contributing](CONTRIBUTING.md).
+
+For read-only issue requirements in PR reviews, see [Linear connection and resource scope](docs/linear.md) and [Atlassian Jira/Confluence setup](docs/atlassian.md).

@@ -1,0 +1,9 @@
+# Bridge dispatch setup recovery
+
+October 4, 2026. `bridge status` already provided actionable setup errors, but `bridge dispatch` loaded configuration directly and exposed raw file/JSON/schema errors before it could claim a request. Shared configuration loading now produces the same pairing instructions for missing setup and a safe recovery message for malformed/unreadable setup. It preserves existing configuration and does not disclose parser input or the local home path.
+
+The new subprocess regression executes actual CLI dispatch with missing configuration and malformed JSON containing a private sentinel. Both retain nonzero exit status; missing setup creates no files, malformed setup remains byte-for-byte intact, and neither prints a launch message or the sentinel. Existing dispatch agent-exit/reporting and status recovery checks still pass. This is contract evidence, not live coding-agent execution.
+
+Copied the changed bridge source into the isolated Ubuntu acceptance installation. Actual native dispatch of a dummy opaque request returns exit 1 with pairing instructions (`output/setup/linux-dispatch-unpaired-recovery.log`). No bridge credential, claim, network request, coding-agent prompt or inference is involved. The graphical desktop remains stopped. Visible desktop protocol recovery and paired per-agent Linux fixes remain unverified; see [graphical preparation](linux-desktop-acceptance.md).
+
+Validation: 194 Node and 159 Convex tests, total 353; lint has zero errors and two existing warnings; application and Convex typechecks and local production build pass. Artifacts are `output/setup/bridge-dispatch-{setup-tests,full-tests,lint,types,convex-types,build}.log`. No web/Convex source changed, so the hosted release remains unchanged; this CLI source update is delivered locally and to the acceptance guest.

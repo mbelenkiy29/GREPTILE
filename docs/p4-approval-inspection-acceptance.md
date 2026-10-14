@@ -1,0 +1,13 @@
+# Perforce approval inspection acceptance
+
+This increment adds read-only native approval inspection to Code Providers and closes cross-repository reader access to approval diagnostics. It does not implement or enable automatic Perforce approvals.
+
+Native checks on the existing official P4 Code Review fixture returned reviews 7/version1, 10/version2 and 14/version1, all pending/needsReview. Their native transitions currently offer approval to the bot and report no native approval blocker categories. Every result retains the permission-filtered file inventory coverage limitation. Native availability cannot establish complete review coverage, passing exact-version checks or absence of human objections. No vote, review transition, submit, source edit or inference call was performed.
+
+The public action requires administrator access before and after retrieval and checks connection credentials/instance after the native read. Native snapshots before and after transitions reject observed revision/state/update changes. Results redact private native blocker project/user/test metadata into generic categories. This remains a point-in-time diagnostic; API read operations are not atomic.
+
+Tests cover native revision races, malformed metadata, permissions, unknown blocker categories, commit-only transition rejection, private-data redaction, viewer denial, suspension/credential/membership changes during retrieval, and loss/restoration of source-team access to approval diagnostics. The final full run passes 153 Node and 110 Convex tests (263 total). Lint, typecheck and local build pass.
+
+Evidence artifacts: `output/setup/p4-approval-inspection-native-evidence.json`, `p4-approval-inspection-hosted-evidence.json`, `p4-approval-inspection-all-tests-final.log`, `p4-approval-inspection-authorization-tests.log`, `p4-approval-inspection-typecheck.log`, `p4-approval-inspection-lint.log`, `p4-approval-inspection-build.log`. Hosted browser evidence and deployment identity are appended after verification. The full acceptance matrix remains incomplete; inference spending remains $2.358294 / $5.
+
+Production release `dpl_9chdMhKKaDcDkPHgCMem1DcLLcun` is READY at the canonical alias with Convex deployment and no removed indexes. Hosted public-action inspection confirms review10/version2 with one coverage limitation. Desktop and genuine390×844 mobile computer-use navigation verify the new links and diagnostic content. Mobile document/body width are390; revision text wraps. Sticky-header anchor spacing is140px. Browser proof: `output/setup/p4-approval-inspection-desktop-live.png`, `p4-approval-inspection-mobile-live.png`. Temporary viewport override is reset after capture.

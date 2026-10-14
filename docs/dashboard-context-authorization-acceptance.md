@@ -1,0 +1,17 @@
+# Dashboard and knowledge context visibility
+
+October 4, 2026. Knowledge search already collects all stored subsystem records and matches subsystem, description, files, dependencies, risks and conventions. Existing regression coverage includes 105 entries and pinned source links. Its actual related-finding query still lacked cross-repository reader checks, as did the shared overview's review/finding/usage projections.
+
+## Fix and regression
+
+`convex/dashboard.ts` now rechecks access to every repository recorded in a review's context receipt before returning shared overview reviews, findings or review-attributed usage. It also checks repositories named in each finding's evidence. Parent-review lookup is cached per query and independently loads reviews outside the overview's recent 100-review window. Knowledge entries retain primary-repository authorization and source-pinned search; related findings additionally require a matching parent review and readable review context/evidence.
+
+The regression failed before the fix because the overview returned a private-context review, finding and usage event to a workspace member lacking the source team's access. The corrected test verifies both overview and knowledge denial, visibility after a source-team viewer grant, and denial after removing that grant. Inserting 100 later public-context reviews pushes the private parent outside the overview window; its finding and usage stay hidden. Existing analytics, review detail/list, approval and Fix denial/grant/removal assertions remain in the same test.
+
+No identity, membership, repository or cluster was changed in production for this regression. It uses controlled Convex fixtures; a separate live restricted-user browser remains required. The management overview's historical 100/200/1000 windows and knowledge's documented latest-100 related-finding limit remain explicit. Full stored knowledge scans still depend on Convex read limits. No new pagination/full-period metric claim is made.
+
+## Verification
+
+179 Node + 149 Convex = **328 passing tests**, lint, typecheck and local production build passed. Evidence logs: `output/setup/dashboard-context-denial-before.log`, `dashboard-context-denial-after.log`, `dashboard-context-all-tests.log`, `dashboard-context-lint.log`, `dashboard-context-typecheck.log`, `dashboard-context-build.log`. Hosted production build passed; release `dpl_6SLryoFGRfB9TcUS5R9X9CN2rY2N` is READY and aliased to https://openreview-flame-two.vercel.app. Native Chrome reload of Origin repository + Money search returned the same two entries and one related open finding. The owner Usage page rendered eight repositories, $2.1835 of bounded recorded workspace attribution and its explicit most-recent-1,000 limit. These amounts are not the provider-wide key bill or durable inference-cap remainder. Both pages had empty warning/error logs. Screenshot: `output/setup/dashboard-knowledge-context-current.png`. No review, inference, credential or production membership mutation occurred. The owner walkthrough proves normal authorized rendering; the restricted-member grant/removal evidence is fixture-based.
+
+The broader goal remains incomplete, including native multi-user/browser acceptance, remaining providers and operating systems. This closes concrete data-return paths in the existing authorization model; it does not establish the whole isolation matrix.

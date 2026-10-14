@@ -1,0 +1,85 @@
+environment:
+  variables:
+    - BITBUCKET_FORGE_APP_ID
+    - OPENREVIEW_URL
+app:
+  id: ${BITBUCKET_FORGE_APP_ID}
+  runtime:
+    name: nodejs24.x
+modules:
+  bitbucket:workspaceSettingsMenuPage:
+    - key: openreview-settings
+      title: OpenReview
+      resource: settings
+      resolver:
+        endpoint: openreview-settings-remote
+  bitbucket:workspacePersonalSettingsPage:
+    - key: openreview-personal
+      title: OpenReview identity
+      resource: personal
+      resolver:
+        endpoint: openreview-settings-remote
+  trigger:
+    - key: openreview-product-events
+      endpoint: openreview-events
+      events:
+        - avi:bitbucket:push:repository
+        - avi:bitbucket:created:pullrequest
+        - avi:bitbucket:updated:pullrequest
+        - avi:bitbucket:fulfilled:pullrequest
+        - avi:bitbucket:rejected:pullrequest
+        - avi:bitbucket:created:pullrequest-comment
+        - avi:bitbucket:updated:pullrequest-reviewer-status
+  scheduledTrigger:
+    - key: openreview-hourly-refresh
+      endpoint: openreview-token-refresh
+      interval: hour
+  preUninstall:
+    - key: openreview-pre-uninstall
+      endpoint: openreview-uninstall
+  endpoint:
+    - key: openreview-settings-remote
+      remote: openreview
+      auth:
+        appUserToken:
+          enabled: true
+        appSystemToken:
+          enabled: true
+    - key: openreview-events
+      remote: openreview
+      route:
+        path: /api/bitbucket/forge/events
+    - key: openreview-token-refresh
+      remote: openreview
+      route:
+        path: /api/bitbucket/forge/refresh
+      auth:
+        appSystemToken:
+          enabled: true
+    - key: openreview-uninstall
+      remote: openreview
+      route:
+        path: /api/bitbucket/forge/uninstall
+resources:
+  - key: settings
+    path: static/build
+  - key: personal
+    path: static/build/personal
+permissions:
+  scopes:
+    - read:app-user-token
+    - read:app-system-token
+    - read:user:bitbucket
+    - read:workspace:bitbucket
+    - read:repository:bitbucket
+    - admin:repository:bitbucket
+    - read:pullrequest:bitbucket
+    - write:pullrequest:bitbucket
+remotes:
+  - key: openreview
+    baseUrl: ${OPENREVIEW_URL}
+    operations:
+      - compute
+      - storage
+    storage:
+      inScopeEUD: true

@@ -1,0 +1,170 @@
+{
+  "fixture": "cross-file",
+  "input": {
+    "repository": "evaluation/cross-file",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "title": "Change cross-file",
+    "description": "Review the committed change.",
+    "mode": "standard",
+    "rules": [],
+    "diff": [
+      {
+        "path": "src/change.ts",
+        "status": "modified",
+        "patch": "@@ -1,1 +1,1 @@\n-export function total(cents,qty) { return cents*qty; }\n+export function total(cents,qty) { return cents*qty/100; }"
+      }
+    ],
+    "files": [
+      {
+        "path": "src/change.ts",
+        "content": "export function total(cents,qty) { return cents*qty/100; }",
+        "sha": "b"
+      },
+      {
+        "path": "src/billing.ts",
+        "content": "import { total } from './change';\n// Payment provider amount is integer cents.\nexport function charge(provider,cart) { return provider.charge({amount:total(cart.priceInCents,cart.quantity),currency:'USD'}); }",
+        "sha": "c"
+      }
+    ]
+  },
+  "result": {
+    "summary": "## Summary of Changes\n- **src/change.ts:**\n  - The exported function `total(cents, qty)` has been changed from returning `cents * qty` (total price in cents) to `cents * qty / 100` (total price in (floating-point) dollars).\n\n## Affected Areas\n- `src/change.ts` (core calculation logic for cart totals)\n- Downstream: `src/billing.ts` (calls `total` and expects return value in integer cents for payment processing)\n\n## Risk & Compatibility\n- **Risk Area:** High risk for compatibility and correctness. The interface and meaning of the `total` function have changed without refactoring downstream usage or API contracts.\n\n### Verified Finding (Critical Severity)\n- **Problem:**\n  - `charge()` in `src/billing.ts` still expects the `amount` in integer cents (as documented in the inline comment), but is now receiving a floating-point dollar amount from the updated `total()`.\n  - This can lead to payment provider API errors, overcharging/undercharging, or outright transaction failures, as providers generally require cent-denominated integer amounts.\n- **Evidence:**\n  - `src/change.ts`: `export function total(cents,qty) { return cents*qty/100; }`\n  - `src/billing.ts`: Notes and code expecting integer cents.\n\n## Tests & Coverage Limits\n- No test modifications or new tests are included in the patch.\n- No verification that provider interactions or cart calculations behave as expected with the new return value type.\n- Downstream consumers' expectations for data types/units are not updated, creating a clear compatibility gap.\n\n## Recommendation\n- Either revert the division by 100 and maintain return in cents, or migrate/adjust all consumer code (including billing and tests) to expect and correctly handle dollar values.\n- Code review and end-to-end testing are strongly recommended prior to merging, as this change affects payment computation logic.\n\n---\n**Severity:** Critical\n**Limitations:** Analysis is limited to visible changes; no tests or provider stubs included in the patch. Actual runtime impact depends on deployment environment and payment provider strictness.\n",
+    "findings": [
+      {
+        "title": "total() now returns dollar value instead of cents, breaking charge() expectations",
+        "description": "The change in 'src/change.ts' modifies the 'total' function to divide (cents*qty) by 100, so it now returns a dollar value instead of cents. However, in 'src/billing.ts', 'charge()' expects an amount in integer cents (as per its comment), so the API call now receives a floating-point dollar value. This breaks correctness and compatibility with the payment provider API, which may reject or mishandle non-integer or non-cent-denominated values.",
+        "severity": "critical",
+        "confidence": 0.95,
+        "category": "correctness",
+        "filePath": "src/change.ts",
+        "startLine": 1,
+        "endLine": 1,
+        "evidence": [
+          {
+            "filePath": "src/change.ts",
+            "startLine": 1,
+            "quote": "export function total(cents,qty) { return cents*qty/100; }"
+          },
+          {
+            "filePath": "src/billing.ts",
+            "startLine": 2,
+            "quote": "// Payment provider amount is integer cents."
+          },
+          {
+            "filePath": "src/billing.ts",
+            "startLine": 3,
+            "quote": "export function charge(provider,cart) { return provider.charge({amount:total(cart.priceInCents,cart.quantity),currency:'USD'}); }"
+          }
+        ],
+        "impact": "This change may cause payment amounts sent to providers to be incorrect and potentially lead to undercharging, overcharging, or rejected transactions due to non-integer/fractional values.",
+        "suggestedFix": "Revert the change in total() to return cents as before: 'return cents*qty;', or update all callsites and API contract expectations for dollar values.",
+        "symbol": "total",
+        "agent": "correctness",
+        "fingerprint": "131a8c6f18532a301c683f0828569366",
+        "commitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "diagrams": [],
+    "metadata": {
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "mode": "standard",
+      "context": [
+        {
+          "path": "src/change.ts",
+          "reason": "changed file, dependency/caller/test, exact symbol, text match"
+        },
+        {
+          "path": "src/billing.ts",
+          "reason": "dependency/caller/test, text match"
+        }
+      ],
+      "candidates": 4,
+      "suppressed": 3,
+      "resolvedFingerprints": []
+    },
+    "usage": [
+      {
+        "task": "review:correctness",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 470,
+        "outputTokens": 341,
+        "latencyMs": 3296,
+        "estimatedCost": 0.003668,
+        "cached": false
+      },
+      {
+        "task": "review:security",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 472,
+        "outputTokens": 6,
+        "latencyMs": 921,
+        "estimatedCost": 0.000992,
+        "cached": false
+      },
+      {
+        "task": "review:data",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 468,
+        "outputTokens": 341,
+        "latencyMs": 4215,
+        "estimatedCost": 0.003664,
+        "cached": false
+      },
+      {
+        "task": "review:compatibility",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 465,
+        "outputTokens": 332,
+        "latencyMs": 4231,
+        "estimatedCost": 0.003586,
+        "cached": false
+      },
+      {
+        "task": "review:testing",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 474,
+        "outputTokens": 265,
+        "latencyMs": 3314,
+        "estimatedCost": 0.003068,
+        "cached": false
+      },
+      {
+        "task": "review:performance",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 473,
+        "outputTokens": 6,
+        "latencyMs": 924,
+        "estimatedCost": 0.000994,
+        "cached": false
+      },
+      {
+        "task": "verify",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 976,
+        "outputTokens": 24,
+        "latencyMs": 1499,
+        "estimatedCost": 0.002144,
+        "cached": false
+      },
+      {
+        "task": "summary",
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "inputTokens": 766,
+        "outputTokens": 852,
+        "latencyMs": 6340,
+        "estimatedCost": 0.008348,
+        "cached": false
+      }
+    ]
+  }
+}

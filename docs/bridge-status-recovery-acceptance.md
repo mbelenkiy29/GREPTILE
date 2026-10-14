@@ -1,0 +1,15 @@
+# Bridge setup and disconnected status recovery
+
+October 4, 2026. Delivered in the local CLI source, with no hosted function or frontend change.
+
+Previously `openreview bridge status` loaded pairing configuration and contacted the server before detecting agents. Missing configuration or a rejected/disconnected server prevented users from seeing any local agent information. The command now performs bounded local `--help` checks first. Readable configuration supplies registered Git/P4 checkout counts, followed by the existing remote pairing response.
+
+Missing pairing produces actionable pairing/approval instructions. Malformed or unreadable configuration produces a generic repair message without printing its contents. HTTP credential rejection retains its status code; network failures produce a generic connection/recovery message. Every unavailable pairing/server/configuration case retains a nonzero process exit status. Status does not write configuration, replace credentials, claim a Fix request or register a checkout. Registered counts are not fabricated when configuration cannot be read.
+
+The regression failed before the change because missing pairing returned empty stdout instead of local diagnostics. The corrected subprocess test verifies missing, malformed, HTTP-rejected, transport-failed and successful paired responses. A help-only Codex fixture is available while Claude/Cursor are absent from the restricted PATH; it is explicitly not coding-agent execution evidence. The rejected-config test checks byte-for-byte configuration preservation, no credential values in stdout/stderr, and no extra request after malformed configuration. The only fixture endpoint requested is status, never claim/report.
+
+Separate native macOS CLI checks use an isolated temporary HOME and PATH without agents. The unpaired command returns exit 1 after reporting all three unavailable and pairing instructions. The canonical hosted endpoint rejects a deliberately invalid non-secret all-zero token with HTTP 400; CLI retains exit 1, reports local availability/counts and preserves the fixture config. No real pairing, access grant, installed agent, or user bridge was changed. A restricted PATH proves detection behavior in that environment; it does not imply the user's installed Mac agents are absent.
+
+192 Node + 158 Convex = **350 passing tests**, lint, frontend/backend typechecks and production build passed. Tests contain no paid inference. No hosted deployment is required for the CLI-only change. Native Linux/Windows desktop protocol and per-agent Fix acceptance remain separate and incomplete.
+
+Artifacts: `output/setup/bridge-status-red.log`, `bridge-status-green.log` (initial focused result), `bridge-status-regression.log` (final expanded regression), `bridge-status-native-receipt.json`, `bridge-status-native-unpaired.log`, `bridge-status-native-rejected.log`, `bridge-status-lint.log`, `bridge-status-types.log`, `bridge-status-backend-types.log`, and `bridge-status-build.log`. README documents diagnostic output and failure status.

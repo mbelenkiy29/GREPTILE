@@ -1,0 +1,13 @@
+# Security lifecycle audit acceptance
+
+October 4, 2026. API-key creation/revocation, invitation creation/replacement/revocation/acceptance, and workspace membership removal/role changes now append an audit record in the same Convex transaction. Records contain the workspace, acting user, action and target ID; credentials, hashes and key labels are excluded. Repeated key revocation and unchanged role saves produce no duplicate success record. Failed authorization and last-owner protection remain fail-closed without success records. Historical events are not backfilled.
+
+The admin-only activity query resolves the actor's login (or an explicit unavailable/system label). The portal labels timestamps UTC and exposes keyboard horizontal scrolling through the shared accessible table region.
+
+A durable regression covers invitation replacement/acceptance/revocation, denied grants, last-owner removal, exact-once revocation and role updates, actor identity, credential exclusion and removed-member audit denial. Full 170 Node + 139 Convex = **309 tests**, lint, typecheck and local production build pass.
+
+Live production acceptance created/revoked one existing-owner self-invitation and an unreachable test key stored only as a random hash. No usable API credential was generated. Exactly four expected audit events were returned; the invitation was removed and key revoked, with repeated revocation producing no duplicate. No role/access change, inference, review or agent launch occurred. Evidence: `output/setup/security-audit-live-evidence.json` and `security-audit-live.log`. Live membership role changes and multi-user invitation acceptance are not established by this fixture.
+
+Native Chrome 390×844 inspection confirmed Audit and People document/body width at 390, bounded horizontal audit overflow, existing-owner membership and no pending invitations. Initial screenshots: `security-audit-mobile-live.png`, `people-mobile-current-live.png`. These are particular screen checks, not the full mobile/dark acceptance matrix.
+
+Final production release `dpl_EQqgzta5C244Thse5ns7Rqdx2oK8` is READY and aliased to https://openreview-flame-two.vercel.app. Hosted build deployed the actor query to tidy-ocelot-457. One initial CLI authorization failure was resolved by a successful retry without any permission change. Native final desktop/mobile inspection verifies actor `mbelenkiy29`, explicit UTC headers and exact four events. At 390px, the table region is 318px with 912px content; ArrowRight=64, End=594, ArrowLeft=530, Home=0. Document/body stay 390px. No warning/error logs. Viewport restored. Evidence: `security-audit-actor-{mobile,desktop}-live.png` and private deployment log.

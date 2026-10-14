@@ -1,0 +1,24 @@
+# Linux graphical acceptance preparation
+
+October 4, 2026. Provisioned an actual XFCE desktop and terminal in the existing isolated Ubuntu acceptance VM using its official Ubuntu repositories. The apt plan installed 147 new packages, with no upgrades or removals. This adds graphical preparation to [native agent installation](linux-agent-installation-acceptance.md).
+
+TigerVNC ran on guest loopback only, with a private password, no saved macOS password, and clipboard transfers disabled in both directions. An existing Lima management SSH connection forwarded only host loopback port 5959 to guest loopback port 5901. No host mounts, public listener, agent authentication or bridge credential was added.
+
+Through native macOS Screen Sharing computer use, opened the actual guest terminal from the XFCE dock and typed the current OpenReview bridge status command. The visible result detects Codex, Claude Code and Cursor Agent and gives actionable unpaired setup instructions. The screenshot is `output/setup/linux-desktop-bridge-status.png`.
+
+The first actual `xdg-open` invocation with a dummy opaque request failed: the custom session had empty `XDG_CURRENT_DESKTOP` and `DESKTOP_SESSION`, so the launcher used its generic browser fallback. Native terminal inspection confirmed the missing session variables and active display `:1.0`. The registered desktop file and native default association were still present. The acceptance session startup now exports the standard XFCE identity for its next start. Screen Sharing was closed during the retry; its result was not observed and is not a protocol-dispatch pass. The initial failure screenshot is retained separately as `output/setup/linux-desktop-protocol-initial-failure.png`.
+
+Stopped only TigerVNC display `:1` and cancelled only the temporary SSH forwarding, preserving Lima's shared management connection. Fresh inspection confirms no TigerVNC sessions, no guest 5901 listener and no host 5959 listener. The runtime worker remains disabled and inactive. Desktop packages and private startup configuration are retained for the next acceptance run; no desktop autostart service was enabled.
+
+No product source or hosted deployment changed, no agent prompt or model inference occurred, and no regression suite was rerun for infrastructure preparation. Current product verification remains 352 tests plus lint, typechecks and builds. Authenticated per-agent launches, browser-to-protocol dispatch, paired recovery cases, regression-tested Linux fixes and Windows acceptance remain incomplete.
+
+
+## Native protocol recovery verified after correction
+
+A fresh corrected XFCE session and actual native terminal now dispatch the registered `openreview://fix` handler via `xdg-open`. Screen Sharing occasionally retained a stale framebuffer; reconnecting to the same live display revealed the actual terminal state without restarting guest processes. The handler opened the configured terminal, but its unpaired error closed immediately. Product correction adds the fixed `--desktop` option only to the Linux launcher and pauses on CLI errors only when both stdin and stdout are terminals. Noninteractive commands retain immediate nonzero exits, and successful dispatches receive no extra pause. No repository content is evaluated by a shell.
+
+Reinstalled the actual handler using the updated CLI in the guest. Native computer use executed a dummy opaque request, observed pairing instructions and the retained “Press Enter to close this error. Findings remain unresolved.” message, then pressed Enter. Native process inspection confirms the dispatch process exited and no bridge config exists. Screenshot: `output/setup/linux-protocol-native-unpaired-retained.png`; native final state: `linux-protocol-native-final-state.log`. This proves Linux protocol-to-terminal unpaired recovery, not browser consent, bridge pairing, request claim or any real coding-agent fix.
+
+Updated subprocess regression also exercises `--desktop` with non-TTY pipes and confirms no pause or launch; Linux launcher quoting test retains the explicit URI field with the fixed flag. 194 Node + 159 Convex tests (353), lint (two existing warnings), application typecheck and local build pass. No Convex source changed; preceding Convex typecheck remains applicable. CLI source is delivered locally and in the acceptance guest; hosted release unchanged. Logs: `linux-desktop-error-{full-tests,lint,types,build,install}.log`.
+
+The display was closed through native UI, only its TigerVNC display stopped, and only its SSH forwarding cancelled. Fresh `linux-protocol-desktop-cleanup.log` confirms neither loopback display listener remains. Worker stayed disabled/inactive; no agent authentication, request claim or inference occurred. Full Linux/Windows per-agent fix matrices remain pending.
