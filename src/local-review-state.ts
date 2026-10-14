@@ -7,7 +7,7 @@ import { agentStateSchema, type AgentHooks, type AgentState } from "./engine/age
 // Saved state for interrupted local agentic reviews (`openreview review --resume`). One file per
 // checkout and base commit in the OS cache directory, owner-only. The state is used only when it was
 // saved for the current HEAD; if the head moved, it is discarded and the review starts over.
-export function cacheDirectory(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home = homedir()) {
+export function cacheDirectory(env: Record<string, string | undefined> = process.env, platform: NodeJS.Platform = process.platform, home = homedir()) {
   if (platform === "darwin") return path.join(home, "Library", "Caches", "openreview");
   if (platform === "win32") return path.join(env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "openreview", "cache");
   return path.join(env.XDG_CACHE_HOME && path.isAbsolute(env.XDG_CACHE_HOME) ? env.XDG_CACHE_HOME : path.join(home, ".cache"), "openreview");
