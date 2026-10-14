@@ -39,7 +39,7 @@ try {
   await page.goto(url);
   await page.getByRole("link", { name: "Sign in with GitHub" }).waitFor();
   await page.getByRole("heading", { name: "How it works" }).waitFor();
-  await page.screenshot({ path: "output/playwright/home.png", fullPage: true });
+  await page.screenshot({ path: "output/playwright/home.png", fullPage: true, caret: "initial" });
   for (const [path, heading] of [["/docs/quickstart", "Quickstart"], ["/docs/api", "Public API"], ["/docs/configuration", "Repository configuration as code"], ["/changelog", "Changelog"]]) {
     await page.goto(url + path);
     await page.getByRole("heading", { name: heading, level: 1 }).first().waitFor();
@@ -180,12 +180,12 @@ try {
   await settled();
   await page.screenshot({
     path: "output/playwright/dashboard.png",
-    fullPage: true,
+    fullPage: true, caret: "initial",
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: "output/playwright/mobile.png",
-    fullPage: true,
+    fullPage: true, caret: "initial",
   });
   assert.ok(
     await page.evaluate(
@@ -198,13 +198,13 @@ try {
   for (const path of ["/dashboard", "/dashboard/chat", "/dashboard/settings/billing", "/docs/quickstart"]) {
     await page.goto(url + path);
     await settled();
-    await page.screenshot({ path: `output/playwright/dark-mobile${path.replaceAll("/", "-")}.png`, fullPage: true });
+    await page.screenshot({ path: `output/playwright/dark-mobile${path.replaceAll("/", "-")}.png`, fullPage: true, caret: "initial" });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Dark mobile ${path} overflows horizontally`);
   }
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${url}/dashboard`);
   await settled();
-  await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true });
+  await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true, caret: "initial" });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
     `Browser verification passed: landing, docs, changelog, onboarding, repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
