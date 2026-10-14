@@ -12,7 +12,7 @@ existing classes and tokens; avoid inline colours.
 ## Principles
 
 - **Hairlines before shadows.** Cards, tables and inputs use a 1px `--line` border. Only things that float get a shadow: popovers, the toast, and the app windows on the landing page.
-- **One accent, used sparingly.** Ember is for links, focus rings and emphasis. Never use it as a background fill.
+- **One accent, used sparingly.** Ember is for links, focus rings, emphasis and the dot in the logo. Never use it as a background fill.
 - **Two weights.** Inter at 400 for headings and body text, 500 for labels and small headings. Headings never use 600 or 700, and they tighten as they grow.
 - **Monospace for machine text.** File paths, SHAs, timestamps, metric labels, badges and code are set in JetBrains Mono.
 - **Square-ish corners.** Use 4px on controls, cards and tiles, and 8px on popovers and windows. No pills.
@@ -35,7 +35,7 @@ These are defined on `:root`. Dark mode overrides them under `[data-theme="dark"
 | `--text-ter` | `#8d8c86` | `#6f6e69` | Decorative only: line numbers, list markers |
 | `--line` / `--line-strong` | ink at 10% / 20% | same | Hairlines / input borders and table header rules |
 | `--accent` | `#c03c00` | `#ff6a26` | Link text; a darker ember so small text meets AA |
-| `--ember` | `#f54e00` | `#f54e00` | Focus ring, chart emphasis series |
+| `--ember` | `#f54e00` | `#f54e00` | Focus ring, chart emphasis series, logo dot |
 | `--primary` / `--on-primary` | ink / parchment | ink / near-black | Primary buttons |
 | `--success`, `--error`, `--warning` (+ `-bg`) | `#18704f`, `#b3264a`, `#7c5011` | `#5cc49b`, `#f0718f`, `#d9a352` | Status text on translucent tints |
 | `--radius` / `--radius-lg` | 4px / 8px | | Controls and cards / popovers and windows |
@@ -82,7 +82,16 @@ All of these are global classes in `app/globals.css`.
   - Tables use mono muted headers and hairline rows.
   - `LineChart` and `BarList` (`app/ui/charts.tsx`) use ink, ember, green and amber series.
 - **Diff** (`app/dashboard/diff-files.tsx`): mono text, translucent green and red line tints, and a finding inset card after the line it anchors to.
-- **Brand.** `Mark` (`app/ui/logo.tsx`) is an ink tile with a check. It is drawn in `currentColor` with the check in `--bg`, so it inverts with the theme. The favicon and the Open Graph image use the same mark.
+- **Brand.** The mark is four lines of code, the middle two indented, with an ember dot pinned beside the third: a finding on a line.
+  - The lines take the text colour and invert with the theme. The dot is the one place the logo uses `--ember`.
+  - Cuts share one geometry, each fitted to a pixel grid. Use each only where it is fitted:
+    - **Master** (`brand/openreview-mark.svg`): 24 px and up, except at multiples of 16.
+    - **Header cut** (`Mark` in `app/ui/logo.tsx`): exactly 20 px. Its edges land on whole device pixels at 2x; on 1x screens they anti-alias by half a pixel.
+    - **Small cut** (`brand/openreview-mark-small.svg`): multiples of 16 px. It is the tab icon (`app/icon.svg`) and the 128 px artwork inside the 180 px `app/apple-icon.png`.
+    - **Favicon tile** (`brand/openreview-favicon.svg`): `app/favicon.ico` at 16, 32 and 48 px. It is a separate 16 px drawing on an ink tile, because a static ICO cannot follow the theme.
+  - Theme-following uses (`Mark`, `app/icon.svg`) recolour one geometry. The reversed files, with lines thinned for dark backgrounds, are for static artwork on ink: the apple icon, slides and print.
+  - Use the one-colour version (`-mono`) where the accent can't be reproduced.
+  - The Open Graph image (`app/opengraph-image.tsx`) uses the master.
 
 ## Public site
 

@@ -398,6 +398,9 @@ form:not(.toolbar):not(.form-grid):not(.feedback) {
   height: 20px;
   color: var(--text);
 }
+.mark-dot {
+  fill: var(--ember);
+}
 
 /* ---------- App chrome ---------- */
 .shell {
@@ -1650,7 +1653,8 @@ form.catalog-review {
 }
 .footer-base select {
   width: auto;
-  padding: 4px 8px;
+  padding: 4px 26px 4px 8px;
+  background-position: right 9px center;
   font-size: 12px;
 }
 .docs-layout {

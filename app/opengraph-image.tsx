@@ -7,7 +7,13 @@ export default function OpengraphImage() {
   return new ImageResponse(
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 72, background: "#f7f7f4", color: "#26251e", fontFamily: "sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 36, fontWeight: 500 }}>
-        <svg width="48" height="48" viewBox="0 0 20 20"><rect width="20" height="20" rx="4" fill="#26251e" /><path d="M5.5 10.5l3 3 6-7" fill="none" stroke="#f7f7f4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <svg width="56" height="56" viewBox="0 0 256 256">
+          <rect x="75" y="44" width="136" height="28" rx="14" fill="#26251e" />
+          <rect x="107" y="88" width="120" height="28" rx="14" fill="#26251e" />
+          <rect x="107" y="132" width="92" height="28" rx="14" fill="#26251e" />
+          <rect x="75" y="176" width="108" height="28" rx="14" fill="#26251e" />
+          <circle cx="42" cy="146" r="22" fill="#f54e00" />
+        </svg>
         OpenReview
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

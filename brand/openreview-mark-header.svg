@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="openreview-title">
+  <title id="openreview-title">OpenReview</title>
+  <g id="openreview-lines" fill="#26251e">
+    <rect x="70.5" y="32" width="153.5" height="32" rx="16"/>
+    <rect x="102.5" y="83" width="140.5" height="32" rx="16"/>
+    <rect x="102.5" y="134.5" width="102.5" height="32" rx="16"/>
+    <rect x="70.5" y="185.5" width="115" height="32" rx="16"/>
+  </g>
+  <circle id="openreview-marker" cx="38.5" cy="150.5" r="28" fill="#f54e00"/>
+</svg>
