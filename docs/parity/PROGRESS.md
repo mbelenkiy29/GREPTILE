@@ -6,7 +6,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   evidence: verified locally; commands: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` all exit 0 | notes: no H1a fix needed (2 pre-existing lint warnings in tests/index-skips.spec.ts, not errors).
 - [x] H2 Git baseline — done
   evidence: verified locally; `.gitignore` covers `.env*` (!.env.example), output/, .convex/, .vercel/, node_modules/, .next/, *.tsbuildinfo; secret scan of 413 files (private-key blocks, sk-/ghp_/ghs_/gho_/github_pat_/xox*/AKIA/whsec_/JWT/Convex deploy keys/assigned secrets, long tokens) found only image digests, commit SHAs, deployment IDs and test fixture literals; commit: c62023e on main; branch `parity` created.
-- [ ] H3 Model layer modernization — todo
+- [x] H3 Model layer modernization — done
+  plan: runTools on ModelProvider (optional member, Anthropic+OpenAI native); native structured output with zod fallback; context prefix + cache_control; reasoning token param + LLM_MAX_OUTPUT_TOKENS; price table w/ overrides & tiers; Claude defaults.
+  evidence: tested with fakes; tests: tests/model-tools.test.ts (9: tool round trips both adapters, thinking replay, breakpoint placement, structured output + 400 fallback, prefix stability on repair, reasoning param, defaults, price table fail-closed/tiers/overrides, cache receipts), tests/inference-budget.spec.ts (+1 cache settle/idempotency), tests/engine.test.ts (+1 specialists share prefix); commands: lint/typecheck/test green (208 Node + 161 vitest); commit: 12b12b0
+  notes: deliberately updated test accessors (engine/linear/perforce-depot/pipeline/p4-index) to read the specialist payload from `request.context`, and tests/model.test.ts now expects `json_schema` for provider openai. Prices/IDs checked against official docs 2026-10-14.
 - [ ] H4 Production-readiness runbook — todo
 - [ ] A1 Resilience and scale — todo
 - [ ] A2 Agentic reviewer — todo
@@ -41,6 +44,13 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
 
 ## Decisions (date — decision — reason)
+- 2026-10-14 — Anthropic structured output uses `output_config.format` (GA, no beta header), not forced tool use — forced tool_choice conflicts with always-on adaptive thinking on Claude 5.x.
+- 2026-10-14 — Specialists share one system prompt; the review payload moves to `ModelRequest.context` (a stable prefix) and the category goes in a small trailing `assignment` input — lets 7 specialist calls share one cache write instead of 7 full-price inputs. Repairs are appended after the prefix on Anthropic.
+- 2026-10-14 — `runTools` is an optional `ModelProvider` member so existing fake providers compile; agentic callers must fall back when absent.
+- 2026-10-14 — Haiku 5.5's >100k-token tier is chosen from the reservation ceiling (request bytes); settlement reuses the reserved price — may over-count budget for mid-size prompts, never under-count.
+- 2026-10-14 — gpt-5.4/5.5 (context-tiered at 272k) are not built-in prices; operators can add them via INFERENCE_PRICES.
+- 2026-10-14 — Display cost now falls back to the built-in price table when LLM_*_COST_PER_MILLION is 0 (previously reported 0).
+- 2026-10-14 — Default output limit is 16000 for Claude/reasoning models because thinking tokens count toward max_tokens; 6000 otherwise (unchanged).
 - 2026-10-14 — The baseline commit includes `.claude/skills/greptile-parity/` — the plan must travel with the repo so any agent can resume.
 
 ## Baseline (H1 results, test counts)
