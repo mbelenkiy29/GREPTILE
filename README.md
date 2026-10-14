@@ -13,7 +13,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
 **Reviews**
 - API guidance packs: built-in and repository packs (`.openreview/guides/*.md`) load when a change imports a matching SDK and add review guidance only.
 - Knowledge base entries about the changed files are supplied to reviews as labelled background (never evidence) and listed in the summary's coverage.
-- Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
+- Repository-aware reviews. A tree-sitter code graph covers 12 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
 - Three engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions, and an optional hypothesis engine plans concrete bug hypotheses and investigates each one in parallel with its own budget.
 - Security checks: deterministic pattern checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization) and OSV.dev advisories for changed npm, PyPI, Go, crates.io and Maven dependencies; feedback cannot suppress them.
 - Experimental routing for agent-authored pull requests: explicit signals (agent bot authors, Co-Authored-By trailers, branch prefixes, description markers) can send them to a dedicated review model; the reason is recorded.
@@ -134,7 +134,7 @@ The OpenAI and Anthropic adapters request native JSON-schema output (`LLM_STRUCT
 
 Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMARY`, `LLM_MODEL_KNOWLEDGE`, and `LLM_MODEL_CONVERSATION`. Review depth adjusts context budgets: Fast 8k, Standard 16k, Deep 40k estimated tokens. Two simultaneous specialist calls bound inference concurrency. Provider rate limits and transient failures receive bounded backoff. Review cancellation stops between persisted stages; an already-running HTTP model call may finish.
 
-Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++ and Swift use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
+Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++, Swift and Elixir use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
 
 Review summary: each pull request (or GitLab merge request) has exactly one OpenReview summary comment. It is found by a hidden marker and edited in place on every run, while inline findings are posted as review comments; GitHub creates no review when there are no inline findings. Sections can be toggled per scope under Review formatting:
 - overview

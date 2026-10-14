@@ -10,6 +10,7 @@ import type Parser from "web-tree-sitter";
 export const grammarByExtension: Record<string, string> = {
   py: "python", pyi: "python", go: "go", java: "java", kt: "kotlin", kts: "kotlin", rs: "rust", rb: "ruby",
   cs: "c_sharp", php: "php", c: "c", h: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", hpp: "cpp", hh: "cpp", hxx: "cpp", swift: "swift",
+  ex: "elixir", exs: "elixir",
 };
 export const grammarFor = (file: string) => grammarByExtension[file.split(".").pop()?.toLowerCase() ?? ""];
 
