@@ -30,3 +30,20 @@ category: correctness
 globs: src/billing/**
 Amounts are integer cents everywhere; flag floats or division that produces fractional cents.
 ```
+
+## Rule assistant
+
+Admins can ask the configured model for help on the Custom rules page. There are three kinds of request:
+
+- **Draft a rule** from a plain-language description, at the scope you pick.
+- **Review existing rules.** The assistant proposes tighter wording for vague rules (words such as "properly" or "best practices" are flagged first) and flags pairs of rules that conflict or duplicate each other. Reusing a title at a narrower scope is a deliberate override and is not flagged.
+- **Suggest rules** from two sources: groups of findings that authors fixed on at least two pull requests, and approved learned conventions that no rule covers yet. Each suggestion lists the findings (with the pull requests) or the convention it is based on. It is scoped to the repository or team all of its sources share, and to the workspace otherwise.
+
+Every result is a **suggestion**. Nothing changes until an admin acts on it:
+
+- **Approve** a drafted or suggested rule to create it; you can edit the title, instructions and severity first.
+- **Approve** tighter wording to apply it to the existing rule. If someone edited that rule after the suggestion was made, the suggestion closes as out of date instead.
+- **Approve** an overlap flag to disable the newer rule of the pair.
+- **Dismiss** a suggestion to leave everything as it is.
+
+Model output is checked twice: when it arrives and again when it is approved, including any edits you make. Text that tries to change the reviewer's instructions, suppress or downgrade findings, approve changes, or change budgets and tools is discarded, and so are code blocks, HTML and file globs outside the repository. The run history shows each discarded suggestion and the reason. Each request is one model call, counted against the inference budget and recorded as `rule-assistant` usage. A workspace can have two requests running at once and 30 per day. Requests and decisions are recorded in the audit log.

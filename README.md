@@ -33,6 +33,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Excluded authors and branches, draft handling and size limits.
   - Strictness presets and opt-in comment categories.
 - Custom rules scoped to the workspace, a team, repositories matching a name pattern (such as `acme/*-service`) or one repository; the most specific same-titled rule wins.
+- A rule assistant that drafts rules from a description, tightens vague rules, flags conflicting or duplicate rules, and suggests rules from findings fixed on several pull requests and from approved conventions. Every suggestion cites its sources and waits for an admin's approval.
 - Configuration as code in `.openreview.json` and cascading `.openreview/` folders (per-directory categories, strictness, thresholds and ignore/include globs; the highest tier among touched directories), read from the base branch, with admin locks that a pull request cannot override.
 
 **Learning and memory**

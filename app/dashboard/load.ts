@@ -83,6 +83,7 @@ export async function loadDashboard({
     data.repositories.find((r) => r._id === id)?.fullName ?? id;
   const repoLabel = (id: string) => repositoryDisplay(data.repositories.find(r => r._id === id));
   const isAdmin = ["owner", "admin"].includes(organization.role);
+  const ruleAssistant = ruleView && isAdmin ? await backend().query(api.ruleAssistant.page, { token: user.token, organizationId: organization._id }) : null;
   const pendingInvitations = view === "team" && isAdmin
     ? await backend().query(api.users.invitations,{token:user.token,organizationId:organization._id}) : [];
   let active =
@@ -130,6 +131,6 @@ export async function loadDashboard({
   const conventions = repoSettings ? await backend().query(api.conventions.list, { token: user.token, repositoryId: repoSettings.repo._id }) : [];
   // Narrowed above: a dashboard always has a workspace.
   const workspace = organization as typeof organization & { _id: Id<"organizations"> };
-  return { kind: "dashboard" as const, active, aliases, apiKeys, conventions, data, detail, diagnostics, filters, findingsPage, isAdmin, jar, knowledge, knowledgeState, organization: workspace, pendingInvitations, personalAgent, repoLabel, repoName, repoSettings, requestedRepository, reviewDetailId, route, ruleView, rulesPage, savedTeam, scopes, section, selectedTeam, semantic, user, view, visibleFindings, visibleRules };
+  return { kind: "dashboard" as const, active, aliases, apiKeys, conventions, data, detail, diagnostics, filters, findingsPage, isAdmin, jar, knowledge, knowledgeState, organization: workspace, pendingInvitations, personalAgent, repoLabel, repoName, repoSettings, requestedRepository, reviewDetailId, route, ruleAssistant, ruleView, rulesPage, savedTeam, scopes, section, selectedTeam, semantic, user, view, visibleFindings, visibleRules };
 }
 export type DashboardContext = Extract<Awaited<ReturnType<typeof loadDashboard>>, { kind: "dashboard" }>;

@@ -695,6 +695,48 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_repo", ["repositoryId"]),
+  // AI rule assistant: admin-requested runs and the suggestions they produce. Nothing changes a rule
+  // until an admin approves the suggestion.
+  ruleAssistantRuns: defineTable({
+    organizationId: org,
+    kind: v.string(), // draft | refine | suggest
+    status: v.string(), // pending | completed | failed
+    description: v.optional(v.string()),
+    repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
+    suggestions: v.optional(v.number()),
+    rejected: v.optional(v.array(v.object({ title: v.string(), reason: v.string() }))),
+    error: v.optional(v.string()),
+    requestedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_time", ["organizationId", "createdAt"]),
+  ruleSuggestions: defineTable({
+    organizationId: org,
+    runId: v.id("ruleAssistantRuns"),
+    kind: v.string(), // draft | refine | suggest | flag
+    status: v.string(), // suggested | approved | rejected | stale
+    title: v.string(),
+    instructions: v.string(),
+    category: v.string(),
+    severity: v.string(),
+    globs: v.array(v.string()),
+    repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
+    targetRuleId: v.optional(v.id("customRules")),
+    base: v.optional(v.object({ title: v.string(), instructions: v.string() })),
+    rationale: v.string(),
+    issues: v.array(v.object({ kind: v.string(), detail: v.string(), ruleId: v.optional(v.string()) })),
+    sources: v.array(v.object({ kind: v.string(), label: v.string(), ids: v.array(v.string()), detail: v.optional(v.string()) })),
+    ruleId: v.optional(v.id("customRules")),
+    decidedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_run", ["runId"]),
   // Feature tips shown in review footers (one per review); drives the per-repository cooldown.
   featureTips: defineTable({ organizationId: org, repositoryId: repo, reviewId: review, key: v.string(), ticket: v.optional(v.string()), shownAt: v.number() })
     .index("by_repo_time", ["repositoryId", "shownAt"])

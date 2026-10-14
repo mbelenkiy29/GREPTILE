@@ -355,6 +355,26 @@ export async function editPreference(form: FormData) {
   await notify("Preference updated.");
   revalidatePath("/dashboard", "layout");
 }
+// Rule assistant: requests run in the background; every suggestion waits for an admin decision.
+const backendMessage = (e: unknown, fallback: string) => /Uncaught Error: ([^\n]+?)(?:\s+at |\n|$)/.exec(e instanceof Error ? e.message : "")?.[1] ?? fallback;
+export async function requestRuleAssistant(form: FormData) {
+  const { token } = await current();
+  const kind = z.enum(["draft", "refine", "suggest"]).parse(text(form, "kind"));
+  try {
+    await backend().mutation(api.ruleAssistant.request, { token, organizationId: text(form, "organizationId") as Id<"organizations">, kind, ...(kind === "draft" ? { description: text(form, "description"), ...ruleScopeArgs(text(form, "scope"), "", text(form, "repositoryPattern")) } : {}) });
+    await notify("The rule assistant is working. Refresh in a moment to review its suggestions.");
+  } catch (e) { await notify(backendMessage(e, "The rule assistant could not start."), "error"); }
+  revalidatePath("/dashboard", "layout");
+}
+export async function decideRuleSuggestion(form: FormData) {
+  const { token } = await current();
+  const optional = (key: string) => form.has(key) ? { [key]: text(form, key) } : {};
+  try {
+    const result = await backend().mutation(api.ruleAssistant.decide, { token, suggestionId: text(form, "suggestionId") as Id<"ruleSuggestions">, decision: z.enum(["approved", "rejected"]).parse(text(form, "decision")), ...optional("title"), ...optional("instructions"), ...optional("severity") });
+    await notify(result.status === "stale" ? "That rule changed after the suggestion was made, so the suggestion was closed. Run the assistant again." : result.status === "approved" ? "Rule saved." : "Suggestion dismissed.");
+  } catch (e) { await notify(backendMessage(e, "Could not save this suggestion."), "error"); }
+  revalidatePath("/dashboard", "layout");
+}
 export async function editLearnedRule(form: FormData) {
   const { token } = await current();
   const scope = text(form, "scope"), status = text(form, "status");

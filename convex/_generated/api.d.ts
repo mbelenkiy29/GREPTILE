@@ -90,6 +90,8 @@ import type * as repositoryIdentity from "../repositoryIdentity.js";
 import type * as reviewDiff from "../reviewDiff.js";
 import type * as reviewLifecycle from "../reviewLifecycle.js";
 import type * as reviews from "../reviews.js";
+import type * as ruleAssistant from "../ruleAssistant.js";
+import type * as ruleAssistantJobs from "../ruleAssistantJobs.js";
 import type * as runtime from "../runtime.js";
 import type * as runtimeJobs from "../runtimeJobs.js";
 import type * as scm from "../scm.js";
@@ -193,6 +195,8 @@ declare const fullApi: ApiFromModules<{
   reviewDiff: typeof reviewDiff;
   reviewLifecycle: typeof reviewLifecycle;
   reviews: typeof reviews;
+  ruleAssistant: typeof ruleAssistant;
+  ruleAssistantJobs: typeof ruleAssistantJobs;
   runtime: typeof runtime;
   runtimeJobs: typeof runtimeJobs;
   scm: typeof scm;

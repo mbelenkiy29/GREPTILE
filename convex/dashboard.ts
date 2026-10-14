@@ -1,5 +1,5 @@
 import { recordFindingFeedback } from "./feedbackCore";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories,repositoryAccess,audit } from "./auth";
 import { ruleApplies, validRepositoryPattern } from "../src/rule-scopes";
@@ -100,6 +100,17 @@ export const overview = query({
     };
   },
 });
+// One scope per rule (none = workspace), and it must belong to the rule's workspace.
+export async function assertRuleScope(ctx: MutationCtx, organizationId: Id<"organizations">, scope: { repositoryId?: Id<"repositories">; teamId?: Id<"teams">; repositoryPattern?: string }) {
+  if ([scope.repositoryId, scope.teamId, scope.repositoryPattern].filter((x) => x !== undefined && x !== "").length > 1)
+    throw new Error("Choose one rule scope: workspace, team, repository pattern or repository");
+  if (scope.repositoryId && (await ctx.db.get(scope.repositoryId))?.organizationId !== organizationId)
+    throw new Error("Invalid repository scope");
+  if (scope.teamId && (await ctx.db.get(scope.teamId))?.organizationId !== organizationId)
+    throw new Error("Invalid team scope");
+  if (scope.repositoryPattern !== undefined && scope.repositoryPattern !== "" && !validRepositoryPattern(scope.repositoryPattern))
+    throw new Error("Invalid repository pattern; use owner/name globs such as acme/*-service");
+}
 export const rules = mutation({
   args: {
     token: v.string(),
@@ -128,17 +139,7 @@ export const rules = mutation({
         return;
       }
     }
-    if ([args.repositoryId, args.teamId, args.repositoryPattern].filter((x) => x !== undefined && x !== "").length > 1)
-      throw new Error("Choose one rule scope: workspace, team, repository pattern or repository");
-    if (args.repositoryId) {
-      const repo = await ctx.db.get(args.repositoryId);
-      if (!repo || repo.organizationId !== args.organizationId)
-        throw new Error("Invalid repository scope");
-    }
-    if (args.teamId && (await ctx.db.get(args.teamId))?.organizationId !== args.organizationId)
-      throw new Error("Invalid team scope");
-    if (args.repositoryPattern !== undefined && args.repositoryPattern !== "" && !validRepositoryPattern(args.repositoryPattern))
-      throw new Error("Invalid repository pattern; use owner/name globs such as acme/*-service");
+    await assertRuleScope(ctx, args.organizationId, args);
     if (
       !args.title.trim() ||
       !args.instructions.trim() ||

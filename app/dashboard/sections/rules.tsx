@@ -1,6 +1,6 @@
 import { repositoryDisplay } from "../../../src/provider-display";
 import Link from "next/link";
-import { saveRule } from "../actions";
+import { decideRuleSuggestion, requestRuleAssistant, saveRule } from "../actions";
 import { status, Empty } from "./shared";
 import type { DashboardContext } from "../load";
 
@@ -52,6 +52,7 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
                 </form>
               </section>
             )}
+            {isAdmin && <RuleAssistant ctx={ctx} />}
             {!visibleRules.length && (
               <Empty
                 title="Your codebase, your conventions"
@@ -181,4 +182,79 @@ function RuleScopeFields({ teams, repositories, scope, pattern }: { teams: { _id
       <input name="repositoryPattern" defaultValue={pattern ?? ""} placeholder="acme/*-service" maxLength={200} />
     </label>
   </>;
+}
+
+const assistantKinds: Record<string, string> = { draft: "Drafted rule", refine: "Tighter wording", suggest: "Suggested rule", flag: "Rule overlap" };
+const runKinds: Record<string, string> = { draft: "Draft", refine: "Review of existing rules", suggest: "Suggestions from fixed findings and conventions" };
+// AI rule assistant: every result is a suggestion an admin approves (optionally after editing) or dismisses.
+function RuleAssistant({ ctx }: { ctx: DashboardContext }) {
+  const { ruleAssistant, organization, scopes, data, repoName } = ctx;
+  if (!ruleAssistant) return null;
+  const busy = ruleAssistant.runs.some((r) => r.status === "pending");
+  const scopeLabel = (s: { repositoryId?: string; teamId?: string; repositoryPattern?: string }) => s.repositoryId ? repoName(s.repositoryId) : s.repositoryPattern ? `Repositories matching ${s.repositoryPattern}` : s.teamId ? `Team: ${scopes.teams.find((t) => t._id === s.teamId)?.name ?? "team"}` : "Workspace";
+  return (
+    <section aria-labelledby="rule-assistant">
+      <h2 id="rule-assistant">Rule assistant</h2>
+      <p className="muted">Draft a rule from a description, tighten the wording of existing rules and find overlaps, or get suggestions from findings your team fixed on several pull requests and from approved conventions. Nothing changes until an admin approves a suggestion, and results that would suppress findings, approve changes or alter budgets are discarded.</p>
+      <form action={requestRuleAssistant} className="form-grid">
+        <input type="hidden" name="organizationId" value={organization._id} />
+        <input type="hidden" name="kind" value="draft" />
+        <label className="wide">
+          Describe the rule
+          <textarea name="description" rows={2} required minLength={10} maxLength={2000} placeholder="Payment code keeps amounts in integer cents, never floating-point dollars." />
+        </label>
+        <RuleScopeFields teams={scopes.teams} repositories={data.repositories} scope={ctx.requestedRepository ? "repo:" + ctx.requestedRepository : ""} />
+        <button className="primary" disabled={busy}>Draft rule</button>
+      </form>
+      <form action={requestRuleAssistant} className="toolbar">
+        <input type="hidden" name="organizationId" value={organization._id} />
+        <button name="kind" value="refine" disabled={busy}>Review existing rules</button>
+        <button name="kind" value="suggest" disabled={busy}>Suggest rules from fixed findings and conventions</button>
+      </form>
+      {ruleAssistant.runs.length > 0 && (
+        <ul className="muted" aria-label="Recent rule assistant runs">
+          {ruleAssistant.runs.slice(0, 5).map((r) => (
+            <li key={r._id}>
+              {runKinds[r.kind] ?? r.kind} · {r.status === "pending" ? "working…" : r.status === "failed" ? r.error ?? "failed" : `${r.suggestions ?? 0} suggestion${r.suggestions === 1 ? "" : "s"}`}
+              {(r.rejected ?? []).map((x, i) => <span key={i}> · discarded “{x.title}” ({x.reason})</span>)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ruleAssistant.suggestions.map((s) => (
+        <article key={s._id} aria-label={`${assistantKinds[s.kind] ?? s.kind}: ${s.title}`}>
+          <h3>{assistantKinds[s.kind] ?? s.kind}: {s.title}</h3>
+          {s.kind === "refine" && s.base && <p className="muted">Currently: <strong>{s.base.title}</strong>: {s.base.instructions}</p>}
+          <p>{s.instructions}</p>
+          {s.kind !== "flag" && <p className="muted">{scopeLabel(s)} · {s.category} · {s.severity}{s.globs.length ? " · " + s.globs.join(", ") : ""}</p>}
+          <p>{s.rationale}</p>
+          {s.issues.length > 0 && <ul>{s.issues.map((i, n) => <li key={n}><span className="badge">{i.kind}</span> {i.detail}</li>)}</ul>}
+          <p className="muted">Based on: {s.sources.map((x, n) => <span key={n}>{n ? "; " : ""}{x.kind === "description" ? "your description" : x.kind === "rule" ? `rule “${x.label}”` : `“${x.label}”`}{x.detail ? ` (${x.detail})` : ""}</span>)}</p>
+          <form action={decideRuleSuggestion} className="form-grid">
+            <input type="hidden" name="suggestionId" value={s._id} />
+            {s.kind !== "flag" && (
+              <>
+                <label>
+                  Title
+                  <input name="title" required defaultValue={s.title} maxLength={120} />
+                </label>
+                <label>
+                  Severity
+                  <select name="severity" defaultValue={s.severity}>
+                    {["critical", "high", "medium", "low"].map((v) => <option key={v}>{v}</option>)}
+                  </select>
+                </label>
+                <label className="wide">
+                  Instructions
+                  <textarea name="instructions" required defaultValue={s.instructions} rows={3} />
+                </label>
+              </>
+            )}
+            <button className="primary" name="decision" value="approved">{s.kind === "flag" ? "Disable the newer rule" : s.kind === "refine" ? "Apply to rule" : "Create rule"}</button>
+            <button name="decision" value="rejected" formNoValidate>Dismiss</button>
+          </form>
+        </article>
+      ))}
+    </section>
+  );
 }
