@@ -16,6 +16,9 @@ import type { Rule, SourceFile } from "./engine/types";
 import { runtimeEvidenceSchema } from "./engine/types";
 import { findingTags, priorityOf, tagLabels } from "./priority";
 import { validateRuntime } from "../scripts/sandbox";
+import { memoryToolbox } from "./engine/agent";
+import { cacheDirectory, localAgentState, stateFile } from "./local-review-state";
+import { inlineReport } from "./inline-output";
 
 try {
   loadEnvFile(".env.local");
@@ -54,12 +57,15 @@ async function main() {
       "create-workspace": { type: "string" },
       repositories: { type: "string" },
       "no-rules": { type: "boolean" },
+      engine: { type: "string" },
+      resume: { type: "boolean" },
+      inline: { type: "boolean" },
     },
   });
   const command = positionals[0];
   if (values.help || !command) {
     console.log(
-      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview onboard [--url <server> --token <admin-api-key>] [--repositories all|owner/name,...] [--no-rules] [--workspace <name>] [--yes --json]\nopenreview review [--base main] [--json | --agent] [--security] [--mode fast|standard|deep]\nopenreview status\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
+      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview onboard [--url <server> --token <admin-api-key>] [--repositories all|owner/name,...] [--no-rules] [--workspace <name>] [--yes --json]\nopenreview review [--base main] [--json | --agent | --inline] [--security] [--mode fast|standard|deep] [--engine pipeline|agentic] [--resume]\nopenreview status\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
     );
     return;
   }
@@ -215,6 +221,11 @@ async function main() {
   }, root, baseSha);
   for (const warning of repoConfig.warnings) process.stderr.write(`OpenReview config: ${warning}\n`);
   const rules: Rule[] = repoConfig.rules;
+  // --resume continues an interrupted agentic review of this checkout (same base and HEAD only).
+  const engine = z.enum(["pipeline", "agentic"]).parse(values.engine ?? (values.resume ? "agentic" : "pipeline"));
+  if (values.resume && engine !== "agentic") throw new Error("--resume applies to the agentic engine");
+  if ([values.json, values.agent, values.inline].filter(Boolean).length > 1) throw new Error("Choose one output format: --json, --agent or --inline");
+  const saved = localAgentState(stateFile(cacheDirectory(), root, baseSha), { resume: Boolean(values.resume), headSha });
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
   const result = await reviewChange(
@@ -246,7 +257,15 @@ async function main() {
         process.stderr.write(`${stage.replaceAll("_", " ")}\n`);
     },
     controller.signal,
-  );
+    engine === "agentic" ? { engine, tools: memoryToolbox(files, headSha), agent: saved.hooks } : undefined,
+  ).catch((error) => {
+    if (engine === "agentic" && controller.signal.aborted) throw new Error("Interrupted. Run the same command with --resume to continue from the last completed step.");
+    throw error;
+  });
+  if (engine === "agentic") {
+    await saved.clear();
+    if (saved.outcome() !== "fresh" && !values.json && !values.agent) process.stderr.write(saved.outcome() === "resumed" ? "Resumed the interrupted review.\n" : "HEAD moved since the interrupted review; started over.\n");
+  }
   if (values.json) console.log(JSON.stringify(result, null, 2));
   else if (values.agent)
     console.log(
@@ -266,6 +285,7 @@ async function main() {
         summary: result.summary,
       }),
     );
+  else if (values.inline) console.log(inlineReport(result.findings, files));
   else {
     console.log(result.summary);
     for (const f of result.findings)

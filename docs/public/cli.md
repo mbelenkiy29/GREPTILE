@@ -7,6 +7,9 @@ pnpm cli review --base main
 pnpm cli review --json
 pnpm cli review --security --mode deep
 pnpm cli review --agent      # output for coding agents
+pnpm cli review --inline     # file:line blocks with surrounding code
+pnpm cli review --engine agentic
+pnpm cli review --resume     # continue an interrupted agentic review
 ```
 
 Run `npm link` to install the `openreview` command from a checkout.
@@ -14,6 +17,12 @@ Run `npm link` to install the `openreview` command from a checkout.
 - **Model credentials:** local reviews use model credentials from your environment.
 - **Repository config:** they read `.openreview.json` from the base commit.
 - **Limits:** they never execute repository code, and index at most 5,000 files or 20 MB.
+
+`--inline` prints each finding as a `file:line` block. The block includes two lines of code on either side, with the flagged lines marked `>`, then the priority, any tags, the explanation and the suggested fix.
+
+`--engine agentic` runs the tool-using reviewer. It saves its progress after every step in your OS cache directory: `~/Library/Caches/openreview` on macOS, `$XDG_CACHE_HOME/openreview` or `~/.cache/openreview` on Linux, and `%LOCALAPPDATA%\openreview\cache` on Windows. The saved file is owner-only and keyed by checkout and base commit.
+
+If a review is interrupted (for example with Ctrl-C), run the same command with `--resume`, which implies the agentic engine, to continue from the last completed step. The saved progress is used only when `HEAD` is unchanged. If you committed since, it is discarded and the review starts over. It is removed when a review finishes.
 
 ## Connect to a server
 
