@@ -126,6 +126,8 @@ export type ReviewInput = {
   diff: ChangedFile[];
   rules: Rule[];
   preferences?: Preference[];
+  // Knowledge base entries about the changed code (derived background; never evidence).
+  knowledge?: { subsystem: string; description: string; risks: string[]; conventions: string[]; files: string[] }[];
   mode: "fast" | "standard" | "deep";
   existingFindings?: Finding[];
   historicalFindings?: (Pick<
@@ -184,6 +186,7 @@ export type ReviewResult = {
     suppressions?: { title: string; agent: string; reason: string }[];
     carriedForward?: Finding[];
     exploitability?: { fingerprint: string; exploitPath: boolean }[];
+    knowledge?: string[];
     resolvedFingerprints: string[];
   };
   usage: ModelUsage[];

@@ -28,6 +28,7 @@ import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
 import { runHypotheses, type HypothesesResult } from "./hypotheses";
 import { deterministicAgents, deterministicGrounded, deterministicSecurity, exploitSchema, exploitSystem } from "./security";
 import type { AdvisoryLookup } from "../osv";
+import { knowledgeNote } from "../knowledge-context";
 import { loadGrammars } from "./treesitter";
 import { suggestionProblem } from "../suggestions";
 import { diagramEligible, diagramSchema, renderSequence, validSequence } from "../diagrams";
@@ -179,6 +180,7 @@ export async function reviewChange(
     context:context.map(c=>({...c,content:c.content.split("\n").map((line,i)=>`${c.startLine+i}: ${line}`).join("\n")})),
     rules,
     preferences: input.preferences ?? [],
+    ...(input.knowledge?.length ? { knowledgeBase: { note: knowledgeNote, entries: input.knowledge } } : {}),
     historicalFindings: input.historicalFindings ?? [],
     runtimeEvidence,
     instructions: input.settings?.instructions ?? "",
@@ -461,7 +463,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete,knowledgeUsed:input.knowledge?.map(k=>k.subsystem)},input.settings?.summarySections),
     findings,
     diagrams: diagram ? [diagram] : [],
     metadata: {
@@ -483,6 +485,7 @@ export async function reviewChange(
       candidates: candidates.length + deterministic.findings.length,
       suppressed: candidates.length + deterministic.findings.length - findings.length,
       ...(exploitability.length ? { exploitability } : {}),
+      ...(input.knowledge?.length ? { knowledge: input.knowledge.map((k) => k.subsystem) } : {}),
       suppressions,
       carriedForward,
       resolvedFingerprints,

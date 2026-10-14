@@ -33,6 +33,7 @@ import { reviewChange } from "../src/engine/review";
 import { inlineFindings, reviewFooter } from "../src/review-summary";
 import { osvClient, osvEnabled } from "../src/osv";
 import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
+import { knowledgeTokenBudgets, selectKnowledge } from "../src/knowledge-context";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
@@ -628,6 +629,7 @@ export const review = internalAction({
             enabled: r.enabled,
           })), ...repoConfig.rules],
           preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
+          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[z.enum(["fast", "standard", "deep"]).parse(effective.mode)]).selected,
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,

@@ -11,6 +11,7 @@ Documentation is published at `/docs` (Markdown in `docs/public/` plus selected 
 Each feature below has automated tests. The evidence level for each one (tests with fakes, verified locally, or verified live on a provider) is listed in [the acceptance matrix](docs/acceptance-matrix.md) and [the parity report](docs/parity/REPORT.md).
 
 **Reviews**
+- Knowledge base entries about the changed files are supplied to reviews as labelled background (never evidence) and listed in the summary's coverage.
 - Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
 - Three engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions, and an optional hypothesis engine plans concrete bug hypotheses and investigates each one in parallel with its own budget.
 - Security checks: deterministic pattern checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization) and OSV.dev advisories for changed npm, PyPI, Go, crates.io and Maven dependencies; feedback cannot suppress them.
