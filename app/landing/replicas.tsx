@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { DiffFiles } from "../dashboard/diff-files";
 import { ReviewMarkdown } from "../dashboard/markdown";
-import { status } from "../dashboard/sections/shared";
+import { priority, status } from "../dashboard/sections/shared";
+import { verdictLabels } from "../../src/verdict";
 import { LineChart } from "../ui/charts";
 import { Mark } from "../ui/logo";
 import { analytics, chat, diffFiles, diffFindings, findings, fixPrompt, history, pull, score, summary } from "./sample";
@@ -40,7 +41,7 @@ function FixControl({ label = "Fix with AI" }: { label?: string }) {
 
 // Pull request review page (app/dashboard/sections/reviews.tsx, detail view).
 export function ReviewReplica() {
-  return <Window title={`Pull Requests · ${pull.repo} #${pull.number}`} size="tall" caption={`The OpenReview pull request page for ${pull.repo} #${pull.number}: the reviewed diff with a critical finding shown inline at the changed line, and a confidence score of ${score.value} out of 5.`}>
+  return <Window title={`Pull Requests · ${pull.repo} #${pull.number}`} size="tall" caption={`The OpenReview pull request page for ${pull.repo} #${pull.number}: the reviewed diff with a P0 finding shown inline at the changed line, a "Needs changes" verdict and a confidence score of ${score.value} out of 5.`}>
     <Chrome active="Pull Requests" secondary={[["All Pull Requests", true], ["Findings", false]]}>
       <header><div><p className="muted">Acme</p><h1>Pull Requests</h1></div><span className="live">Updating automatically</span></header>
       <div className="row"><h2>{pull.repo} #{pull.number}</h2>{status("completed")}</div>
@@ -54,6 +55,10 @@ export function ReviewReplica() {
         <DiffFiles files={diffFiles} findings={diffFindings} />
       </section>
       <section>
+        <h2>Verdict</h2>
+        <p><strong>{verdictLabels.changes}</strong> · computed from the score, unresolved findings and review coverage</p>
+      </section>
+      <section>
         <h2>Confidence score</h2>
         <p><strong>{score.value}/5</strong> · confidence that the change is safe to merge</p>
         <p>{score.reason}</p>
@@ -65,13 +70,13 @@ export function ReviewReplica() {
 // A verified finding with its quoted evidence (review page, "Verified findings").
 export function FindingReplica() {
   const f = findings[0];
-  return <Window title={`${pull.repo} #${pull.number} · Verified findings`} size="short" caption="A verified critical finding with the file and line it depends on, its impact, three quoted lines of evidence and a suggested fix.">
+  return <Window title={`${pull.repo} #${pull.number} · Verified findings`} size="short" caption="A verified P0 finding with the file and line it depends on, its impact, three quoted lines of evidence and a suggested fix.">
     <div className="replica-pane">
       <section>
         <h2>Verified findings</h2>
         <FixControl label="Fix All" />
         <article>
-          <h3>{status(f.severity)} {f.title}</h3>
+          <h3>{priority(f)} {f.title}</h3>
           <p>{f.filePath}:{f.startLine} · {Math.round(f.confidence * 100)}% confidence · Verified at this revision · Current status: open</p>
           <p>{f.description}</p>
           <p>Impact: {f.impact}</p>
@@ -126,7 +131,7 @@ export function AgentReplica() {
   return <Window title="Pull Requests · Findings" size="short" caption="A finding on the Findings page with controls to send it to Codex, Claude Code or Cursor Agent, copy a fix prompt, or open an agent with the prompt pre-filled.">
     <div className="replica-pane">
       <section className="finding">
-        <div className="row"><h2>{f.title}</h2><div>{status(f.severity)} {status("open")}</div></div>
+        <div className="row"><h2>{f.title}</h2><div>{priority(f)} {status("open")}</div></div>
         <p className="muted">{pull.repo} #{pull.number} · {f.filePath}:{f.startLine} · {Math.round(f.confidence * 100)}% confidence</p>
         <p><strong>Suggested fix:</strong> {f.suggestedFix}</p>
         <FixControl />
