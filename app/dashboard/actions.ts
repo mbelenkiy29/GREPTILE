@@ -276,6 +276,7 @@ export async function saveSettings(form: FormData) {
       securityScan: form.has("securityScanConfigured") ? form.has("securityScan") : previous.settings.securityScan ?? true,
       aiAuthoredModel: form.has("aiAuthoredModel") ? text(form, "aiAuthoredModel").trim() : previous.settings.aiAuthoredModel ?? "",
       maxReviewTier: form.has("maxReviewTier") ? text(form, "maxReviewTier") : previous.settings.maxReviewTier ?? "deep",
+      ...Object.fromEntries((["agentTurns", "agentToolCalls", "hypothesisTurns", "hypothesisToolCalls"] as const).map((key) => [key, form.has(key) ? Number(text(form, key) || 0) : previous.settings[key] ?? 0])),
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

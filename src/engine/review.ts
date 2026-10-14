@@ -24,8 +24,8 @@ import { classifyChanges, riskScore } from "./classify";
 import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
-import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
-import { runHypotheses, type HypothesesResult } from "./hypotheses";
+import { agentBudgets, configuredBudget, runReviewAgent, type AgentHooks, type AgentToolbox, type BudgetSettings } from "./agent";
+import { hypothesisBudgets, runHypotheses, type HypothesesResult } from "./hypotheses";
 import { deterministicAgents, deterministicGrounded, deterministicSecurity, exploitSchema, exploitSystem } from "./security";
 import type { AdvisoryLookup } from "../osv";
 import { knowledgeNote } from "../knowledge-context";
@@ -46,6 +46,8 @@ export type ReviewOptions = {
   agent?: AgentHooks;
   // OSV advisory lookups for changed dependency versions (network; absent = not checked, with a note).
   advisories?: AdvisoryLookup;
+  // Configured turn and tool-call budgets for the agentic and hypothesis engines (K3).
+  budgets?: BudgetSettings;
 };
 
 const specialties = {
@@ -234,8 +236,10 @@ export async function reviewChange(
   let hypothesisRun: HypothesesResult | undefined;
   // Files read through tools come from the reviewed revision; they can back evidence quotes.
   const addSources = (sources: typeof index.files) => { safeInput.files = [...safeInput.files, ...sources.filter((source) => !safeInput.files.some((f) => f.path === source.path))]; };
+  const agentBudget = configuredBudget(agentBudgets[input.mode], options.budgets?.agentTurns, options.budgets?.agentToolCalls);
+  const hypothesisBudget = { ...hypothesisBudgets[input.mode], each: configuredBudget(hypothesisBudgets[input.mode].each, options.budgets?.hypothesisTurns, options.budgets?.hypothesisToolCalls) };
   if (engineUsed === "agentic") {
-    agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent });
+    agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent, budget: agentBudget });
     usage.push(...agentRun.usage);
     candidates.push(...agentRun.candidates);
     engineLimits.push(...agentRun.limits);
@@ -243,7 +247,7 @@ export async function reviewChange(
   }
   if (engineUsed === "hypotheses") {
     try {
-      hypothesisRun = await runHypotheses({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: { checkpoint: options.agent?.checkpoint } });
+      hypothesisRun = await runHypotheses({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: { checkpoint: options.agent?.checkpoint }, budget: hypothesisBudget });
       usage.push(...hypothesisRun.usage);
       candidates.push(...hypothesisRun.candidates);
       engineLimits.push(...hypothesisRun.limits);
@@ -511,6 +515,7 @@ export async function reviewChange(
       ...(skippedFiles.length ? { skippedFiles } : {}),
       ...(failedSpecialists.length ? { failedSpecialists } : {}),
       engine: engineUsed,
+      ...(engineUsed === "agentic" ? { agentBudget: { turns: agentBudget.turns, toolCalls: agentBudget.toolCalls } } : engineUsed === "hypotheses" ? { agentBudget: { turns: hypothesisBudget.each.turns, toolCalls: hypothesisBudget.each.toolCalls, perHypothesis: true } } : {}),
       ...(hypothesisRun ? { hypotheses: hypothesisRun.runs.map(({ id, claim, category, filePath, startLine, status, stopReason, toolCalls, turns, reported }) => ({ id, claim, category, filePath, startLine, status, ...(stopReason ? { stopReason } : {}), toolCalls, turns, reported })) } : {}),
       ...(agentRun ? { agentRun: { toolCalls: agentRun.state.toolCalls, turns: agentRun.state.turns, resumes: agentRun.state.resumes, ...(agentRun.state.stopReason ? { stopReason: agentRun.state.stopReason } : {}) } } : {}),
       baseSha: input.baseSha,

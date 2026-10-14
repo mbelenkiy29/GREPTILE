@@ -52,6 +52,10 @@ export const settingsValidator = v.object({
   securityScan:v.optional(v.boolean()),
   aiAuthoredModel:v.optional(v.string()),
   maxReviewTier:v.optional(v.string()),
+  agentTurns:v.optional(v.number()),
+  agentToolCalls:v.optional(v.number()),
+  hypothesisTurns:v.optional(v.number()),
+  hypothesisToolCalls:v.optional(v.number()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean(),generatedTests:v.optional(v.boolean()),testCommand:v.optional(v.string())});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});

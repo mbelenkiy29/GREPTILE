@@ -178,6 +178,8 @@ export type ReviewResult = {
     skippedFiles?: SkippedFile[];
     failedSpecialists?: { category: string; error: string }[];
     engine?: "pipeline" | "agentic" | "hypotheses";
+    // Effective turn/tool-call budget (per investigation for the hypothesis engine).
+    agentBudget?: { turns: number; toolCalls: number; perHypothesis?: boolean };
     hypotheses?: { id: number; claim: string; category: string; filePath: string; startLine: number; status: string; stopReason?: string; toolCalls: number; turns: number; reported: number }[];
     agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;

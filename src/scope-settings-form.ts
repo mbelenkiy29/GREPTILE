@@ -23,5 +23,6 @@ export function scopeSettingsFromForm(form:FormData){
   securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
   aiAuthoredModel:value('aiAuthoredModel').trim(),
   maxReviewTier:value('maxReviewTier')||defaults.maxReviewTier,
+  agentTurns:Number(value('agentTurns')||0),agentToolCalls:Number(value('agentToolCalls')||0),hypothesisTurns:Number(value('hypothesisTurns')||0),hypothesisToolCalls:Number(value('hypothesisToolCalls')||0),
  };
 }

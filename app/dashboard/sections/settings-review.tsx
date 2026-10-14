@@ -178,6 +178,14 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
                   </fieldset>
                   <fieldset className="wide">
+                    <legend>Agent budgets</legend>
+                    <label>Agentic engine turns<input type="number" name="agentTurns" min={0} max={1000} defaultValue={repoSettings.settings.agentTurns ?? 0} /></label>
+                    <label>Agentic engine tool calls<input type="number" name="agentToolCalls" min={0} max={1000} defaultValue={repoSettings.settings.agentToolCalls ?? 0} /></label>
+                    <label>Turns per hypothesis<input type="number" name="hypothesisTurns" min={0} max={1000} defaultValue={repoSettings.settings.hypothesisTurns ?? 0} /></label>
+                    <label>Tool calls per hypothesis<input type="number" name="hypothesisToolCalls" min={0} max={1000} defaultValue={repoSettings.settings.hypothesisToolCalls ?? 0} /></label>
+                    <p className="muted">0 uses the review tier&apos;s default. Values are clamped to the operator&apos;s hard caps (AGENT_MAX_TURNS, AGENT_MAX_TOOL_CALLS); token and time budgets stay per tier. The review page shows the budget a review used.</p>
+                  </fieldset>
+                  <fieldset className="wide">
                     <legend>Per-pull-request review tier</legend>
                     <label>Highest tier a request may use<select name="maxReviewTier" defaultValue={repoSettings.settings.maxReviewTier ?? "deep"}><option value="deep">deep (no cap)</option><option value="standard">standard</option><option value="fast">fast</option></select></label>
                     <p className="muted">People with write access can comment <code>@openreview review fast</code>, <code>standard</code> or <code>deep</code>, or add an <code>openreview:fast|standard|deep</code> label. A comment wins over a label, a label over the configured tier (which touched <code>.openreview/</code> folders can raise). This cap applies to all of them.</p>
