@@ -119,6 +119,8 @@ export async function loadDashboard({
           organizationId: organization._id,
         })
       : [];
+  // MCP clients connected with OAuth: your own (admins see everyone's in the workspace).
+  const mcpConnections = route === "settings" && section[1] === "keys" ? await backend().query(api.oauth.connections, { token: user.token, organizationId: organization._id }) : [];
   if(route === "settings" && section[1] === "review" && requestedRepository && !data.repositories.some(r=>r._id===requestedRepository))notFound();
   const repoSettings =
     route === "settings" && section[1] === "review" && requestedRepository
@@ -131,6 +133,6 @@ export async function loadDashboard({
   const conventions = repoSettings ? await backend().query(api.conventions.list, { token: user.token, repositoryId: repoSettings.repo._id }) : [];
   // Narrowed above: a dashboard always has a workspace.
   const workspace = organization as typeof organization & { _id: Id<"organizations"> };
-  return { kind: "dashboard" as const, active, aliases, apiKeys, conventions, data, detail, diagnostics, filters, findingsPage, isAdmin, jar, knowledge, knowledgeState, organization: workspace, pendingInvitations, personalAgent, repoLabel, repoName, repoSettings, requestedRepository, reviewDetailId, route, ruleAssistant, ruleView, rulesPage, savedTeam, scopes, section, selectedTeam, semantic, user, view, visibleFindings, visibleRules };
+  return { kind: "dashboard" as const, active, aliases, apiKeys, mcpConnections, conventions, data, detail, diagnostics, filters, findingsPage, isAdmin, jar, knowledge, knowledgeState, organization: workspace, pendingInvitations, personalAgent, repoLabel, repoName, repoSettings, requestedRepository, reviewDetailId, route, ruleAssistant, ruleView, rulesPage, savedTeam, scopes, section, selectedTeam, semantic, user, view, visibleFindings, visibleRules };
 }
 export type DashboardContext = Extract<Awaited<ReturnType<typeof loadDashboard>>, { kind: "dashboard" }>;

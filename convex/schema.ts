@@ -836,6 +836,11 @@ export default defineSchema({
   })
     .index("by_delivery", ["deliveryId"])
     .index("by_status", ["status"]),
+  // OAuth for the remote MCP endpoint. Secrets (codes, tokens) are stored only as SHA-256 hashes.
+  oauthClients: defineTable({ clientId: v.string(), name: v.string(), redirectUris: v.array(v.string()), kind: v.string() /* registered | metadata */, fetchedAt: v.optional(v.number()), createdAt: v.number() }).index("by_client", ["clientId"]),
+  oauthCodes: defineTable({ hash: v.string(), clientId: v.string(), clientName: v.string(), redirectUri: v.string(), codeChallenge: v.string(), resource: v.string(), scopes: v.array(v.string()), organizationId: org, userId: v.id("users"), expiresAt: v.number(), used: v.boolean(), grantId: v.optional(v.id("oauthGrants")) }).index("by_hash", ["hash"]),
+  oauthGrants: defineTable({ organizationId: org, userId: v.id("users"), clientId: v.string(), clientName: v.string(), scopes: v.array(v.string()), resource: v.string(), revoked: v.boolean(), createdAt: v.number(), refreshedAt: v.optional(v.number()) }).index("by_org_user", ["organizationId", "userId"]).index("by_org", ["organizationId"]),
+  oauthTokens: defineTable({ hash: v.string(), grantId: v.id("oauthGrants"), kind: v.string() /* access | refresh */, expiresAt: v.number(), used: v.optional(v.boolean()) }).index("by_hash", ["hash"]).index("by_grant", ["grantId"]),
   apiKeys: defineTable({
     organizationId: org,
     userId: v.id("users"),

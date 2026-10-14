@@ -432,6 +432,12 @@ export async function revokeApiKey(form: FormData) {
   await notify("API key revoked.");
   revalidatePath("/dashboard/settings/keys");
 }
+export async function revokeMcpConnection(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.oauth.revoke, { token, grantId: text(form, "grantId") as Id<"oauthGrants"> }); await notify("Connection revoked."); }
+  catch { await notify("Could not revoke this connection.", "error"); }
+  revalidatePath("/dashboard/settings/keys");
+}
 export async function updateMember(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.team.update, {

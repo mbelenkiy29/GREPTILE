@@ -2,14 +2,14 @@ import { repositoryDisplay } from "../../../src/provider-display";
 import Link from "next/link";
 
 import { lockableKeys } from "../../../src/review-settings";
-import { saveSettings, revokeApiKey, decideConvention } from "../actions";
+import { saveSettings, revokeApiKey, revokeMcpConnection, decideConvention } from "../actions";
 import { ApiKeyForm } from "../api-key";
 import { SummarySettings } from "../summary-settings";
 
 import type { DashboardContext } from "../load";
 
 export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
-  const { apiKeys, conventions, data, filters, isAdmin, organization, repoLabel, repoSettings, requestedRepository, section, semantic } = ctx;
+  const { apiKeys, mcpConnections, conventions, data, filters, isAdmin, organization, repoLabel, repoSettings, requestedRepository, section, semantic } = ctx;
   return (
 (
           <>
@@ -29,6 +29,20 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                 ))}
               </section>
             ) : <p>Workspace admin access required.</p>)}
+            {section[1] === "keys" && (
+              <section aria-labelledby="mcp-connections">
+                <h2 id="mcp-connections">Connected MCP clients</h2>
+                <p className="muted">Clients connected to <code>/api/mcp</code> with OAuth. Their access is limited to one workspace, the scopes approved at sign-in and your role. Revoking a client ends its access and refresh tokens immediately.</p>
+                {!mcpConnections.length && <p>No MCP clients are connected.</p>}
+                {mcpConnections.map((c) => (
+                  <form action={revokeMcpConnection} key={c._id}>
+                    <p>{c.clientName} · {c.scopes.join(", ")} · connected {new Date(c.createdAt).toLocaleDateString("en-US", { timeZone: "UTC" })}{c.mine ? "" : ` · by @${c.owner}`} · <code>{c.clientId.slice(0, 80)}</code></p>
+                    <input type="hidden" name="grantId" value={c._id} />
+                    <button>Revoke</button>
+                  </form>
+                ))}
+              </section>
+            )}
             {section[1] === "review" && <form method="get" className="filter-bar">{filters.team!==undefined&&<input type="hidden" name="team" value={filters.team}/>}<label>Repository<select name="repository" defaultValue={requestedRepository??""} required><option value="" disabled>Choose a repository</option>{data.repositories.map(r=><option key={r._id} value={r._id}>{repositoryDisplay(r)}</option>)}</select></label><button>View review settings</button></form>}
             {section[1] === "review" && !repoSettings && <p>Select a repository to inspect its effective review settings. <Link href="/dashboard/settings/teams">Manage workspace and team defaults</Link>.</p>}
             {repoSettings && (

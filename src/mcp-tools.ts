@@ -18,6 +18,8 @@ function result(response: { status: number; body: unknown }) {
 const id = z.string().regex(/^[A-Za-z0-9]{20,64}$/, "Use an OpenReview ID");
 const q = (value: string) => encodeURIComponent(value);
 export const mcpToolNames = ["get_review", "get_findings", "get_finding", "get_repository_context", "search_codebase", "get_related_files", "get_custom_rules", "mark_finding_resolved", "list_repositories", "ask_codebase", "search_code"] as const;
+// Tools that change something need more than read; the remote endpoint challenges for the scope up front.
+export const toolScopes: Partial<Record<string, "write" | "admin">> = { mark_finding_resolved: "write" };
 
 export function registerOpenReviewTools(server: McpServer, call: ApiCall) {
   server.registerTool("get_review", { description: "Get review lifecycle, summary, findings and model calls", inputSchema: { reviewId: id } }, async ({ reviewId }) => result(await call(`/api/reviews/${q(reviewId)}`)));
