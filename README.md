@@ -32,6 +32,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Automatic reviews, label-only reviews, or reviews on `@openreview` mention.
   - Excluded authors and branches, draft handling and size limits.
   - Strictness presets and opt-in comment categories.
+- Per-workspace single sign-on with SAML 2.0 or OpenID Connect: DNS-verified domains, optional just-in-time membership and an optional SSO requirement (owners keep a way in). See [docs/sso.md](docs/sso.md).
 - Optional auto-enable for newly installed repositories, per workspace or team, and suggested cross-repository clusters from package references, shared dependencies and repository names. Suggestions wait for an admin's approval.
 - Custom rules scoped to the workspace, a team, repositories matching a name pattern (such as `acme/*-service`) or one repository; the most specific same-titled rule wins.
 - Claude Code and Codex plugins (`plugins/openreview`) with the OpenReview MCP server and a resolve loop that fixes findings, commits locally, asks before pushing (never force-pushes) and re-reviews until clean; `openreview resolve` runs the same loop from the terminal. Install in Claude Code with `/plugin install openreview --marketplace <owner>/<repo>`; see [agent plugins](docs/public/agent-plugins.md).

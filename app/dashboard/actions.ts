@@ -487,6 +487,43 @@ export async function sendToDevin(form: FormData) {
   }
   redirect(url);
 }
+// Single sign-on (admins). The OIDC client secret is encrypted here before it reaches the backend.
+export async function saveSsoConnection(form: FormData) {
+  const { token } = await current();
+  const organizationId = text(form, "organizationId") as Id<"organizations">, protocol = z.enum(["saml", "oidc"]).parse(text(form, "protocol"));
+  const secret = text(form, "oidcClientSecret").trim();
+  try {
+    await backend().mutation(api.sso.saveConnection, { token, organizationId, protocol, name: text(form, "name"), active: form.get("active") === "on", jitRole: z.enum(["none", "member", "viewer"]).parse(text(form, "jitRole")),
+      ...(protocol === "saml" ? { samlEntryPoint: text(form, "samlEntryPoint").trim(), samlIdpCert: text(form, "samlIdpCert"), ...(text(form, "samlIdpIssuer").trim() ? { samlIdpIssuer: text(form, "samlIdpIssuer").trim() } : {}) }
+        : { oidcIssuer: text(form, "oidcIssuer").trim(), oidcClientId: text(form, "oidcClientId").trim(), ...(secret ? { oidcClientSecret: encryptCredential(secret, `${organizationId}:sso`) } : {}) }) });
+    await notify("SSO connection saved.");
+  } catch (e) { await notify(backendMessage(e, "Could not save the SSO connection."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
+export async function addSsoDomain(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.sso.addDomain, { token, organizationId: text(form, "organizationId") as Id<"organizations">, domain: text(form, "domain") }); await notify("Domain added. Publish the TXT record, then check DNS."); }
+  catch (e) { await notify(backendMessage(e, "Could not add that domain."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
+export async function verifySsoDomain(form: FormData) {
+  const { token } = await current();
+  const ok = await backend().action(api.ssoJobs.verifyDomain, { token, domainId: text(form, "domainId") as Id<"ssoDomains"> }).catch(() => false);
+  await notify(ok ? "Domain verified." : "The TXT record was not found yet. DNS changes can take a while to appear.", ok ? "success" : "error");
+  revalidatePath("/dashboard/settings/people");
+}
+export async function removeSsoDomain(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.sso.removeDomain, { token, domainId: text(form, "domainId") as Id<"ssoDomains"> });
+  await notify("Domain removed.");
+  revalidatePath("/dashboard/settings/people");
+}
+export async function setSsoEnforcement(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.sso.setEnforcement, { token, organizationId: text(form, "organizationId") as Id<"organizations">, enforce: text(form, "enforce") === "true" }); await notify("SSO requirement updated."); }
+  catch (e) { await notify(backendMessage(e, "Could not change the SSO requirement."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
 export async function updateMember(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.team.update, {

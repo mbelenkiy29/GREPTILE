@@ -201,7 +201,7 @@ export default defineSchema({
   // email on both sides, so an unverified address can never take over an existing user.
   identities: defineTable({
     userId: v.id("users"),
-    provider: v.string(), // github | gitlab | google | email
+    provider: v.string(), // github | gitlab | google | email | sso (providerUserId = <connectionId>:<subject>)
     providerUserId: v.string(),
     email: v.optional(v.string()),
     emailVerified: v.boolean(),
@@ -217,7 +217,31 @@ export default defineSchema({
     createdAt: v.number(),
     expiresAt: v.number(),
     revokedAt: v.optional(v.number()),
+    // Set for sessions started through a workspace's SSO connection (enforcement checks it).
+    ssoConnectionId: v.optional(v.id("ssoConnections")),
   }).index("by_hash", ["hash"]).index("by_user", ["userId"]),
+  // Per-workspace single sign-on (M2). One connection per workspace; the OIDC client secret is stored
+  // encrypted by the web server. Domains are proven with a DNS TXT record before they count.
+  ssoConnections: defineTable({
+    organizationId: org,
+    protocol: v.string(), // saml | oidc
+    name: v.string(),
+    active: v.boolean(),
+    enforce: v.boolean(),
+    jitRole: v.optional(v.string()), // member | viewer; absent = no just-in-time membership
+    samlEntryPoint: v.optional(v.string()),
+    samlIdpCert: v.optional(v.string()),
+    samlIdpIssuer: v.optional(v.string()),
+    oidcIssuer: v.optional(v.string()),
+    oidcClientId: v.optional(v.string()),
+    oidcClientSecret: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
+  ssoDomains: defineTable({ organizationId: org, connectionId: v.id("ssoConnections"), domain: v.string(), token: v.string(), verifiedAt: v.optional(v.number()), createdAt: v.number() }).index("by_domain", ["domain"]).index("by_connection", ["connectionId"]),
+  // SAML request IDs we issued (InResponseTo, single use) and assertion IDs we accepted (replay).
+  ssoRequests: defineTable({ key: v.string(), value: v.string(), expiresAt: v.number() }).index("by_key", ["key"]),
+  ssoAssertions: defineTable({ connectionId: v.id("ssoConnections"), assertionId: v.string(), expiresAt: v.number() }).index("by_assertion", ["connectionId", "assertionId"]),
   // Email invitations and magic links: single-use, expiring, stored as token hashes only.
   emailInvitations: defineTable({
     organizationId: org,

@@ -18,7 +18,7 @@ export const providers = ["github", "gitlab", "google", "email"] as const;
 const provider = v.union(...providers.map((p) => v.literal(p)) as [ReturnType<typeof v.literal<"github">>, ReturnType<typeof v.literal<"gitlab">>, ReturnType<typeof v.literal<"google">>, ReturnType<typeof v.literal<"email">>]);
 const sessionDays = 7;
 const hex64 = /^[a-f0-9]{64}$/;
-type Profile = { provider: (typeof providers)[number]; providerUserId: string; login: string; avatar: string; email?: string; emailVerified: boolean };
+type Profile = { provider: (typeof providers)[number] | "sso"; providerUserId: string; login: string; avatar: string; email?: string; emailVerified: boolean };
 export async function linkIdentity(ctx: MutationCtx, p: Profile): Promise<Id<"users">> {
   const now = Date.now(), email = p.email ? emailAddress.safeParse(p.email).data : undefined;
   const existing = await ctx.db.query("identities").withIndex("by_provider_user", (q) => q.eq("provider", p.provider).eq("providerUserId", p.providerUserId)).unique();

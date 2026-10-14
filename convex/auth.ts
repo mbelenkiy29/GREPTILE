@@ -1,12 +1,16 @@
 import { jwtVerify } from "jose";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { sessionHash } from "../src/session-hash";
 
 export async function authenticated(
   ctx: QueryCtx | MutationCtx,
   token: string,
 ) {
+  return (await authenticatedSession(ctx, token)).user;
+}
+// The user and, for browser sessions, the session row (null for API-key and legacy tokens).
+export async function authenticatedSession(ctx: QueryCtx | MutationCtx, token: string): Promise<{ user: Doc<"users">; session: Doc<"sessions"> | null }> {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 32)
     throw new Error("SESSION_SECRET must be at least 32 characters");
@@ -22,12 +26,21 @@ export async function authenticated(
   // without one (legacy cookies, API-key calls) are rejected if issued before the user's cutoff
   // (sign out everywhere, workspace removal).
   if (payload.sid === undefined && user.sessionsValidAfter && (payload.iat ?? 0) * 1000 < user.sessionsValidAfter) throw new Error("Unauthorized");
+  let session: Doc<"sessions"> | null = null;
   if (payload.sid !== undefined) {
     if (typeof payload.sid !== "string" || !/^[A-Za-z0-9_-]{32,128}$/.test(payload.sid)) throw new Error("Unauthorized");
-    const session = await ctx.db.query("sessions").withIndex("by_hash", (q) => q.eq("hash", sessionHash(payload.sid as string))).unique();
+    session = await ctx.db.query("sessions").withIndex("by_hash", (q) => q.eq("hash", sessionHash(payload.sid as string))).unique();
     if (!session || session.userId !== user._id || session.revokedAt || session.expiresAt <= Date.now()) throw new Error("Unauthorized");
   }
-  return user;
+  return { user, session };
+}
+// SSO enforcement (M2): when a workspace enforces its SSO connection, browser sessions must have been
+// started through it. Owners keep access (so a broken IdP cannot lock everyone out) and API-key calls,
+// which carry no session, are governed by their keys.
+export async function enforceSso(ctx: QueryCtx | MutationCtx, organizationId: Id<"organizations">, role: string, session: Doc<"sessions"> | null) {
+  if (!session || role === "owner") return;
+  const connection = (await ctx.db.query("ssoConnections").withIndex("by_org", (q) => q.eq("organizationId", organizationId)).take(5)).find((c) => c.active && c.enforce);
+  if (connection && session.ssoConnectionId !== connection._id) throw new Error("This workspace requires single sign-on. Sign in with your organization's SSO.");
 }
 export async function authorize(
   ctx: QueryCtx | MutationCtx,
@@ -35,8 +48,10 @@ export async function authorize(
   organizationId: Id<"organizations">,
   admin = false,
 ) {
-  const user = await authenticated(ctx, token);
-  return organizationAccess(ctx,user._id,organizationId,admin);
+  const { user, session } = await authenticatedSession(ctx, token);
+  const access = await organizationAccess(ctx,user._id,organizationId,admin);
+  await enforceSso(ctx, organizationId, access.member.role, session);
+  return access;
 }
 export async function organizationAccess(ctx:QueryCtx|MutationCtx,userId:Id<"users">,organizationId:Id<"organizations">,admin=false){
   const user=await ctx.db.get(userId);
@@ -65,8 +80,10 @@ export async function visibleRepositories(ctx: QueryCtx | MutationCtx, token: st
   return repos.filter((_, i) => allowed[i]);
 }
 export async function authorizeRepository(ctx: QueryCtx | MutationCtx, token: string, repositoryId: Id<"repositories">, write = false, admin = false) {
-  const user = await authenticated(ctx, token);
-  return repositoryAccess(ctx, user._id, repositoryId, write, admin);
+  const { user, session } = await authenticatedSession(ctx, token);
+  const access = await repositoryAccess(ctx, user._id, repositoryId, write, admin);
+  await enforceSso(ctx, access.repo.organizationId, access.member.role, session);
+  return access;
 }
 export async function repositoryAccess(ctx: QueryCtx | MutationCtx, userId: Id<"users">, repositoryId: Id<"repositories">, write = false, admin = false) {
   const repo = await ctx.db.get(repositoryId); if (!repo) throw new Error("Repository not found");

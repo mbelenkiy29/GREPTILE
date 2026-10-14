@@ -35,7 +35,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
       <section className="hero">
         <h1>Review the change.<br />Understand the codebase.</h1>
         <p className="lede">OpenReview reviews pull requests using your whole repository, not only the diff. Every finding quotes the code it depends on, and nothing is posted until it has been verified.</p>
-        {error && <p role="alert" className="error">{error === "link" ? "That sign-in link is invalid, expired or already used. Request a new one." : "Sign-in failed. Check the OAuth callback URL and server configuration, then try again."}</p>}
+        {error && <p role="alert" className="error">{error === "link" ? "That sign-in link is invalid, expired or already used. Request a new one." : error === "sso" ? "Single sign-on is not set up for that email domain, or the sign-in could not be verified. Ask your workspace admin." : "Sign-in failed. Check the OAuth callback URL and server configuration, then try again."}</p>}
         {email === "sent" && <p role="status">Check your inbox for a sign-in link. It expires in 15 minutes.</p>}
         {email === "error" && <p role="alert" className="error">The sign-in link could not be sent. Check the address, or try again in a few minutes.</p>}
         {signedout && <p role="status">You have been signed out.</p>}

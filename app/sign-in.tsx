@@ -14,5 +14,12 @@ export function SignInOptions({ next }: { next?: string }) {
       <label>Email<input type="email" name="email" required maxLength={254} autoComplete="email" /></label>
       <button>Email me a sign-in link</button>
     </form>}
+    <details className="sso-sign-in"><summary>Use single sign-on</summary>
+      <form action="/sso/start" method="get">
+        {next && <input type="hidden" name="next" value={next} />}
+        <label>Work email<input type="email" name="email" required maxLength={254} autoComplete="email" /></label>
+        <button>Continue with SSO</button>
+      </form>
+    </details>
   </div>;
 }

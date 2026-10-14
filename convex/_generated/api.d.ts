@@ -105,6 +105,8 @@ import type * as searchData from "../searchData.js";
 import type * as searchJobs from "../searchJobs.js";
 import type * as semanticSearch from "../semanticSearch.js";
 import type * as settings from "../settings.js";
+import type * as sso from "../sso.js";
+import type * as ssoJobs from "../ssoJobs.js";
 import type * as team from "../team.js";
 import type * as usage from "../usage.js";
 import type * as users from "../users.js";
@@ -215,6 +217,8 @@ declare const fullApi: ApiFromModules<{
   searchJobs: typeof searchJobs;
   semanticSearch: typeof semanticSearch;
   settings: typeof settings;
+  sso: typeof sso;
+  ssoJobs: typeof ssoJobs;
   team: typeof team;
   usage: typeof usage;
   users: typeof users;
