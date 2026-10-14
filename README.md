@@ -118,6 +118,8 @@ Billing (cloud mode only, see [docs/billing.md](docs/billing.md)): when `BILLING
 
 Sign-in and accounts (see [docs/identity.md](docs/identity.md)): GitHub, GitLab, Google or an emailed magic link. Accounts link only when both sides have the same verified email. Server-side sessions can be revoked individually or all at once. Workspace removal signs the member out and revokes their API keys and bridges for that workspace. Admins can also invite by email with single-use, expiring links.
 
+Azure DevOps (see [docs/azure-devops.md](docs/azure-devops.md)): connect an organization with a PAT or a Microsoft Entra service principal, and add service hooks secured by a shared-secret header. OpenReview computes diffs from the base and head blobs, posts findings as positioned comment threads, keeps one closed summary thread, and reports an `openreview` pull request status. Follow-up commands are not yet supported on Azure DevOps.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

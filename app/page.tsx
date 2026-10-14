@@ -15,7 +15,7 @@ const features = [
   ["Ask your codebase", "Chat, the API, MCP and Slack all answer questions with citations that must match the indexed source."],
   ["Configuration as code", "Rules and settings live in .openreview.json, read from the base branch so a PR cannot weaken its own review."],
   ["Fix with your agent", "Hand findings to Codex, Claude Code or Cursor Agent on your machine, or ask @openreview for a validated fix."],
-  ["Many providers", "GitHub, GitHub Enterprise, GitLab, Bitbucket Cloud and Data Center, Gitea and Perforce."],
+  ["Many providers", "GitHub, GitHub Enterprise, GitLab, Azure DevOps, Bitbucket Cloud and Data Center, Gitea and Perforce."],
   ["Your model, your budget", "Bring Anthropic, OpenAI or a compatible endpoint. A hard inference budget and per-task usage accounting keep spend predictable."],
 ] as const;
 const faq = [

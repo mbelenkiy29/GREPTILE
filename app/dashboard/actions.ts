@@ -475,15 +475,16 @@ export async function connectProvider(_previous:{error?:string},form:FormData):P
  try{
   const user=await current(),token=user.token,organizationId=text(form,"organizationId") as Id<"organizations">;
   if(!user.organizations.some(o=>o._id===organizationId && ["owner","admin"].includes(o.role)))throw new Error("Workspace admin required");
-  const kind=z.enum(["gitlab","github-enterprise","gitea","bitbucket-dc","perforce"]).parse(text(form,"kind"));
+  const kind=z.enum(["gitlab","github-enterprise","gitea","bitbucket-dc","perforce","azure-devops"]).parse(text(form,"kind"));
   const {encryptCredential,providerOrigin}=await import("../../src/credentials");
-  const instance=providerOrigin(text(form,"instance"),kind==="gitlab"?["gitlab.com"]:[]);
+  const instance=providerOrigin(text(form,"instance"),kind==="gitlab"?["gitlab.com"]:kind==="azure-devops"?["dev.azure.com"]:[]);
   const credential=text(form,"credential"),webhook=text(form,"webhookSecret");
   if(credential.length<10||credential.length>20000||kind!=="perforce"&&webhook.length<32)throw new Error("Credentials required; webhook providers need a secret of at least 32 characters");
   let config:unknown;
   if(["github-enterprise","bitbucket-dc","perforce"].includes(kind)){try{config=JSON.parse(credential);}catch{throw new Error("Credential must be valid JSON with the fields shown in setup");}}
   if(kind==="gitlab"){const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential).repositories();}
   else if(kind==="gitea"){const {Gitea}=await import("../../src/gitea");await new Gitea(instance,credential).discover();}
+  else if(kind==="azure-devops"){if(!/^https:\/\/[^/]+\/[^/]+/.test(instance))throw new Error("Use the organization URL, for example https://dev.azure.com/your-organization");const {AzureDevOps}=await import("../../src/azure-devops");await new AzureDevOps(instance,credential).repositories();}
   else if(kind==="bitbucket-dc"){const {BitbucketDC}=await import("../../src/bitbucket-dc");const c=z.object({token:z.string().min(10),username:z.string().min(1)}).safeParse(config);if(!c.success)throw new Error("Bitbucket credential requires a token (10+ characters) and bot username");await new BitbucketDC(instance,c.data.token,undefined,c.data.username).repositories();}
   else if(kind==="perforce"){const {P4CodeReview,p4Credential}=await import("../../src/perforce");const c=p4Credential.safeParse(config);if(!c.success)throw new Error("P4 credential requires only username and ticket, as shown in setup");await new P4CodeReview(instance,c.data.username,c.data.ticket).projects();}
   else{const {Github}=await import("../../src/github");const c=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).safeParse(config);if(!c.success)throw new Error("Enterprise credential requires appId, privateKey, and a positive installationId");await (await Github.installation(c.data.installationId,{appId:c.data.appId,privateKey:c.data.privateKey,base:instance+(new URL(instance).hostname.endsWith(".ghe.com")?"":"/api/v3")})).repositories();}

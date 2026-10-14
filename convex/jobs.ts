@@ -358,7 +358,7 @@ export const review = internalAction({
           comments: published.comments,
         });
         const verified = [...result.findings, ...(result.metadata?.carriedForward ?? [])];
-        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha), { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", detailsUrl: dashboardUrl(args.reviewId) });
+        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha, state.review.prNumber), { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", detailsUrl: dashboardUrl(args.reviewId) });
         return;
       }
       if (pr.head.sha !== state.review.headSha || pr.state !== "open") {
@@ -395,7 +395,7 @@ export const review = internalAction({
         baseBranch: pr.base.ref,
       });
       if(await ctx.runMutation(internal.runtime.request,{reviewId:args.reviewId}))return;
-      check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha);
+      check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha, pr.number);
       // Repository config as code, read from the BASE revision so a change cannot weaken its own review.
       const repoConfig = await loadRepoConfig(github, repo.fullName, pr.base.sha).catch((error): LoadedRepoConfig => ({ settings: {}, rules: [], files: [], directories: [], warnings: ["Repository config could not be read from the base revision: " + redact(error instanceof Error ? error.message : "unavailable").slice(0, 200)] }));
       const configured = applyRepoConfig(settings, repoConfig);
@@ -707,8 +707,14 @@ async function resolveFixedThreads(ctx: ActionCtx, scm: Scm, repositoryId: Id<"r
 }
 
 const dashboardUrl = (reviewId: Id<"reviews">) => { const app = process.env.APP_URL; return app && /^https:\/\//.test(app) ? new URL(`/dashboard/pulls/${encodeURIComponent(reviewId)}`, app).href : undefined; };
-// GitHub check runs (checks:write only; otherwise the provider returns null and nothing happens).
-async function beginCheck(ctx: ActionCtx, scm: Scm, reviewId: Id<"reviews">, repository: string, sha: string) {
+// GitHub check runs (checks:write only; otherwise the provider returns null and nothing happens),
+// or Azure DevOps pull request statuses (pending while reviewing, then the outcome).
+type CheckHandle = { scm: Scm; repository: string; id: number; prNumber?: number; status?: boolean };
+async function beginCheck(ctx: ActionCtx, scm: Scm, reviewId: Id<"reviews">, repository: string, sha: string, prNumber?: number): Promise<CheckHandle | null> {
+  if (scm.reportStatus && prNumber) {
+    try { await scm.reportStatus(repository, prNumber, "pending", "OpenReview is reviewing this revision", dashboardUrl(reviewId)); return { scm, repository, id: 0, prNumber, status: true }; }
+    catch (error) { console.error(JSON.stringify({ event: "review.status_failed", reviewId, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); return null; }
+  }
   if (!scm.startCheckRun) return null;
   try {
     const existing = await ctx.runQuery(internal.reviews.checkRun, { reviewId });
@@ -722,7 +728,13 @@ async function beginCheck(ctx: ActionCtx, scm: Scm, reviewId: Id<"reviews">, rep
     return null;
   }
 }
-async function finishCheck(check: { scm: Scm; repository: string; id: number } | null, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+async function finishCheck(check: CheckHandle | null, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+  if (check?.status && check.prNumber && check.scm.reportStatus) {
+    const state = result.conclusion === "success" ? "succeeded" : result.conclusion === "failure" ? "failed" : result.conclusion === "cancelled" ? "error" : "notApplicable";
+    try { await check.scm.reportStatus(check.repository, check.prNumber, state, result.title, result.detailsUrl); }
+    catch (error) { console.error(JSON.stringify({ event: "review.status_failed", error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }
+    return;
+  }
   if (!check?.scm.completeCheckRun) return;
   try { await check.scm.completeCheckRun(check.repository, check.id, result); }
   catch (error) { console.error(JSON.stringify({ event: "review.check_run_failed", error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }

@@ -1,5 +1,6 @@
 "use node";
 import type { ActionCtx } from "./_generated/server";
+import { AzureDevOps } from "../src/azure-devops";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import {githubEnterpriseEndpoints} from "../src/github-enterprise";
@@ -18,8 +19,9 @@ export async function provider(ctx:ActionCtx,repo:Doc<"repositories">):Promise<S
  const credentials=decryptCredential(c.credentials,c.organizationId+":"+c.kind);
  if(c.kind==="bitbucket-cloud"){const token=bitbucketCredential(credentials);if(!c.namespaceId||!repo.externalId)throw new Error("Bitbucket installation repository identity missing");return new BitbucketCloud(token.systemToken,c.namespaceId,repo.externalId,token.publisherId);}
  if(c.kind==="origin")return new Origin(JSON.parse(credentials),repo.externalId,async(repository,author)=>repository===repo.fullName&&await ctx.runAction(internal.providerIdentityJobs.originCanReply,{repositoryId:repo._id,authorExternalId:author}));
- const base=providerOrigin(c.instance,c.kind==="gitlab"?["gitlab.com"]:[]);
+ const base=providerOrigin(c.instance,c.kind==="gitlab"?["gitlab.com"]:c.kind==="azure-devops"?["dev.azure.com"]:[]);
  if(c.kind==="gitea")return new Gitea(base,credentials);
+ if(c.kind==="azure-devops")return new AzureDevOps(base,credentials,repo.externalId);
  if(c.kind==="bitbucket-dc"){const config=z.object({token:z.string().min(10),username:z.string().min(1)}).parse(JSON.parse(credentials));return new BitbucketDC(base,config.token,repo.externalId,config.username);}
  if(c.kind==="gitlab")return new Gitlab(base,credentials,repo.externalId);
  if(c.kind==="github-enterprise"){
@@ -35,9 +37,10 @@ export async function discover(c:Doc<"providerConnections">){
   return (await forgeRepositories(c.namespaceId,credential.systemToken)).map(r=>({...r,defaultBranch:r.defaultBranch??""}));
  }
  if(c.kind==="origin")return new Origin(JSON.parse(token)).repositories();
- const base=providerOrigin(c.instance,c.kind==="gitlab"?["gitlab.com"]:[]);
+ const base=providerOrigin(c.instance,c.kind==="gitlab"?["gitlab.com"]:c.kind==="azure-devops"?["dev.azure.com"]:[]);
  if(c.kind==="gitlab")return new Gitlab(base,token).repositories();
  if(c.kind==="gitea")return new Gitea(base,token).discover();
+ if(c.kind==="azure-devops")return new AzureDevOps(base,token).repositories();
  if(c.kind==="bitbucket-dc"){const config=z.object({token:z.string().min(10),username:z.string().min(1)}).parse(JSON.parse(token));return new BitbucketDC(base,config.token,undefined,config.username).repositories();}
  if(c.kind==="github-enterprise"){
   const config=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).parse(JSON.parse(token));

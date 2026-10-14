@@ -15,6 +15,7 @@ export const docPages: DocPage[] = [
   { slug: "bitbucket-cloud", title: "Bitbucket Cloud", description: "Bitbucket Cloud through Forge.", section: "Providers", file: "bitbucket-cloud.md" },
   { slug: "bitbucket-data-center", title: "Bitbucket Data Center", description: "Self-hosted Bitbucket.", section: "Providers", file: "bitbucket-data-center.md" },
   { slug: "gitea", title: "Gitea", description: "Gitea and Forgejo.", section: "Providers", file: "gitea.md" },
+  { slug: "azure-devops", title: "Azure DevOps", description: "Azure Repos pull requests with PAT or Entra auth.", section: "Providers", file: "azure-devops.md" },
   { slug: "perforce", title: "Perforce", description: "Perforce shelves and submitted revisions.", section: "Providers", file: "perforce.md" },
   { slug: "origin", title: "Origin", description: "Origin repositories.", section: "Providers", file: "origin.md" },
   { slug: "chat", title: "Codebase chat", description: "Cited answers about your repositories.", section: "Use", file: "public/chat.md" },

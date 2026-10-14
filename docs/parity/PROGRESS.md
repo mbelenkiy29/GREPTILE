@@ -119,7 +119,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   - [x] E4c Diff viewer with inline findings — done
     plan: src/diff-view.ts (unified-diff hunks with old/new numbers; findings placed after their new-side line, others listed as outside the hunks); convex/reviewDiff.load (authorized through reviews.detail; exact base...head compare when the review has baseSha and the provider supports compare, else the PR diff only while its head is the reviewed revision; files with findings first; ≤40 files / 400 KB); app/dashboard/review-diff.tsx on the review page, loaded only on request (?diff=1) and only for finished reviews (never on auto-refresh).
     evidence: tested with fakes + verified locally end-to-end (new scripts/smoke.ts = `pnpm test:smoke`: local Convex + production `next start`, signed-in fixture, all 23 dashboard routes, landing, docs and invite server-render with their real headings and no error boundary; unknown settings page shows the not-found state); tests: tests/diff-view.test.ts (2), tests/review-diff.spec.ts (2: exact compare ordered + unauthorized denied, PR-diff fallback + moved-head unavailable); scripts/browser.ts now also checks dark theme at 390 px and desktop; commands: lint/typecheck/test (313 Node + 220 vitest)/build green; commit: see git log feat(E4c)
-- [ ] F1 Azure DevOps — todo
+- [x] F1 Azure DevOps — done (live verification is Needs human #21)
+  plan: src/azure-devops.ts implements Scm against REST 7.1 (endpoints checked in current Microsoft Learn docs): PAT (Basic) or Entra service-principal client-credentials (cached bearer); repositories (project/repo, GUID externalId, disabled/empty filtered), refs/branches, commit→tree, octet-stream blobs (200 KB bound); PRs from the latest iteration with diffs computed locally (new src/text-diff.ts Myers unified diff, binary/oversized listed as omitted) and a re-read guard; positioned comment threads (threadContext + changeTrackingId/iterationContext) with hidden markers, one closed summary thread edited in place; thread replies with marker idempotency; PR statuses via an optional Scm.reportStatus wired into the review check hooks; source URLs; provider factory/discovery/connect form/providers page; webhook route accepts X-OpenReview-Token or Basic password and the body event id; providerJobs routes git.pullrequest.created/updated/merged and git.push; docs/azure-devops.md (+ /docs).
+  evidence: tested with fakes; tests: tests/text-diff.test.ts (3: git-identical hunks, merging/round-trip, bounded fallback), tests/azure-devops.test.ts (4 contract tests mirroring providers/gitlab-approval: PAT + Entra auth, discovery/refs/tree/blob/source URL; iteration diffs, omitted binary, revision-change guard, catalog; positioned threads, closed summary edited in place, refusals; replies, marker idempotency, status body), tests/azure-devops.spec.ts (2: shared-secret verification + delivery dedupe + PR routing to one review + unknown repository ignored; push re-index only on the default branch + disconnect); commands: lint/typecheck/test (320 Node + 222 vitest)/build green; commit: see git log feat(F1)
+  notes: follow-up @openreview commands are not supported on Azure DevOps yet (canReply not implemented: verifying another user's repository permission needs ACL APIs); approvals not supported.
 - [ ] F2 Live-verification runbooks — todo
 - [ ] F3 Fix handoff — todo
 
@@ -158,6 +161,12 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
    2. Run `pnpm test:e2e`. It covers the landing page, docs, changelog, the nine dashboard pages, Memory, Chat, 390 px mobile, the dark theme and console errors. If selectors fail because the UI changed, update them deliberately.
    3. Inspect `output/playwright/*.png` (light and dark).
    4. Without Chromium, `pnpm test:smoke` gives a browserless server-render check of every dashboard route.
+21. (F1) Azure DevOps live verification, in a test project:
+   1. Create a PAT (Code R&W, Code Status, Pull Request Threads R&W) or an Entra service principal added to the org.
+   2. Connect at Settings → Code Providers with instance `https://dev.azure.com/<org>` and a 32+ character webhook secret.
+   3. Add Web Hooks service hooks (PR created, PR updated, Code pushed) to the shown URL with the header `X-OpenReview-Token: <secret>`.
+   4. Enable a repository and open a PR. Confirm the positioned finding threads, the single closed summary thread, and the `openreview` status.
+   5. Record the result in docs/acceptance-matrix.md.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -210,6 +219,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — E4 component system: a small in-repo kit (app/ui) over the existing CSS tokens instead of Tailwind + shadcn/ui — Tailwind's preflight would restyle the hand-written CSS everywhere and both need new packages; the kit gives typed primitives that new UI adopts incrementally.
 
 - 2026-10-14 — Analytics rollups are recomputed from raw rows per org-day (hourly for the last 2 days, daily for the last 35) instead of incremented by event hooks, so every path that changes a finding's status is reflected without instrumenting each one; dashboards never scan raw tables. Time saved counts addressed findings only (not every finding), to avoid overstating. Charts are in-repo SVG (no chart dependency).
+
+- 2026-10-14 — Azure DevOps diffs are computed locally (Myers, 3-line context, edit bound 4,000 → whole-file fallback) because the iteration-changes API returns object IDs only; the summary thread is created closed so it never blocks comment-resolution branch policies; PR statuses (not commit statuses) carry the outcome because Azure check-like UI is per pull request.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

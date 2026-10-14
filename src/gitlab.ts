@@ -31,6 +31,8 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
   reactions?(repository:string,commentIds:number[]):Promise<{commentId:string;user:string;reaction:"+1"|"-1";createdAt:number}[]>;
   mergedReviewComments?(repository:string,mergedAfter:number,maxPulls?:number):Promise<{comments:{body:string;path?:string;author:string;url:string;prNumber:number}[];cursor:number}>;
   openFixPullRequest?(repository:string,number:number,fix:{branch:string;expectedHead:string;path:string;blobSha:string;content:string;title:string;body:string;message:string}):Promise<{url:string;reused:boolean}|{skipped:string}>;
+  // Azure DevOps pull request statuses (other providers use check runs).
+  reportStatus?(repository:string,number:number,state:"pending"|"succeeded"|"failed"|"notApplicable"|"error",description:string,targetUrl?:string):Promise<void>;
   completeCheckRun?(repository:string,id:number,result:{conclusion:"success"|"failure"|"neutral"|"cancelled";title:string;summary:string;detailsUrl?:string}):Promise<void>;
 };
 const note=z.object({id:z.number(),body:z.string(),author:z.object({username:z.string()}),position:z.object({new_path:z.string(),new_line:z.number().nullable(),head_sha:z.string().optional()}).nullish()});
