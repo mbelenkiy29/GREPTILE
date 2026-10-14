@@ -402,9 +402,9 @@ export default async function Dashboard({
               )}
               {detail.retryPending&&<p role="status">Retry {detail.review.retryAt ? "scheduled for "+when(detail.review.retryAt) : "pending"}. The review will update automatically.</p>}
               <RuntimeReview token={user.token} reviewId={detail.review._id} evidence={detail.review.runtimeEvidence}/>{detail.review.nativeP4?<p>Automatic approval is not available for Perforce reviews.</p>:<ApprovalReview token={user.token} reviewId={detail.review._id}/>}
-              <section aria-label="Review score">
-                <h2>Review score</h2>
-                {detail.review.reviewScore ? <><p>{detail.review.reviewScore.value}/5 · Merge readiness</p><p>{detail.review.reviewScore.reason}</p></> : <p className="muted">Not recorded for this review.</p>}
+              <section aria-label="Confidence score">
+                <h2>Confidence score</h2>
+                {detail.review.reviewScore ? <><p><strong>{detail.review.reviewScore.value}/5</strong> · confidence that the change is safe to merge</p><p>{detail.review.reviewScore.reason}</p></> : <p className="muted">Not recorded for this review.</p>}
               </section>
               {detail.review.approvalAssessment && (
                 <section>

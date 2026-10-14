@@ -12,6 +12,9 @@ import { provider } from "./scm";
 import { fileInventory, indexedFiles } from "./fileReads";
 import { reviewAgentHooks, reviewToolbox } from "./agentToolbox";
 import { semanticHits } from "./semanticSearch";
+import { Github } from "../src/github";
+import { Gitlab } from "../src/gitlab";
+import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
@@ -550,6 +553,7 @@ export const review = internalAction({
           ],
           diff: pr.diff,
           skippedFiles: pr.omitted,
+          sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
           mode: z.enum(["fast", "standard", "deep"]).parse(settings.mode),
           rules: rules.map((r) => ({
             id: r._id,
@@ -652,3 +656,9 @@ export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
  return {...result.metadata,suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});
+
+// Line links for the summary issue table on providers with stable line anchors.
+function summaryLink(scm: Scm, repository: string, sha: string) {
+  const anchor = scm instanceof Github ? (start: number, end: number) => `#L${start}${end > start ? "-L" + end : ""}` : scm instanceof Gitlab ? (start: number, end: number) => `#L${start}${end > start ? "-" + end : ""}` : undefined;
+  return anchor ? (path: string, start: number, end: number) => { try { return scm.sourceUrl(repository, sha, path) + anchor(start, end); } catch { return undefined; } } : undefined;
+}

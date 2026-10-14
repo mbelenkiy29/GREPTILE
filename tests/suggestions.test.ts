@@ -65,6 +65,8 @@ test("GitHub publication includes a committable suggestion block on the finding'
     const path = new URL(url).pathname;
     if (path === "/repos/o/r/pulls/1") return Response.json({ state: "open", head: { sha: head } });
     if (path.endsWith("/files")) return Response.json([{ filename: "price.ts", patch: diff[0].patch }]);
+    if (path.endsWith("/issues/1/comments") && options.method === "POST") return Response.json({ id: 900, user: { login: "openreview[bot]" } });
+    if (path.endsWith("/issues/1/comments")) return Response.json([]);
     if (path.endsWith("/reviews") && options.method === "POST") { posted = JSON.parse(String(options.body)); return Response.json({ id: 100, commit_id: head, user: { login: "openreview[bot]" } }); }
     if (path.endsWith("/reviews")) return Response.json([]);
     if (path.endsWith("/reviews/100/comments")) return Response.json([{ id: 10, body: posted!.comments[0].body, user: { login: "openreview[bot]" }, path: "price.ts", line: 2, commit_id: head, pull_request_review_id: 100 }]);

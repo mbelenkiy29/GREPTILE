@@ -91,7 +91,7 @@ test("GitLab publication binds bot, run, revision and added line, and resumes a 
  type Note={id:number;body:string;author:{username:string};position?:typeof position};
  const notes:Note[]=[{id:1,body:findingMarker,author:{username:"alice"},position},{id:2,body:findingMarker,author:{username:"openreview"},position:{...position,head_sha:base}},{id:3,body:"<!-- openreview-finding:"+fingerprint+" -->",author:{username:"openreview"},position},{id:4,body:summaryMarker,author:{username:"alice"}}];
  const patch="@@ -1,2 +1,2 @@\n function amount(price) {\n- return price;\n+ return price / 100;";
- let discussions=0,summaries=0,failSummary=true,currentHead=head,currentBase=base,reads=0,changeAt=Infinity,omit=false;
+ let discussions=0,summaries=0,edits=0,failSummary=true,currentHead=head,currentBase=base,reads=0,changeAt=Infinity,omit=false;
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit)=>{
   const url=new URL(input);assert.equal(options.redirect,"error");
   if(url.pathname.endsWith("/user"))return Response.json({username:"openreview"});
@@ -104,6 +104,7 @@ test("GitLab publication binds bot, run, revision and added line, and resumes a 
    discussions++;const body=JSON.parse(String(options.body));assert.equal(body.position.old_path,"old-price.ts");assert.equal(body.position.head_sha,head);assert.equal(body.position.new_line,2);assert.equal(body.position.old_line,undefined);
    const posted={id:20+discussions,body:body.body,author:{username:"openreview"},position:body.position};notes.push(posted);return Response.json({notes:[posted]});
   }
+  if(/\/notes\/\d+$/.test(url.pathname)&&options.method==="PUT"){edits++;const n=notes.find(n=>url.pathname.endsWith("/notes/"+n.id))!;n.body=JSON.parse(String(options.body)).body;return Response.json(n);}
   if(url.pathname.endsWith("/notes")){
    if(options.method==="POST"){if(failSummary)return Response.json({},{status:503});summaries++;const posted={id:50+summaries,body:JSON.parse(String(options.body)).body,author:{username:"openreview"}};notes.push(posted);return Response.json(posted);}
    return Response.json(notes);
@@ -115,16 +116,18 @@ test("GitLab publication binds bot, run, revision and added line, and resumes a 
  failSummary=false;const resumed=await publish();assert.equal(resumed.reused,false);assert.equal(discussions,1);assert.equal(summaries,1);assert.equal(resumed.comments[0].id,21);
  assert.ok(notes.at(-1)!.body.includes("/-/commit/"+head));
  assert.equal((await publish()).reused,true);assert.equal(discussions,1);assert.equal(summaries,1);
- await client.publish("group/repo",1,head,"New run",[finding],"review-two");assert.equal(discussions,2);assert.equal(summaries,2);
- const posts=discussions+summaries;finding.startLine=1;await assert.rejects(publish(),/line not in complete/);finding.startLine=2;
+ // A new run edits the single summary note in place instead of adding another.
+ await client.publish("group/repo",1,head,"New run",[finding],"review-two");assert.equal(discussions,2);assert.equal(summaries,1);assert.equal(edits,1);
+ assert.ok(notes.find(n=>n.id===51)!.body.includes("New run"));
+ const posts=discussions+summaries+edits;finding.startLine=1;await assert.rejects(publish(),/line not in complete/);finding.startLine=2;
  omit=true;await assert.rejects(publish(),/line not in complete/);omit=false;
  currentHead=base;await assert.rejects(publish(),/revision changed/);currentHead=head;
- reads=0;changeAt=2;await assert.rejects(client.publish("group/repo",1,head,"Stale",[finding],"review-three"),/revision changed/);assert.equal(discussions+summaries,posts);
+ reads=0;changeAt=2;await assert.rejects(client.publish("group/repo",1,head,"Stale",[finding],"review-three"),/revision changed/);assert.equal(discussions+summaries+edits,posts);
  currentHead=head;changeAt=Infinity;currentBase="c".repeat(40);reads=0;
  await assert.rejects(client.publish("group/repo",1,head,"Already stale",[finding],"stale-run","detailed",base+":"+base),/revision changed/);reads=0;
  // A native base change during publication must invalidate the snapshot as well.
  const originalFetch=globalThis.fetch;t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit)=>{if(String(input).endsWith("/merge_requests/1")&&reads===1)currentBase=base;return originalFetch(input,options);});
- await assert.rejects(client.publish("group/repo",1,head,"Stale base",[finding],"review-four"),/revision changed/);assert.equal(discussions+summaries,posts);
+ await assert.rejects(client.publish("group/repo",1,head,"Stale base",[finding],"review-four"),/revision changed/);assert.equal(discussions+summaries+edits,posts);
 });
 test("Gitea permissions validate the native user and replies stay in the scoped review thread",async t=>{
  let permission="read",active=true,prohibit=false,type="User",login="alice",parentPresent=true,posts=0,reviews=1;

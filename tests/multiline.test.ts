@@ -30,6 +30,8 @@ test("GitHub publishes start_line/start_side for in-hunk ranges, single lines ot
     const path = new URL(url).pathname;
     if (path === "/repos/o/r/pulls/1") return Response.json({ state: "open", head: { sha: head } });
     if (path.endsWith("/files")) return Response.json([{ filename: "price.ts", patch }]);
+    if (path.endsWith("/issues/1/comments") && options.method === "POST") return Response.json({ id: 900, user: { login: "openreview[bot]" } });
+    if (path.endsWith("/issues/1/comments")) return Response.json([]);
     if (path.endsWith("/reviews") && options.method === "POST") { posted = JSON.parse(String(options.body)); return Response.json({ id: 100, commit_id: head, user: { login: "openreview[bot]" } }); }
     if (path.endsWith("/reviews")) return Response.json([]);
     if (path.endsWith("/reviews/100/comments")) return Response.json(posted!.comments.map((c, i) => ({ id: 10 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, line: c.line, start_line: c.start_line ?? null, commit_id: head, pull_request_review_id: 100 })));

@@ -525,15 +525,15 @@ test("oversized source is excluded by byte size even when the provider omits con
 test("configurable summaries preserve evidence and validate risk prose, with one shared preview renderer",async()=>{
  const data={overview:"Updates authentication without changing the public endpoint.",files:[{path:"auth.ts",status:"modified",patch:""},{path:"tests/auth.test.ts",status:"added",patch:""}],findings:[],resolved:[],assessment:undefined,runtimeEvidence:undefined,coverageLimits:["Security category excluded"],contextCount:2,candidates:0,suppressed:0};
  const full=reviewSummary(data);
- for(const section of ["Changes","Affected files","Verified findings","Resolved findings","Risk assessment","Test source","Test execution","Coverage"])assert.ok(full.includes("### "+section));
+ for(const section of ["Overview","Files changed","Issues","Resolved findings","Risk assessment","Skipped files","Test source","Test execution","Coverage"])assert.ok(full.includes("### "+section));
  assert.match(full,/`tests\/auth.test.ts`/);assert.match(full,/Not executed by OpenReview/);assert.match(full,/Security category excluded/);
- const minimal=reviewSummary(data,[]);assert.match(minimal,/### Test execution/);assert.match(minimal,/### Coverage/);assert.equal(minimal.includes(data.overview),false);assert.equal(minimal.includes("### Verified findings"),false);
+ const minimal=reviewSummary(data,[]);assert.match(minimal,/### Test execution/);assert.match(minimal,/### Coverage/);assert.equal(minimal.includes(data.overview),false);assert.equal(minimal.includes("### Issues"),false);
  assert.throws(()=>reviewSummary(data,["madeUp"]),/Invalid summary sections/);assert.throws(()=>reviewSummary(data,["overview","overview"]),/Invalid summary sections/);
  assert.equal(reviewSummarySchema().safeParse({summary:data.overview,approvalAssessment:{risk:"low",confidence:1,reason:"Passing regression tests establish that authorization works."}}).success,false);
  assert.equal(reviewSummarySchema(undefined,[]).safeParse({summary:data.overview,approvalAssessment:{risk:"low",confidence:1,reason:"Requirements confirmed at https://linear.app/team/issue/ENG-9/fake"}}).success,false);
  const model=new FixtureModel(),input:ReviewInput={repository:"acme/api",baseSha:"a".repeat(40),headSha:"b".repeat(40),title:"Update authentication",description:"",files:[],diff:[],rules:[],mode:"standard",settings:{summarySections:[]}};
- const review=await reviewChange(input,model);assert.equal(review.summary.includes("### Changes"),false);assert.match(review.summary,/### Test execution/);
- assert.equal(summarySections.length,7);
+ const review=await reviewChange(input,model);assert.equal(review.summary.includes("### Overview"),false);assert.match(review.summary,/### Test execution/);
+ assert.equal(summarySections.length,8);
 });
 
 
@@ -550,8 +550,8 @@ test("merge readiness is recorded separately from assessment confidence and vali
  assert.equal(validator.safeParse({summary,reviewScore:{...score,reason:"Requirements are confirmed at https://linear.app/acme/issue/ENG-99/invented"}}).success,false);
  assert.equal(reviewSummarySchema().parse({summary}).reviewScore,undefined);
  const result=await reviewChange(input,new FixtureModel());
- assert.equal(result.metadata.reviewScore?.value,1);assert.match(result.summary,/### Review score\n1\/5/);
- assert.equal(reviewSummary({overview:summary,score:result.metadata.reviewScore,files:[],findings:[],resolved:[],assessment:approvalAssessment,runtimeEvidence:undefined,coverageLimits:[],contextCount:0,candidates:0,suppressed:0},["risk"]).includes("### Review score"),false);
+ assert.equal(result.metadata.reviewScore?.value,1);assert.match(result.summary,/### Confidence score\n\*\*1\/5\*\* — /);
+ assert.equal(reviewSummary({overview:summary,score:result.metadata.reviewScore,files:[],findings:[],resolved:[],assessment:approvalAssessment,runtimeEvidence:undefined,coverageLimits:[],contextCount:0,candidates:0,suppressed:0},["risk"]).includes("### Confidence score"),false);
 });
 
 test("structured summaries reject malformed control characters while preserving readable Markdown",()=>{

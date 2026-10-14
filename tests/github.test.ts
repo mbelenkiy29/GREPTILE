@@ -103,7 +103,8 @@ test("carried findings retain Fix All without posting duplicate inline comments"
  try{
   const github=new Github("fixture","https://api.github.com",async()=>"test-bot");
   await github.publish("owner/repo",1,sha,"A verified finding remains open.",[],"latest-review","detailed",undefined,1);
-  assert.ok(posted);assert.deepEqual(posted.comments,[]);
+  // No inline findings: no review is created, only the summary comment (edited in place later).
+  assert.ok(posted);assert.equal(posted.comments,undefined);assert.match(posted.body,/<!-- openreview:summary -->/);
   assert.match(posted.body,/\[Fix All\]\(https:\/\/review.example.com\/fix\/latest-review\)/);
   assert.equal((posted.body.match(/View review \/ Re-review/g)??[]).length,1);
   await github.publish("owner/repo",1,sha,"No unresolved findings.",[],"clean-review","detailed",undefined,0);

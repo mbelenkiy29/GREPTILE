@@ -3,7 +3,7 @@ import { reviewLinks } from "./review-summary";
 import { z } from "zod";
 import { repositorySourceUrl } from "./source-url";
 import type { Finding, SourceFile } from "./engine/types";
-import { findingComment, type Github } from "./github";
+import { findingComment, summaryMarker, type Github } from "./github";
 import { changedLines } from "./engine/diff";
 type ExternalId = string | number;
 type GithubChange = Awaited<ReturnType<Github["pullRequest"]>>;
@@ -39,9 +39,9 @@ class GitlabError extends Error {constructor(readonly status:number,endpoint:str
 export class Gitlab implements Scm {
  readonly supportsApproval=true;
  constructor(private base:string,private token:string,private project?:string){}
- async request<T>(endpoint:string,schema:z.ZodType<T>,body?:unknown):Promise<T>{
+ async request<T>(endpoint:string,schema:z.ZodType<T>,body?:unknown,method?:"PUT"|"DELETE"):Promise<T>{
   if(!endpoint.startsWith("/")||endpoint.startsWith("//")||endpoint.includes("://"))throw new Error("Invalid provider API path");
-  const response=await fetch(this.base+"/api/v4"+endpoint,{method:body===undefined?"GET":"POST",redirect:"error",headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+  const response=await fetch(this.base+"/api/v4"+endpoint,{method:method??(body===undefined?"GET":"POST"),redirect:"error",headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
   if(!response.ok)throw new GitlabError(response.status,endpoint);
   return schema.parse(response.status===204?null:await response.json());
  }
@@ -200,9 +200,16 @@ export class Gitlab implements Scm {
   }
   const revisionMarker="<!-- openreview-revision:"+sha+" -->";
   await current();
-  const prior=notes.find(n=>n.author.username===me.username&&n.body.includes("<!-- openreview:"+marker+" -->")&&n.body.includes(revisionMarker));
-  if(prior)return {id:prior.id,reused:true,comments};
-  const result=await this.request(prefix+"/notes",note,{body:"## OpenReview\n\n"+summary+reviewLinks(marker,unresolvedCount)+"\n\n**Reviewed revision:** [`"+sha.slice(0,7)+"`]("+this.base+"/"+repo.split("/").map(encodeURIComponent).join("/")+"/-/commit/"+encodeURIComponent(sha)+")\n\n<!-- openreview:"+marker+" -->\n"+revisionMarker});
+  // One summary note per merge request, found by its hidden marker and edited in place.
+  const body="## OpenReview\n\n"+summary+reviewLinks(marker,unresolvedCount)+"\n\n**Last reviewed commit:** [`"+sha.slice(0,7)+"`]("+this.base+"/"+repo.split("/").map(encodeURIComponent).join("/")+"/-/commit/"+encodeURIComponent(sha)+")\n\n"+summaryMarker+"\n<!-- openreview:"+marker+" -->\n"+revisionMarker;
+  const existing=notes.filter(n=>n.author.username===me.username&&n.body.includes(summaryMarker)).at(-1);
+  if(existing){
+   if(existing.body===body)return {id:existing.id,reused:true,comments};
+   const edited=await this.request(prefix+"/notes/"+existing.id,note,{body},"PUT");
+   if(edited.author.username!==me.username)throw new Error("GitLab returned another publication identity");
+   return {id:existing.id,reused:false,comments};
+  }
+  const result=await this.request(prefix+"/notes",note,{body});
   if(result.author.username!==me.username)throw new Error("GitLab returned another publication identity");
   return {id:result.id,reused:false,comments};
  }

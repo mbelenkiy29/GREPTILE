@@ -77,6 +77,18 @@ Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMAR
 
 Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++ and Swift use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
 
+Review summary: each pull request (or GitLab merge request) has exactly one OpenReview summary comment. It is found by a hidden marker and edited in place on every run, while inline findings are posted as review comments; GitHub creates no review when there are no inline findings. Sections can be toggled per scope under Review formatting:
+- overview
+- a per-file table (file and one-line change description)
+- an issues table (severity, linked location, title)
+- a confidence score `n/5` with a one-sentence rationale, capped by the most severe verified finding
+- risk assessment
+- resolved findings
+- skipped files
+- test source
+
+Test execution, coverage and a visible **Last reviewed commit** link always appear. Gitea, Bitbucket, Perforce and Origin keep posting one summary per run.
+
 Committable suggestions: a finding can carry a small exact replacement for its own line range. OpenReview publishes it only if the range lies inside the changed lines and the original text still matches the reviewed head revision; otherwise the suggestion is dropped (recorded in diagnostics) and the finding is kept. On GitHub and GitHub Enterprise, findings whose range lies inside one diff hunk are posted as multi-line comments (`start_line`…`line`); any other range falls back to its first line. GitHub and GitHub Enterprise render a ```` ```suggestion ```` block when the comment covers the whole suggestion range, and GitLab renders ```` ```suggestion:-N+M ````. Gitea, Bitbucket, Perforce and Origin show the finding and Fix handoff without a suggestion block, because they have no native apply-suggestion support.
 
 Optional semantic retrieval: set `EMBEDDING_MODEL` with an OpenAI-compatible embedding endpoint and key (`EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`) that supports exactly 1,536 dimensions. Indexing embeds definition-level chunks (function, class or method boundaries from the code graph, with line windows as fallback). Reviews and the agentic `search_code` tool rank context with a hybrid of vector similarity, full-text relevance and code-graph proximity. Re-indexing backfills idempotently: unchanged files already embedded with the current model are skipped, and a model change re-embeds them. Embedding tokens and estimated cost are recorded as usage (`EMBEDDING_COST_PER_MILLION`, or the built-in price table). The repository settings page shows whether semantic retrieval is on. Without embeddings, full-text and graph retrieval still run.

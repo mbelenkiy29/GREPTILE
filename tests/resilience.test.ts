@@ -76,7 +76,7 @@ test("a 600-file change reviews the riskiest files within the mode limit and rep
   assert.ok(skipped.some(f => f.path === "data/huge.json"));
   assert.ok(skipped.filter(f => f.reason.includes("review limit of 350 files")).every(f => f.path.startsWith("docs/")));
   assert.ok(result.metadata.coverageLimits!.some(l => l.includes("251 changed files were not reviewed")));
-  assert.match(result.summary, /Skipped files:\n- `/);
+  assert.match(result.summary, /### Skipped files\n- `/);
   assert.match(result.summary, /more skipped files omitted from this summary/);
   assert.ok(riskScore(diff[599]) > riskScore(diff[0]));
 });

@@ -36,6 +36,7 @@ export function findingFingerprint(body:string){
   if(/<!-- openreview:conversation:[^>]+ -->\s*$/.test(body))return undefined;
   return [...body.matchAll(/<!-- openreview-finding:([a-f0-9]+) -->/g)].at(-1)?.[1];
 }
+export const summaryMarker = "<!-- openreview:summary -->";
 const treeSchema = z.object({
   truncated: z.boolean(),
   tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string(), size: z.number().optional() })),
@@ -473,47 +474,60 @@ export class Github {
     const prior = existing.find((r) =>
       r.body?.trimEnd().endsWith(`<!-- openreview:${marker} -->`) && r.commit_id===sha && r.state==="COMMENTED" && r.user.login===publisher,
     );
-    if (prior){const comments=await this.findingComments(repository, number, prior.id,findings,sha);await current();
-      return {
-        id: prior.id,
-        reused: true,
-        comments,
-      };
+    // Inline findings go in a review (idempotent per run marker); the summary is one issue
+    // comment per pull request, edited in place on every run.
+    let review: { id: number; reused: boolean; comments: { id: number; fingerprint: string }[] } | undefined;
+    if (prior) review = { id: prior.id, reused: true, comments: await this.findingComments(repository, number, prior.id, findings, sha) };
+    else if (findings.length) {
+      const patches=new Map<string,string>();
+      const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const file of files)patches.set(file.filename,file.patch??"");for(const f of findings)if(f.commitSha!==sha||!changedLines(patches.get(f.filePath)??"").has(f.startLine))throw new Error("Finding line not in complete current diff");
+      await current();
+      const comments = findings.map((f) => {
+        // Ranges inside one hunk become multi-line comments (start_line…line); others stay single-line.
+        const range = commentRange(patches.get(f.filePath) ?? "", f.startLine, f.endLine);
+        return {
+          path: f.filePath,
+          line: range.end,
+          side: "RIGHT",
+          ...(range.start < range.end ? { start_line: range.start, start_side: "RIGHT" } : {}),
+          body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
+        };
+      });
+      const result = await this.request(
+        `/repos/${repository}/pulls/${number}/reviews`,
+        z.object({ id: z.number(),commit_id:z.string(),user:z.object({login:z.string()}) }),
+        {
+          method: "POST",
+          body: JSON.stringify({
+            commit_id: sha,
+            event: "COMMENT",
+            body: `OpenReview posted ${findings.length} inline finding${findings.length === 1 ? "" : "s"} on \`${sha.slice(0, 7)}\`. The OpenReview summary comment on this pull request is updated in place.\n\n<!-- openreview:${marker} -->`,
+            comments,
+          }),
+        },
+      );
+      if(result.commit_id!==sha||result.user.login!==publisher)throw new Error("GitHub returned another publication identity or revision");
+      review = { id: result.id, reused: false, comments: await this.findingComments(repository, number, result.id, findings, sha) };
     }
-    const patches=new Map<string,string>();
-    if(findings.length){const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const file of files)patches.set(file.filename,file.patch??"");for(const f of findings)if(f.commitSha!==sha||!changedLines(patches.get(f.filePath)??"").has(f.startLine))throw new Error("Finding line not in complete current diff");}
     await current();
-    const comments = findings.map((f) => {
-      // Ranges inside one hunk become multi-line comments (start_line…line); others stay single-line.
-      const range = commentRange(patches.get(f.filePath) ?? "", f.startLine, f.endLine);
-      return {
-        path: f.filePath,
-        line: range.end,
-        side: "RIGHT",
-        ...(range.start < range.end ? { start_line: range.start, start_side: "RIGHT" } : {}),
-        body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
-      };
-    });
-    const result = await this.request(
-      `/repos/${repository}/pulls/${number}/reviews`,
-      z.object({ id: z.number(),commit_id:z.string(),user:z.object({login:z.string()}) }),
-      {
-        method: "POST",
-        body: JSON.stringify({
-          commit_id: sha,
-          event: "COMMENT",
-          body: `## OpenReview\n\n${summary}${reviewLinks(marker,unresolvedCount)}\n\n<!-- openreview:${marker} -->`,
-          comments,
-        }),
-      },
-    );
-    if(result.commit_id!==sha||result.user.login!==publisher)throw new Error("GitHub returned another publication identity or revision");
-    const mapped=await this.findingComments(repository, number, result.id,findings,sha);await current();
-    return {
-      id: result.id,
-      reused: false,
-      comments: mapped,
-    };
+    const commit = `${githubWebOrigin(this.base)}/${repository.split("/").map(encodeURIComponent).join("/")}/commit/${sha}`;
+    const body = `## OpenReview\n\n${summary}${reviewLinks(marker,unresolvedCount)}\n\n**Last reviewed commit:** [\`${sha.slice(0, 7)}\`](${commit})\n\n${summaryMarker}\n<!-- openreview:${marker} -->`;
+    const note = await this.upsertSummary(repository, number, body, publisher);
+    await current();
+    return review ?? { id: note.id, reused: note.reused, comments: [] };
+  }
+  // One summary comment per pull request, found by its hidden marker and edited in place.
+  async upsertSummary(repository: string, number: number, body: string, publisher: string) {
+    const comments = await this.paginate(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), body: z.string().nullable(), user: z.object({ login: z.string() }) }));
+    const target = comments.filter((c) => c.user.login === publisher && c.body?.includes(summaryMarker)).at(-1);
+    if (target) {
+      if (target.body === body) return { id: target.id, reused: true };
+      await this.request(`/repos/${repository}/issues/comments/${target.id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ body }) });
+      return { id: target.id, reused: false };
+    }
+    const created = await this.request(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), user: z.object({ login: z.string() }) }), { method: "POST", body: JSON.stringify({ body }) });
+    if (created.user.login !== publisher) throw new Error("GitHub returned another publication identity");
+    return { id: created.id, reused: false };
   }
   async findingComments(repository: string, number: number, reviewId: number,findings?:Finding[],sha?:string) {
     const publisher=await this.publisherLogin();

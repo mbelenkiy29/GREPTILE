@@ -265,7 +265,7 @@ test("webhook through indexing, cross-file review, persistence, publish, feedbac
   });
   expect(dashboard.reviews[0].status).toBe("completed");
   expect(dashboard.reviews[0].reviewScore).toEqual({value:1,reason:"The verified authorization defect must be corrected before merging."});
-  expect(publish.mock.calls[0][3]).toContain("### Review score\n1/5");
+  expect(publish.mock.calls[0][3]).toContain("### Confidence score\n**1/5**");
   expect(
     (
       await t.query(api.reviews.detail, {

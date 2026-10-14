@@ -97,6 +97,8 @@ export type ReviewInput = {
   coverageLimits?: string[];
   // Changed files the provider could not supply (e.g. omitted diffs); reported, never reviewed.
   skippedFiles?: SkippedFile[];
+  // Provider link to file lines at the reviewed revision (summary issue table); optional.
+  sourceLink?: (path: string, startLine: number, endLine: number) => string | undefined;
   runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
   contextHints?: { path: string; reason: string; score: number }[];
   repository: string;

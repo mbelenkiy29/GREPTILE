@@ -1,5 +1,5 @@
-export const summarySections=["overview","affectedAreas","findings","resolved","score","risk","testSource"] as const;
-export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Changes",affectedAreas:"Affected files",findings:"Verified findings",resolved:"Resolved findings",score:"Review score",risk:"Risk assessment",testSource:"Test source"};
+export const summarySections=["overview","affectedAreas","findings","score","risk","resolved","skipped","testSource"] as const;
+export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",findings:"Issues",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source"};
 export const validSummarySections=(value:readonly string[]|undefined)=>value===undefined||value.length<=summarySections.length&&new Set(value).size===value.length&&value.every(s=>(summarySections as readonly string[]).includes(s));
 export const defaults = {
   automatic: true,
