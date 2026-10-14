@@ -38,7 +38,7 @@ export const prepare=internalAction({args:{id:v.id("runtimeJobs")},handler:async
   await ctx.runMutation(internal.runtime.ready,{...a,sourceStorageId});
  }catch(error){await ctx.runMutation(internal.runtime.complete,{...a,error:error instanceof Error?error.message:"Runtime source preparation failed"});}
 }});
-export const report=internalAction({args:{id:v.id("runtimeJobs"),hash:v.string(),lease:v.string(),error:v.optional(v.string()),evidence:v.optional(runtimeEvidenceValidator)},handler:async(ctx,a)=>{
+export const report=internalAction({args:{id:v.id("runtimeJobs"),hash:v.string(),lease:v.string(),error:v.optional(v.string()),evidence:v.optional(runtimeEvidenceValidator),tests:v.optional(v.array(v.object({fingerprint:v.string(),evidence:v.optional(runtimeEvidenceValidator),error:v.optional(v.string())})))},handler:async(ctx,a)=>{
  const job=await ctx.runQuery(internal.runtime.authenticatedJob,{hash:a.hash,id:a.id,lease:a.lease});
  const {repo}=await ctx.runQuery(internal.runtime.data,{id:a.id});
  const review=await ctx.runQuery(internal.reviews.data,{reviewId:job.reviewId});

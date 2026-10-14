@@ -25,9 +25,12 @@ const data = {
 
 test("summary renders overview, file and issue tables, n/5 confidence, risk, skipped files and coverage (snapshot)", () => {
   const expected = [
+    // G1: the verdict opens the summary; the score shows because the score section is on.
+    "**Needs changes** · Confidence score **1/5**",
     "### Overview\nTotals are now computed in a shared helper.",
     "### Files changed\n| File | Change |\n| --- | --- |\n| `src/total.ts` | Moves total computation into a helper \\| with pipes. |\n| `tests/total.test.ts` | added · +1 −0 |\n| `src/a|b.ts` | modified · +0 −0 |",
-    `### Issues\n| Severity | Location | Issue |\n| --- | --- | --- |\n| **critical** | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| **medium** | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
+    // G2: priority badges replace the bare severity column.
+    `### Issues\n| Priority | Location | Issue |\n| --- | --- | --- |\n| 🔴 **P0** · critical | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| 🟡 **P2** · medium | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
     "### Confidence score\n**1/5** — A critical currency defect blocks merging.",
     "### Risk assessment\nhigh · Confidence 90%\n\nMonetary totals change for every order.",
     "### Resolved findings\nNo previously reported findings were confirmed resolved in this review.",
@@ -37,17 +40,19 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
     "### Coverage\n3 changed files; 3 retrieved context files. 4 candidates; 2 verified findings; 2 suppressed.\n\n- Some review categories were disabled",
   ].join("\n\n");
   assert.equal(reviewSummary(data), expected);
-  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "diagram", "findings", "score", "risk", "resolved", "skipped", "testSource"]);
+  // G5 added "tips", a footer toggle that renders no summary section.
+  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "diagram", "findings", "score", "risk", "resolved", "skipped", "testSource", "tips"]);
   assert.doesNotMatch(reviewSummary(data), /### Sequence diagram/, "the diagram section is omitted when no diagram was generated");
 });
 
 test("summary sections toggle independently; skipped files fall back into coverage when their section is off", () => {
   const minimal = reviewSummary(data, ["findings"]);
-  assert.match(minimal, /^### Issues\n/);
+  // G1: the verdict line always comes first; without the score section it carries no score.
+  assert.match(minimal, /^\*\*Needs changes\*\*\n\n### Issues\n/);
   assert.doesNotMatch(minimal, /### Overview|### Files changed|### Confidence score|### Skipped files/);
   assert.match(minimal, /### Coverage[\s\S]*Skipped files:\n- `package-lock.json`/);
   assert.match(reviewSummary({ ...data, findings: [], sourceLink: undefined }, ["findings"]), /No verified findings/);
-  assert.match(reviewSummary({ ...data, sourceLink: () => "javascript:alert(1)" }, ["findings"]), /\| \*\*critical\*\* \| `src\/total.ts:3–5` \|/, "non-HTTPS links are not rendered");
+  assert.match(reviewSummary({ ...data, sourceLink: () => "javascript:alert(1)" }, ["findings"]), /\| 🔴 \*\*P0\*\* · critical \| `src\/total.ts:3–5` \|/, "non-HTTPS links are not rendered");
   const many = { ...data, files: Array.from({ length: 65 }, (_, i) => ({ path: `f${i}.ts`, status: "added", patch: "" })) };
   assert.match(reviewSummary(many, ["affectedAreas"]), /…and 5 more changed files\./);
 });

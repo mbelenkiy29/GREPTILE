@@ -1,4 +1,5 @@
 import { findingSchema } from "../../../src/engine/types";
+import { verdictLabels } from "../../../src/verdict";
 import Link from "next/link";
 import { ReviewMarkdown } from "../markdown";
 import { ScrollTable } from "../scroll-table";
@@ -12,7 +13,7 @@ import { FixButton } from "../fix-button";
 import { PullList } from "../pulls";
 import { RuntimeReview, ApprovalReview } from "../runtime";
 import { ReviewDiff } from "../review-diff";
-import { when, status } from "./shared";
+import { when, status, priority } from "./shared";
 import type { DashboardContext } from "../load";
 
 export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
@@ -65,6 +66,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
               )}
               {detail.retryPending&&<p role="status">Retry {detail.review.retryAt ? "scheduled for "+when(detail.review.retryAt) : "pending"}. The review will update automatically.</p>}
               <RuntimeReview token={user.token} reviewId={detail.review._id} evidence={detail.review.runtimeEvidence}/>{detail.review.nativeP4?<p>Automatic approval is not available for Perforce reviews.</p>:<ApprovalReview token={user.token} reviewId={detail.review._id}/>}
+              {detail.review.verdict && <section aria-label="Verdict"><h2>Verdict</h2><p><strong>{verdictLabels[detail.review.verdict]}</strong> · computed from the score, unresolved findings and review coverage</p></section>}
               <section aria-label="Confidence score">
                 <h2>Confidence score</h2>
                 {detail.review.reviewScore ? <><p><strong>{detail.review.reviewScore.value}/5</strong> · confidence that the change is safe to merge</p><p>{detail.review.reviewScore.reason}</p></> : <p className="muted">Not recorded for this review.</p>}
@@ -125,7 +127,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
               </section>
               {detail.review.nativeP4&&<section aria-label="Native follow-up answers"><h2>Native follow-up answers</h2><p>Questions mentioning @openreview are discovered while native polling is enabled. Authors must link their native identity in Personal agents. Answers use the permitted sources of each author; they do not resolve findings or establish test execution.</p>{!detail.nativeConversations.length&&<p>No native questions recorded for this review.</p>}{detail.nativeConversations.map(answer=><article key={answer.id}><p><strong>@{answer.author}</strong> · {answer.status} · {answer.attempts} {answer.attempts===1?"attempt":"attempts"} · {when(answer.updatedAt)}</p><p>{answer.question}</p>{answer.error&&<p role="alert">{answer.error}</p>}{answer.answer&&<details><summary>{answer.status==="completed"?"Published answer":"Saved answer; publication not complete"}</summary><ReviewMarkdown>{answer.answer}</ReviewMarkdown></details>}{answer.replyId&&<p>Native reply #{answer.replyId}</p>}{answer.command?.requestedReviewId&&<p><a href={"/dashboard/pulls/"+answer.command.requestedReviewId}>View requested re-review</a></p>}{answer.canRetry&&<form action={retryP4Answer}><input type="hidden" name="conversationId" value={answer.id}/><button>Retry native answer</button></form>}</article>)}{detail.nativeConversationsTruncated&&<p className="muted">Showing the latest 20 native questions.</p>}</section>}
               {diagnostics&&diagnostics.diagrams.length>0&&<section aria-label="Sequence diagram"><h2>Sequence diagram</h2><MermaidDiagram code={diagnostics.diagrams[0]}/></section>}
-              {diagnostics&&<section aria-label="Review diagnostics"><h2>Review diagnostics</h2>{diagnostics.coverageLimits.map(limit=><p key={limit}>{limit}</p>)}{diagnostics.failedSpecialists.length>0&&<><h3>Failed specialists</h3><ul>{diagnostics.failedSpecialists.map(f=><li key={f.category}><strong>{f.category}</strong><p>{f.error}</p></li>)}</ul></>}{diagnostics.skippedFiles.length>0&&<><h3>Skipped files</h3><ul aria-label="Skipped files">{diagnostics.skippedFiles.slice(0,200).map((f,i)=><li key={i}><code>{f.path}</code> · {f.reason}</li>)}</ul>{diagnostics.skippedFiles.length>200&&<p>{diagnostics.skippedFiles.length-200} more skipped files not shown.</p>}</>}<h3>Suppressed candidates</h3>{diagnostics.suppressions.length?<ul>{diagnostics.suppressions.map((s,i)=><li key={i}><strong>{s.title}</strong> · {s.agent}<p>{s.reason}</p></li>)}</ul>:<p>No suppressed candidates.</p>}</section>}
+              {diagnostics&&<section aria-label="Review diagnostics"><h2>Review diagnostics</h2>{diagnostics.coverageLimits.map(limit=><p key={limit}>{limit}</p>)}{diagnostics.failedSpecialists.length>0&&<><h3>Failed specialists</h3><ul>{diagnostics.failedSpecialists.map(f=><li key={f.category}><strong>{f.category}</strong><p>{f.error}</p></li>)}</ul></>}{diagnostics.skippedFiles.length>0&&<><h3>Skipped files</h3><ul aria-label="Skipped files">{diagnostics.skippedFiles.slice(0,200).map((f,i)=><li key={i}><code>{f.path}</code> · {f.reason}</li>)}</ul>{diagnostics.skippedFiles.length>200&&<p>{diagnostics.skippedFiles.length-200} more skipped files not shown.</p>}</>}{diagnostics.hypotheses.length>0&&<><h3>Hypotheses investigated</h3><ScrollTable label="Hypotheses table"><table><thead><tr><th>#</th><th>Hypothesis</th><th>Location</th><th>Status</th><th>Tool calls</th><th>Reported</th></tr></thead><tbody>{diagnostics.hypotheses.map(h=><tr key={h.id}><td>{h.id}</td><td>{h.claim}</td><td><code>{h.filePath}:{h.startLine}</code></td><td>{h.status}{h.stopReason&&h.status!=="completed"?" · "+h.stopReason:""}</td><td>{h.toolCalls}</td><td>{h.reported}</td></tr>)}</tbody></table></ScrollTable></>}<h3>Suppressed candidates</h3>{diagnostics.suppressions.length?<ul>{diagnostics.suppressions.map((s,i)=><li key={i}><strong>{s.title}</strong> · {s.agent}<p>{s.reason}</p></li>)}</ul>:<p>No suppressed candidates.</p>}</section>}
               {!detail.historicalFindingsAvailable && detail.review.resultStorageId && <p role="status">Historical finding snapshots are unavailable for this review. An administrator can recover them from the saved review result.</p>}
               {detail.findings.length > 0 && (
                 <section>
@@ -153,14 +155,17 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                   {detail.findings.map((finding) => (
                     <article key={finding._id}>
                       <h3>
-                        {status(finding.severity)} {finding.title}
+                        {priority(finding)} {finding.title}
                       </h3>
                       <p>
                         {finding.filePath}:{finding.startLine} ·{" "}
+                        {finding.outsideDiff && <>Outside the changed code (summary only, not posted inline) ·{" "}</>}
                         {Math.round(finding.confidence * 100)}% confidence ·{" "}
                         Verified at this revision · Current status: {finding.currentStatus}
                       </p>
                       <p>{finding.description}</p>
+                      {finding.question && <p><strong>Question for the author:</strong> {finding.question}</p>}
+                      {finding.generatedTest && <details><summary>Generated test: {finding.generatedTest.status}{finding.generatedTest.exitCode !== undefined && finding.generatedTest.exitCode !== null ? ` (exit ${finding.generatedTest.exitCode})` : ""} · never committed</summary><p><code>{finding.generatedTest.command}</code></p><pre>{finding.generatedTest.path}{"\n"}{finding.generatedTest.code}</pre><pre>{finding.generatedTest.output || "(no output)"}</pre></details>}
                       <p>Impact: {finding.impact}</p>
                       {finding.evidence.map((e, index) => (
                         <div key={index}>{e.sourceUrl&&<a href={e.sourceUrl} target="_blank" rel="noreferrer">{e.repository} · {e.revision?.slice(0,8)} · source</a>}<pre>{e.filePath}:{e.startLine}{"\n"}{e.quote}</pre></div>

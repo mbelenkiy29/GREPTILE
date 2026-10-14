@@ -1,7 +1,7 @@
 import {changeMetadataSchema,catalogPageSize,numberedPage,validateChangePage,type ChangeMetadata,type ChangePage} from "./change-metadata";
 import { safeFixBranch } from "./fix-command";
 import {githubWebOrigin} from "./github-enterprise";
-import { reviewLinks } from "./review-summary";
+import { reviewLinks, inlineFindings } from "./review-summary";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { repositorySourceUrl } from "./source-url";
 import { importPKCS8, SignJWT } from "jose";
@@ -590,6 +590,8 @@ export class Github {
     comments?: { id: number; fingerprint: string }[];
   }> {
     const prefix=`/repos/${repository}/pulls/${number}`;
+    // Findings outside the changed lines live in the summary only; never post them inline.
+    findings=inlineFindings(findings);
     const current=async()=>{const pr=await this.request(prefix,z.object({head:z.object({sha:z.string()}),state:z.string()}));if(pr.head.sha!==sha||pr.state!=="open")throw new Error("Review is obsolete; pull request head changed or closed");};
     await current();
     const publisher=await this.publisherLogin();

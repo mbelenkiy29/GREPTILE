@@ -1,4 +1,4 @@
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 export const status = internalMutation({
@@ -30,6 +30,11 @@ export const status = internalMutation({
         },
       );
   },
+});
+// Stored knowledge entries for review background (selection and bounds happen in the review job).
+export const forReview = internalQuery({
+  args: { repositoryId: v.id("repositories") },
+  handler: async (ctx, a) => (await ctx.db.query("knowledgeEntries").withIndex("by_repo", (q) => q.eq("repositoryId", a.repositoryId)).take(300)).map(({ subsystem, description, files, dependencies, risks, conventions, updatedAt }) => ({ subsystem, description, files, dependencies, risks, conventions, updatedAt })),
 });
 export const save = internalMutation({
   args: {

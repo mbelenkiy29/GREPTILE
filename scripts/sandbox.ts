@@ -12,6 +12,9 @@ export function sandboxArguments(
   seconds: number,
   stripComponents = 0,
   executionMarker?:string,
+  // A generated test written into the extracted copy before the command runs. The content travels as
+  // a base64 positional argument and is decoded by the fixed wrapper, never interpolated as shell text.
+  file?:{path:string;content:string},
 ): string[] {
   if (!/^[-a-zA-Z0-9_./:]+@sha256:[a-f0-9]{64}$/.test(image))
     throw new Error("Use an explicitly trusted image pinned by sha256 digest");
@@ -23,6 +26,7 @@ export function sandboxArguments(
     command.length > 2000
     || ![0,1].includes(stripComponents)
     || (executionMarker!==undefined&&!/^[a-f0-9-]{36}$/.test(executionMarker))
+    || (file!==undefined&&(executionMarker===undefined||!/^[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}$/.test(file.path)||file.path.split("/").includes("..")||Buffer.byteLength(file.content)>20000))
   )
     throw new Error("Invalid runtime limits or command");
   return [
@@ -55,10 +59,11 @@ export function sandboxArguments(
     image,
     "sh",
     "-c",
-    `tar -${stripComponents ? "xzf" : "xf"} - -C /work${stripComponents ? " --strip-components=1" : ""} && timeout ${seconds}s sh -c ${executionMarker?`'printf "OPENREVIEW_RUNTIME_STARTED:%s\\n" "$2"; exec sh -c "$1"' openreview "$1" "$2"`:'"$1"'}`,
+    `tar -${stripComponents ? "xzf" : "xf"} - -C /work${stripComponents ? " --strip-components=1" : ""}${file?' && mkdir -p "$(dirname "$3")" && printf "%s" "$4" | base64 -d > "$3"':""} && timeout ${seconds}s sh -c ${executionMarker?`'printf "OPENREVIEW_RUNTIME_STARTED:%s\\n" "$2"; exec sh -c "$1"' openreview "$1" "$2"`:'"$1"'}`,
     "openreview",
     command,
     ...(executionMarker?[executionMarker]:[]),
+    ...(file?[file.path,Buffer.from(file.content).toString("base64")]:[]),
   ];
 }
 export async function validateRuntime(
@@ -80,11 +85,11 @@ export async function validateRuntime(
     return result;
   }finally{archive.kill();}
 }
-export async function validateRuntimeArchive(image:string,command:string,seconds:number,headSha:string,archive:Readable,stripComponents=1,signal?:AbortSignal){
+export async function validateRuntimeArchive(image:string,command:string,seconds:number,headSha:string,archive:Readable,stripComponents=1,signal?:AbortSignal,file?:{path:string;content:string}){
   signal?.throwIfAborted();
   runtimeRevisionSchema.parse(headSha);
   const name="openreview-validation-"+randomUUID();
-  const marker=randomUUID(),args=sandboxArguments(name,image,command,seconds,stripComponents,marker);
+  const marker=randomUUID(),args=sandboxArguments(name,image,command,seconds,stripComponents,marker,file);
   const docker = spawn("docker", args, { stdio: ["pipe", "pipe", "pipe"] });
   const cancel=()=>{archive.destroy();docker.kill("SIGKILL");};
   signal?.addEventListener("abort",cancel,{once:true});

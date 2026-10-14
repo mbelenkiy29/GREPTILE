@@ -23,6 +23,7 @@ import { runtimeEvidenceSchema, approvalAssessmentSchema, reviewScoreSchema } fr
 import {p4AutomaticAuthority} from "./p4Polling";
 import {cancelReview,requireP4Worker} from "./reviewLifecycle";
 import {p4Baseline} from "./p4Index";
+import {findingTags,priorityOf} from "../src/priority";
 
 const usageValidator = v.object({
   task: v.string(),
@@ -285,6 +286,7 @@ export const save = internalMutation({
     repositoryContext:v.optional(repositoryContextValidator),
     integrationScopes:v.optional(v.array(v.object({id:v.id("integrationConnections"),generation:v.number()}))),
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
+    verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     reviewId: v.id("reviews"),
@@ -310,6 +312,7 @@ export const save = internalMutation({
       summary: args.summary,
       repositoryContext:args.repositoryContext,
       reviewScore: args.reviewScore ? reviewScoreSchema.parse(args.reviewScore) : undefined,
+      verdict: args.verdict,
       approvalAssessment: args.approvalAssessment ? approvalAssessmentSchema.parse(args.approvalAssessment) : undefined,
       coverageLimits: args.coverageLimits,
       findingCount: args.findings.length,
@@ -350,7 +353,7 @@ export const save = internalMutation({
           createdAt: Date.now(),
           updatedAt: Date.now(),
         });
-      else await ctx.db.patch(exists._id,{...f,reviewId:review._id,status:"open",updatedAt:Date.now()});
+      else await ctx.db.patch(exists._id,{...f,outsideDiff:f.outsideDiff,reviewId:review._id,status:"open",updatedAt:Date.now()});
       await ctx.db.insert("reviewFindings",{reviewId:review._id,findingId:findingId!,snapshot:f});
     }
     for (const fingerprint of args.resolved) {
@@ -421,6 +424,36 @@ export const suspendAgent = internalMutation({args:{reviewId:v.id("reviews")},ha
   await ctx.scheduler.runAfter(0,internal.jobs.review,{reviewId:review._id});
   return true;
 }});
+// Generated-test outcomes (J3) update the stored finding and this review's snapshot of it.
+export const attachGeneratedTests = internalMutation({
+  args: { reviewId: v.id("reviews"), findings: v.array(v.object({ fingerprint: v.string(), confidence: v.number(), generatedTest: findingValidator.fields.generatedTest })) },
+  handler: async (ctx, a) => {
+    const review = await ctx.db.get(a.reviewId);
+    if (!review) throw new Error("Review not found");
+    for (const f of a.findings) {
+      if (!f.generatedTest || f.confidence < 0 || f.confidence > 1) continue;
+      const row = await ctx.db.query("findings").withIndex("by_fingerprint", (q) => q.eq("repositoryId", review.repositoryId).eq("prNumber", review.prNumber).eq("fingerprint", f.fingerprint)).first();
+      if (!row || row.reviewId !== review._id) continue;
+      await ctx.db.patch(row._id, { confidence: f.confidence, generatedTest: f.generatedTest, updatedAt: Date.now() });
+      for (const snapshot of await ctx.db.query("reviewFindings").withIndex("by_review", (q) => q.eq("reviewId", review._id)).collect())
+        if (snapshot.findingId === row._id) await ctx.db.patch(snapshot._id, { snapshot: { ...snapshot.snapshot, confidence: f.confidence, generatedTest: f.generatedTest } });
+    }
+  },
+});
+// "Review N on this pull request": assigned once, before the first publication attempt, so
+// retries and resumed publications reuse it and concurrent reviews never share a number.
+export const assignNumber = internalMutation({
+  args: { reviewId: v.id("reviews") },
+  handler: async (ctx, a) => {
+    const review = await ctx.db.get(a.reviewId);
+    if (!review) throw new Error("Review not found");
+    if (review.reviewNumber) return review.reviewNumber;
+    const siblings = await ctx.db.query("reviews").withIndex("by_pr", (q) => q.eq("repositoryId", review.repositoryId).eq("prNumber", review.prNumber)).take(5000);
+    const reviewNumber = Math.max(0, ...siblings.map((r) => r.reviewNumber ?? 0)) + 1;
+    await ctx.db.patch(review._id, { reviewNumber });
+    return reviewNumber;
+  },
+});
 export const finished = internalMutation({
   args: {
     reviewId: v.id("reviews"),
@@ -517,7 +550,8 @@ export const detail = query({
     const findings=await Promise.all(snapshots.map(async s=>{
       await requireFindingReader(ctx,viewer._id,s.snapshot);
       const current=await ctx.db.get(s.findingId);
-      return {...s.snapshot,title:executionExplanation(s.snapshot.title,executionEvidence),description:executionExplanation(s.snapshot.description,executionEvidence),impact:executionExplanation(s.snapshot.impact,executionEvidence),suggestedFix:executionExplanation(s.snapshot.suggestedFix,executionEvidence),_id:s.findingId,_creationTime:s._creationTime,organizationId:review.organizationId,repositoryId:review.repositoryId,reviewId:review._id,prNumber:review.prNumber,status:"open",currentStatus:current?.status??"unavailable",canFix:canWrite&&fixReady&&!!current&&eligibleFixFinding(current,review,latest?._id,config.minimumConfidence)};
+      // priority and tags are additive fields for API and MCP clients; existing fields are unchanged.
+      return {...s.snapshot,priority:priorityOf(s.snapshot.severity),tags:findingTags(s.snapshot),title:executionExplanation(s.snapshot.title,executionEvidence),description:executionExplanation(s.snapshot.description,executionEvidence),impact:executionExplanation(s.snapshot.impact,executionEvidence),suggestedFix:executionExplanation(s.snapshot.suggestedFix,executionEvidence),_id:s.findingId,_creationTime:s._creationTime,organizationId:review.organizationId,repositoryId:review.repositoryId,reviewId:review._id,prNumber:review.prNumber,status:"open",currentStatus:current?.status??"unavailable",canFix:canWrite&&fixReady&&!!current&&eligibleFixFinding(current,review,latest?._id,config.minimumConfidence)};
     }));
     const nativeRows=review.nativeP4?await ctx.db.query("conversations").withIndex("by_native_review",q=>q.eq("nativeP4.reviewId",review._id)).order("desc").take(21):[];
     const nativePoll=review.nativeP4?await ctx.db.query("p4Polls").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique():null;

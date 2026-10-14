@@ -33,7 +33,7 @@ export async function saveRuntimePolicy(_state:{error?:string;saved?:boolean},fo
  try{
   const {token}=await current(),scope=text(form,"scope");
   if(scope!=="organization"&&!/^(team|repository):[a-z0-9]+$/.test(scope))throw new Error("Invalid policy scope");
-  const policy=runtimePolicySchema.safeParse(form.get("inherit")==="true"?runtimeDefaults:{enabled:form.get("enabled")==="on",image:text(form,"image").trim(),command:text(form,"command"),timeout:Number(text(form,"timeout")),requiredForApproval:form.get("requiredForApproval")==="true"});
+  const policy=runtimePolicySchema.safeParse(form.get("inherit")==="true"?runtimeDefaults:{enabled:form.get("enabled")==="on",image:text(form,"image").trim(),command:text(form,"command"),timeout:Number(text(form,"timeout")),requiredForApproval:form.get("requiredForApproval")==="true",generatedTests:form.get("generatedTests")==="true",testCommand:text(form,"testCommand").trim()});
   if(!policy.success)return {error:policy.error.issues.map(i=>i.message).join("; ")};
   await backend().mutation(api.runtime.save,{token,organizationId:text(form,"organizationId") as Id<"organizations">,...(scope.startsWith("team:")?{teamId:scope.slice(5) as Id<"teams">}:{}),...(scope.startsWith("repository:")?{repositoryId:scope.slice(11) as Id<"repositories">}:{}),inherit:form.get("inherit")==="true",policy:policy.data});
   revalidatePath("/dashboard");return {saved:true};
@@ -272,6 +272,8 @@ export async function saveSettings(form: FormData) {
       lockedKeys: form.has("lockedConfigured") ? form.getAll("lockedKeys").map(String) : previous.settings.lockedKeys ?? [],
       autoApproveConventions: form.has("conventionsConfigured") ? form.has("autoApproveConventions") : previous.settings.autoApproveConventions ?? false,
       fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
+      threadReplies: form.has("threadRepliesConfigured") ? form.has("threadReplies") : previous.settings.threadReplies ?? true,
+      securityScan: form.has("securityScanConfigured") ? form.has("securityScan") : previous.settings.securityScan ?? true,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

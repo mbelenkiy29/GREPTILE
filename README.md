@@ -11,11 +11,18 @@ Documentation is published at `/docs` (Markdown in `docs/public/` plus selected 
 Each feature below has automated tests. The evidence level for each one (tests with fakes, verified locally, or verified live on a provider) is listed in [the acceptance matrix](docs/acceptance-matrix.md) and [the parity report](docs/parity/REPORT.md).
 
 **Reviews**
+- Knowledge base entries about the changed files are supplied to reviews as labelled background (never evidence) and listed in the summary's coverage.
 - Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
-- Two engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions.
+- Three engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions, and an optional hypothesis engine plans concrete bug hypotheses and investigates each one in parallel with its own budget.
+- Security checks: deterministic pattern checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization) and OSV.dev advisories for changed npm, PyPI, Go, crates.io and Maven dependencies; feedback cannot suppress them.
+- Opt-in generated reproduction tests: for up to three verified findings OpenReview drafts a test, runs it in the isolated runtime sandbox and attaches the recorded outcome to the finding (never committed).
 - Grounded findings. Each finding quotes exact lines from the reviewed revision and passes a second verification before it is posted.
 - Committable suggestion blocks for small fixes, and multi-line comments within a hunk.
-- One summary comment, edited in place on every push. It has an overview, files changed, issues, a confidence score, skipped files and an optional Mermaid sequence diagram.
+- One summary comment, edited in place on every push. It opens with a verdict computed from the score, findings and coverage, then has an overview, files changed, issues, a confidence score, skipped files and an optional Mermaid sequence diagram.
+- Priority badges (🔴 P0 to 🔵 P3) and a 🔒 Security tag on comments, the summary, the dashboard, notifications, the CLI and the API, as text and emoji only.
+- Findings outside the changed code: a defect in an untouched caller is kept when its evidence quotes the changed line that causes it, and is listed in the summary instead of inline.
+- A summary footer that numbers each review on the pull request, names the provider's re-run command and can carry one rate-limited feature tip (on by default for the hosted cloud only).
+- Conversations in finding threads: replies to OpenReview's inline findings are answered without an `@openreview` mention (on by default, rate-limited, never for bots), and findings can ask the author one clarifying question.
 - Incremental re-reviews that cover only new commits, and automatic resolution of fixed findings' threads.
 - GitHub check runs, used only when the app has Checks write permission. The conclusion is neutral by default, or fails at a severity you choose.
 - Configurable triggers:

@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { Github } from "../src/github";
 import { pullRequestTrigger } from "../src/triggers";
+import { wantsAnswer } from "../src/thread-replies";
 
 const payloadSchema = z.object({
   action: z.string().optional(),
@@ -195,12 +196,16 @@ export const process = internalAction({
             ["created", "edited", "submitted"].includes(payload.action ?? "") &&
             comment &&
             comment.user.type !== "Bot" &&
-            /@openreview\b/i.test(comment.body)
+            (/@openreview\b/i.test(comment.body) ||
+              // A human reply in a review thread: answered without a mention only in OpenReview's own threads.
+              (delivery.event === "pull_request_review_comment" && payload.action === "created" && comment.in_reply_to_id !== undefined && !comment.user.login.endsWith("[bot]") && settings?.threadReplies !== false && wantsAnswer(comment.body)))
           ) {
+            const mentioned = /@openreview\b/i.test(comment.body);
             const number =
               payload.pull_request?.number ??
               (payload.issue?.pull_request ? payload.issue.number : undefined);
-            if (number) {
+            // Unmentioned replies outside OpenReview's threads stop here, before any provider call.
+            if (number && (mentioned || await ctx.runQuery(internal.conversations.ownsThread, { repositoryId: repo._id, prNumber: number, commentId: comment.in_reply_to_id! }))) {
               const github = await Github.installation(repo.installationId!);
               const permission = await github.request(
                 `/repos/${repo.fullName}/collaborators/${encodeURIComponent(comment.user.login)}/permission`,
@@ -209,7 +214,10 @@ export const process = internalAction({
               if (
                 ["admin", "maintain", "write"].includes(permission.permission)
               ) {
-                if (
+                if (!mentioned) {
+                  if (await ctx.runMutation(internal.conversations.admitThreadReply, { repositoryId: repo._id, prNumber: number, commentId: comment.id, parentCommentId: comment.in_reply_to_id! }))
+                    await ctx.scheduler.runAfter(0, internal.conversationJobs.reply, { repositoryId: repo._id, prNumber: number, commentId: comment.id, author: comment.user.login, question: comment.body, inline: true, parentCommentId: comment.in_reply_to_id });
+                } else if (
                   /@openreview\s+review(?:\s+again|\s+security)?\b/i.test(
                     comment.body,
                   )

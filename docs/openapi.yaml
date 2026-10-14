@@ -48,6 +48,45 @@ components:
     Id:
       type: string
       pattern: "^[A-Za-z0-9]{20,64}$"
+    Finding:
+      type: object
+      description: >-
+        A verified finding at the reviewed revision. `priority`, `tags` and `outsideDiff` are additive
+        fields; clients that ignore unknown fields are unaffected and `severity` is unchanged.
+      required: [_id, title, description, severity, priority, tags, category, confidence, filePath, startLine, endLine, evidence]
+      properties:
+        _id: { $ref: "#/components/schemas/Id" }
+        title: { type: string }
+        description: { type: string }
+        severity: { type: string, enum: [critical, high, medium, low] }
+        priority: { type: string, enum: [P0, P1, P2, P3], description: "critical = P0, high = P1, medium = P2, low = P3." }
+        tags: { type: array, items: { type: string, enum: [security] }, description: "security for findings in the security category." }
+        category: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        filePath: { type: string }
+        startLine: { type: integer, minimum: 1 }
+        endLine: { type: integer, minimum: 1 }
+        outsideDiff: { type: boolean, description: "Anchored on a line the change did not modify; listed in the summary, not inline." }
+        evidence:
+          type: array
+          items:
+            type: object
+            required: [filePath, startLine, quote]
+            properties:
+              filePath: { type: string }
+              startLine: { type: integer, minimum: 1 }
+              quote: { type: string }
+        impact: { type: string }
+        suggestedFix: { type: string }
+        currentStatus: { type: string }
+    ReviewDetail:
+      type: object
+      required: [review, findings]
+      properties:
+        review:
+          type: object
+          description: Review lifecycle record, including `reviewScore` and `verdict` (ready, fixes, changes or incomplete) when recorded.
+        findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
     Source:
       type: object
       required: [repository, path, startLine, endLine, quote, revision]
@@ -260,7 +299,7 @@ paths:
         - { name: id, in: path, required: true, schema: { $ref: "#/components/schemas/Id" } }
         - { name: historyCursor, in: query, required: false, schema: { type: string } }
       responses:
-        "200": { description: "Review, findings and history." }
+        "200": { description: "Review, findings and history.", content: { application/json: { schema: { $ref: "#/components/schemas/ReviewDetail" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
   /api/findings/{id}/feedback:

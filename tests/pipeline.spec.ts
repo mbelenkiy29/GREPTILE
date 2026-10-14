@@ -266,6 +266,9 @@ test("webhook through indexing, cross-file review, persistence, publish, feedbac
   expect(dashboard.reviews[0].status).toBe("completed");
   expect(dashboard.reviews[0].reviewScore).toEqual({value:1,reason:"The verified authorization defect must be corrected before merging."});
   expect(publish.mock.calls[0][3]).toContain("### Confidence score\n**1/5**");
+  // G4/G5: the footer numbers the review; self-hosted defaults show no feature tip.
+  expect(publish.mock.calls[0][3]).toContain("Review 1 on this pull request · Comment `@openreview review` to re-run it.");
+  expect(publish.mock.calls[0][3]).not.toContain("**Tip:**");
   expect(
     (
       await t.query(api.reviews.detail, {

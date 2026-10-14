@@ -18,7 +18,8 @@ Repository files are stored as Convex file blobs. Metadata, symbols, the code gr
    - embeddings (`EMBEDDING_MODEL`, `EMBEDDING_API_KEY`).
    - Slack and email ([notifications](../notifications.md)).
    - more sign-in methods ([identity](../identity.md)).
-5. Leave `BILLING_ENABLED` unset. [Billing](../billing.md) is for hosted cloud deployments only, and self-hosted installs have no quotas.
+5. Decide on outbound advisory lookups: security checks query OSV.dev for changed dependency versions. Set `OSV_ENABLED=false` on the backend to stop those requests (pattern checks still run), or set `OSV_API_URL` to an internal OSV mirror.
+6. Leave `BILLING_ENABLED` unset. [Billing](../billing.md) is for hosted cloud deployments only, and self-hosted installs have no quotas.
 
 ## Docker
 

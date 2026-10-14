@@ -48,8 +48,10 @@ export const settingsValidator = v.object({
   lockedKeys:v.optional(v.array(v.string())),
   autoApproveConventions:v.optional(v.boolean()),
   fixPullRequests:v.optional(v.boolean()),
+  threadReplies:v.optional(v.boolean()),
+  securityScan:v.optional(v.boolean()),
 });
-export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
+export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean(),generatedTests:v.optional(v.boolean()),testCommand:v.optional(v.string())});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
 export const findingValidator = v.object({
     title: v.string(),
@@ -78,6 +80,10 @@ export const findingValidator = v.object({
     ruleId: v.optional(v.string()),
     suggestion: v.optional(v.object({ startLine: v.number(), endLine: v.number(), original: v.string(), replacement: v.string() })),
     fingerprint: v.string(),
+    // Anchored on an unchanged line the change breaks; published in the summary only.
+    outsideDiff: v.optional(v.boolean()),
+    question: v.optional(v.string()),
+    generatedTest: v.optional(v.object({ path: v.string(), command: v.string(), code: v.string(), status: v.string(), exitCode: v.optional(v.union(v.number(), v.null())), timedOut: v.boolean(), executionStarted: v.boolean(), output: v.string() })),
 });
 export default defineSchema({
   inferenceBudgets: defineTable({limitMicros:v.number(),baselineMicros:v.number(),source:v.string(),committedMicros:v.number(),reservedMicros:v.number(),createdAt:v.number()}),
@@ -89,7 +95,10 @@ export default defineSchema({
   approvalJobs:defineTable({organizationId:org,repositoryId:repo,reviewId:review,prNumber:v.number(),headSha:v.string(),policyKey:v.string(),status:v.string(),reasons:v.array(v.string()),providerReviewId:v.optional(v.union(v.number(),v.string())),lease:v.optional(v.string()),leaseExpiresAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number()}).index("by_review",["reviewId"]).index("by_repo_pr",["repositoryId","prNumber"]).index("by_status",["status"]).index("by_org_status",["organizationId","status"]),
   runtimePolicies:defineTable({organizationId:org,teamId:v.optional(v.id("teams")),repositoryId:v.optional(repo),policy:runtimePolicyValidator,updatedAt:v.number()}).index("by_org",["organizationId"]),
   runtimeWorkers:defineTable({organizationId:org,tokenHash:v.string(),name:v.string(),expiresAt:v.number(),revoked:v.boolean(),lastSeen:v.optional(v.number()),createdAt:v.number()}).index("by_hash",["tokenHash"]).index("by_org",["organizationId"]),
-  runtimeJobs:defineTable({organizationId:org,repositoryId:repo,reviewId:review,headSha:v.string(),revisionKey:v.optional(v.string()),policy:runtimePolicyValidator,policyKey:v.string(),status:v.string(),error:v.optional(v.string()),sourceStorageId:v.optional(v.id("_storage")),workerId:v.optional(v.id("runtimeWorkers")),lease:v.optional(v.string()),leaseExpiresAt:v.optional(v.number()),attempts:v.number(),evidence:v.optional(runtimeEvidenceValidator),createdAt:v.number(),updatedAt:v.number()}).index("by_review",["reviewId"]).index("by_org_status",["organizationId","status"]).index("by_status",["status"]),
+  runtimeJobs:defineTable({organizationId:org,repositoryId:repo,reviewId:review,headSha:v.string(),revisionKey:v.optional(v.string()),policy:runtimePolicyValidator,policyKey:v.string(),status:v.string(),error:v.optional(v.string()),sourceStorageId:v.optional(v.id("_storage")),workerId:v.optional(v.id("runtimeWorkers")),lease:v.optional(v.string()),leaseExpiresAt:v.optional(v.number()),attempts:v.number(),evidence:v.optional(runtimeEvidenceValidator),
+    // Generated reproduction tests (kind "tests"): never committed; results attach to their findings.
+    kind:v.optional(v.literal("tests")),tests:v.optional(v.array(v.object({fingerprint:v.string(),path:v.string(),content:v.string(),command:v.string()}))),testResults:v.optional(v.array(v.object({fingerprint:v.string(),evidence:v.optional(runtimeEvidenceValidator),error:v.optional(v.string())}))),
+    createdAt:v.number(),updatedAt:v.number()}).index("by_review",["reviewId"]).index("by_org_status",["organizationId","status"]).index("by_status",["status"]),
   providerConnections: defineTable({organizationId:org,kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string(),installationId:v.optional(v.string()),namespaceId:v.optional(v.string()),forgeEventAt:v.optional(v.number()),forgeRefreshAt:v.optional(v.number()),suspended:v.optional(v.boolean()),active:v.boolean(),createdAt:v.number(),lastEventAt:v.optional(v.number()),error:v.optional(v.string())}).index("by_org",["organizationId"]).index("by_installation",["kind","installationId"]),
   providerReceipts: defineTable({jti:v.string(),expiresAt:v.number()}).index("by_jti",["jti"]),
   providerInstallRequests:defineTable({organizationId:org,userId:v.id("users"),tokenHash:v.string(),expiresAt:v.number(),consumed:v.boolean(),createdAt:v.number()}).index("by_hash",["tokenHash"]),
@@ -414,6 +423,9 @@ export default defineSchema({
   }).index("by_pr", ["pullRequestId"]),
   reviews: defineTable({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
+    verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
+    // Ordinal among this pull request's published reviews, fixed at first publication.
+    reviewNumber: v.optional(v.number()),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     title: v.optional(v.string()),
@@ -667,6 +679,10 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_repo", ["repositoryId"]),
+  // Feature tips shown in review footers (one per review); drives the per-repository cooldown.
+  featureTips: defineTable({ organizationId: org, repositoryId: repo, reviewId: review, key: v.string(), ticket: v.optional(v.string()), shownAt: v.number() })
+    .index("by_repo_time", ["repositoryId", "shownAt"])
+    .index("by_review", ["reviewId"]),
   reviewComments: defineTable({
     organizationId: org,
     reviewId: review,

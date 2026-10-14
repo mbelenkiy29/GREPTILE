@@ -14,6 +14,7 @@ import { modelFromEnvironment } from "./engine/model";
 import { applyRepoConfig, loadRepoConfig } from "./repo-config";
 import type { Rule, SourceFile } from "./engine/types";
 import { runtimeEvidenceSchema } from "./engine/types";
+import { findingTags, priorityOf, tagLabels } from "./priority";
 import { validateRuntime } from "../scripts/sandbox";
 
 try {
@@ -225,6 +226,8 @@ async function main() {
           file: f.filePath,
           line: f.startLine,
           severity: f.severity,
+          priority: priorityOf(f.severity),
+          tags: findingTags(f),
           issue: f.title,
           evidence: f.evidence,
           fix: f.suggestedFix,
@@ -236,7 +239,7 @@ async function main() {
     console.log(result.summary);
     for (const f of result.findings)
       console.log(
-        `\n[${f.severity}] ${f.filePath}:${f.startLine} ${f.title}\n${f.description}\nFix: ${f.suggestedFix}`,
+        `\n[${[priorityOf(f.severity) + " " + f.severity, ...findingTags(f).map((t) => tagLabels[t])].join(", ")}] ${f.filePath}:${f.startLine} ${f.title}\n${f.description}\nFix: ${f.suggestedFix}`,
       );
   }
 }

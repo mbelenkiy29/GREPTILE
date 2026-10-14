@@ -65,6 +65,9 @@ export const findingSchema = z
     suggestedFix: z.string().min(5),
     symbol: z.string(),
     ruleId: z.string().optional(),
+    // Optional question to the author when the change's intent is unclear; shown under the
+    // comment. It never counts as a finding or blocks approval on its own.
+    question: z.string().min(5).max(300).optional(),
     // Optional committable fix: replaces lines startLine..endLine (the finding's own range);
     // original must copy those head lines exactly. Dropped when it does not apply cleanly.
     suggestion: z.object({
@@ -80,6 +83,11 @@ export type Finding = Candidate & {
   fingerprint: string;
   agent: string;
   commitSha: string;
+  // Anchored on a line the change did not modify (e.g. a caller it breaks); its evidence quotes a
+  // changed line. Published only in the summary, never as an inline comment.
+  outsideDiff?: boolean;
+  // Recorded result of a generated reproduction test run in the sandbox (J3).
+  generatedTest?: { path: string; command: string; code: string; status: "reproduced" | "not reproduced" | "inconclusive"; exitCode?: number | null; timedOut: boolean; executionStarted: boolean; output: string };
 };
 export type SourceFile = { path: string; content: string; sha: string; size?: number; provenance?: { repository: string; revision: string; sourceUrl: string } };
 export type ChangedFile = {
@@ -118,6 +126,8 @@ export type ReviewInput = {
   diff: ChangedFile[];
   rules: Rule[];
   preferences?: Preference[];
+  // Knowledge base entries about the changed code (derived background; never evidence).
+  knowledge?: { subsystem: string; description: string; risks: string[]; conventions: string[]; files: string[] }[];
   mode: "fast" | "standard" | "deep";
   existingFindings?: Finding[];
   historicalFindings?: (Pick<
@@ -132,6 +142,8 @@ export type ReviewInput = {
     ignoredPaths?: string[];
     instructions?: string;
     summarySections?: string[];
+    // Deterministic security checks and dependency advisories (default on).
+    securityScan?: boolean;
   };
 };
 export type ModelUsage = {
@@ -153,11 +165,16 @@ export type ReviewResult = {
   diagrams: string[];
   metadata: {
     reviewScore?: z.infer<typeof reviewScoreSchema>;
+    verdict?: "ready" | "fixes" | "changes" | "incomplete";
+    // Changed code went unreviewed (skipped files, failed specialists, unavailable sources or an
+    // exhausted agent budget), so the verdict cannot be "ready".
+    coverageIncomplete?: boolean;
     approvalAssessment?: z.infer<typeof approvalAssessmentSchema>;
     coverageLimits?: string[];
     skippedFiles?: SkippedFile[];
     failedSpecialists?: { category: string; error: string }[];
-    engine?: "pipeline" | "agentic";
+    engine?: "pipeline" | "agentic" | "hypotheses";
+    hypotheses?: { id: number; claim: string; category: string; filePath: string; startLine: number; status: string; stopReason?: string; toolCalls: number; turns: number; reported: number }[];
     agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
     baseSha: string;
@@ -168,6 +185,8 @@ export type ReviewResult = {
     suppressed: number;
     suppressions?: { title: string; agent: string; reason: string }[];
     carriedForward?: Finding[];
+    exploitability?: { fingerprint: string; exploitPath: boolean }[];
+    knowledge?: string[];
     resolvedFingerprints: string[];
   };
   usage: ModelUsage[];
