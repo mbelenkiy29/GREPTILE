@@ -7,6 +7,7 @@ import { importPKCS8, SignJWT } from "jose";
 import { z } from "zod";
 import type { ChangedFile, Finding, SourceFile } from "./engine/types";
 import {changedLines} from "./engine/diff";
+import {commentRange} from "./engine/patch-lines";
 import {findingComment} from "./review-summary";
 
 export function verifyWebhook(
@@ -479,14 +480,20 @@ export class Github {
         comments,
       };
     }
-    if(findings.length){const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const f of findings)if(f.commitSha!==sha||!changedLines(files.find(d=>d.filename===f.filePath)?.patch??"").has(f.startLine))throw new Error("Finding line not in complete current diff");}
+    const patches=new Map<string,string>();
+    if(findings.length){const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const file of files)patches.set(file.filename,file.patch??"");for(const f of findings)if(f.commitSha!==sha||!changedLines(patches.get(f.filePath)??"").has(f.startLine))throw new Error("Finding line not in complete current diff");}
     await current();
-    const comments = findings.map((f) => ({
-      path: f.filePath,
-      line: f.startLine,
-      side: "RIGHT",
-      body: findingComment(f, style, { syntax: "github", start: f.startLine, end: f.startLine }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
-    }));
+    const comments = findings.map((f) => {
+      // Ranges inside one hunk become multi-line comments (start_line…line); others stay single-line.
+      const range = commentRange(patches.get(f.filePath) ?? "", f.startLine, f.endLine);
+      return {
+        path: f.filePath,
+        line: range.end,
+        side: "RIGHT",
+        ...(range.start < range.end ? { start_line: range.start, start_side: "RIGHT" } : {}),
+        body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
+      };
+    });
     const result = await this.request(
       `/repos/${repository}/pulls/${number}/reviews`,
       z.object({ id: z.number(),commit_id:z.string(),user:z.object({login:z.string()}) }),
@@ -512,12 +519,14 @@ export class Github {
     const publisher=await this.publisherLogin();
     const comments = await this.paginate(
       `/repos/${repository}/pulls/${number}/reviews/${reviewId}/comments`,
-      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number(),in_reply_to_id:z.number().optional() }),
+      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),start_line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number(),in_reply_to_id:z.number().optional() }),
     );
     const mapped=comments.flatMap((c) => {
       if(c.user.login!==publisher||c.pull_request_review_id!==reviewId||c.in_reply_to_id!==undefined||(sha!==undefined&&c.commit_id!==sha))return [];
       const fingerprint=findingFingerprint(c.body);
-      return fingerprint&&(!findings||findings.some(f=>f.fingerprint===fingerprint&&f.filePath===c.path&&f.startLine===(c.line===undefined?c.position:c.line))) ? [{ id: c.id, fingerprint }] : [];
+      // Multi-line comments report their first line as start_line and their last as line.
+      const first=c.start_line??(c.line===undefined?c.position:c.line);
+      return fingerprint&&(!findings||findings.some(f=>f.fingerprint===fingerprint&&f.filePath===c.path&&f.startLine===first)) ? [{ id: c.id, fingerprint }] : [];
     });
     if(findings&&findings.some(f=>!mapped.some(c=>c.fingerprint===f.fingerprint)))throw new Error("Finding publication incomplete; retry or re-review the current revision");return mapped;
   }
