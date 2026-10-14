@@ -37,7 +37,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: commentRange within one hunk's RIGHT side → start_line/start_side, else single line; mapping accepts start_line.
   evidence: tested with fakes; tests: tests/multiline.test.ts (2: hunk range rules incl. context lines/cross-hunk/out-of-hunk; GitHub publish with multi-line + fallback + suggestion rendering + mapping); commands: lint/typecheck/test (250 Node + 168 vitest) green; commit: see git log feat(B2)
   notes: GitLab keeps single-line positions (its suggestion syntax already spans lines relative to the commented line).
-- [ ] B3 Summary redesign, edited in place — todo
+- [x] B3 Summary redesign, edited in place — done
+  plan: GitHub upsertSummary (issue comment by marker, PATCH) + review only for findings; GitLab note PUT; new section renderers + skipped key + Last reviewed commit; per-file summaries in schema; preview/label updates.
+  evidence: tested with fakes; tests: tests/summary.test.ts (4: full-markdown snapshot, toggles + coverage fallback + link safety + row cap, file-summary validation, GitHub edit-in-place replay across runs/retries/spoofed/legacy duplicates); updated tests/publication.test.ts (one summary across run+replay), tests/providers.test.ts (GitLab second run edits note), tests/github.test.ts, engine/pipeline/resilience label tests; commands: lint/typecheck/test (254 Node + 168 vitest)/build green; commit: 6f3cfc4
+  notes: deliberate label changes ("Overview", "Files changed", "Issues", "Confidence score", new "Skipped files"); saved settings without "skipped" still list skipped files inside Coverage. Gitea/Bitbucket/Perforce/Origin keep per-run summaries. Known pre-existing flake (Node child SIGSEGV under parallel spawns) in tests/bridge.test.ts flagged as a separate task.
 - [ ] B4 Sequence diagrams — todo
 - [ ] B5 Incremental review and thread hygiene — todo
 - [ ] B6 Check runs — todo
