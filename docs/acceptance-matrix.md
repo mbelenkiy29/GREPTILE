@@ -59,6 +59,39 @@ Current release additions: [integrations responsive acceptance](internal/integra
 | Resumable sign-in → workspace → provider → repositories → behavior → indexing → ready/existing PR | `convex/onboarding.ts`, onboarding UI and provider setup. Earlier actual GitHub onboarding/indexing and resumability passed. | Live isolated Gitea mobile selection → behavior → native access failure → scoped read restoration → Retry → automatic Ready → reload passed on release `dpl_BmN3sPczVYj8XXwYpaDVoEvLAXxp`. Exact revision, generated/binary exclusion reasons, searchable knowledge and source links inspected. Retry refresh gap fixed with atomic queued state and duplicate scheduling protection (269 tests pass). Subsequent completed-source filtering prevents excluded binary changes from scheduling knowledge inference; an actual unchanged native reindex retained four knowledge entries with zero added cost. Remaining full desktop/mobile and provider-specific onboarding matrix. P4 setup now selects native projects, verifies manifest/current-credential baseline readiness and links scoped CLI/watcher/polling setup. Real selection → Ready → reload → restored selection was inspected. Native bot-ticket renewal invalidates old baseline authority and stops polling; actual hosted renewal and one-shot re-index completed 4/4 at submitted change 5; bot identity/project discovery and disabled polling were verified, with temporary keys revoked. |
 | Configurable published summary, precise inline evidence/suggestions, revision links, re-review and agent links | Shared engine and provider adapters; real GitHub/GitLab/Gitea/P4 native publication/readback. Separate recorded runtime status prevents test-source citations from becoming execution claims. | Provider installations without live publishing evidence; complete published-format customization walkthrough. Unsupported native suggestion syntax is not fabricated. |
 
+## Parity features (October 14, 2026)
+
+Evidence levels: *tested with fakes*, *verified locally end-to-end* or *verified live on a real provider*. None of these features has been verified live yet. Live runbooks are listed in [runbooks/README.md](runbooks/README.md), and the "Needs human" numbers refer to [the parity ledger](parity/PROGRESS.md).
+
+| Feature | Implementation and evidence | Acceptance still required |
+| --- | --- | --- |
+| A2 Agentic review engine | `src/engine/agent.ts`, `convex/agentToolbox.ts`; tested with fakes (tool loop, budgets, resume) | Live pipeline-vs-agentic evaluation (Needs human #13) |
+| A3 Code graph (tree-sitter) | `src/engine/graph*`, `convex/graphDiagnostics.ts`; verified locally end-to-end in the anonymous Convex runtime | Hosted grammar load check + re-index (Needs human #8) |
+| A4 Semantic retrieval | `chunkEmbeddings`, hybrid ranking; tested with fakes | Embedding keys + re-index (Needs human #9) |
+| B1 Committable suggestions | `src/suggestions.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#b1-committable-suggestions) |
+| B2/B3 Summary, multi-line comments | `src/review-summary.ts`, `src/github.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#b2-and-b3-summary-and-multi-line-comments) |
+| B4 Sequence diagrams | `src/diagrams.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#b4-sequence-diagram) |
+| B5 Incremental review | `src/incremental.ts`, GraphQL thread resolution; tested with fakes | [Runbook](runbooks/parity-features.md#b5-incremental-review) |
+| B6 Check runs | `Github.startCheckRun`; tested with fakes | Checks write (Needs human #11) + [runbook](runbooks/parity-features.md#b6-check-runs) |
+| B7 Triggers and filters | `src/triggers.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#b7-triggers-and-filters) |
+| B8 Configuration as code | `src/repo-config.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#b8-configuration-as-code) |
+| C1 Reaction feedback | `convex/reactions.ts`; tested with fakes | GitLab emoji events (Needs human #12) + [runbook](runbooks/parity-features.md#c1-reactions) |
+| C2 Learned conventions | `convex/conventionJobs.ts`; tested with fakes | [Runbook](runbooks/parity-features.md#c2-learned-conventions) |
+| C3 Memory management | `convex/memory.ts`, Memory page; tested with fakes + server-render smoke | [Runbook](runbooks/parity-features.md#c3-memory-management) |
+| C4 `@openreview fix this` | `src/fix-command.ts`, `Github.openFixPullRequest`; tested with fakes | Contents write (Needs human #14) + [runbook](runbooks/parity-features.md#c4-openreview-fix-this) |
+| D1 Codebase chat | `src/engine/chat.ts`, `convex/chat.ts`, SSE relay; tested with fakes + server-render smoke | [Runbook](runbooks/parity-features.md#d1-codebase-chat) |
+| D2 Public query API | `app/api/{query,search,repositories}`, scoped keys, `docs/openapi.yaml`; route tests with fakes | [Runbook](runbooks/parity-features.md#d2-public-api) |
+| D3 Remote MCP | `app/api/mcp`, `src/mcp-tools.ts`; protocol tests with fakes | [Runbook](runbooks/parity-features.md#d3-remote-mcp) |
+| D4 Slack and notifications | `src/slack.ts`, `convex/notifications.ts`; tested with fakes | Slack app + email keys (Needs human #15–16) + [runbook](runbooks/parity-features.md#d4-slack-and-email) |
+| D5 Notion and Confluence picker | `src/notion.ts`, `convex/notionJobs.ts`, resource picker; tested with fakes | Notion integration (Needs human #17) + [runbook](runbooks/parity-features.md#d5-notion-and-confluence) |
+| E1 Billing (cloud) | `src/billing.ts`, `convex/billing*.ts`, Stripe webhook; tested with fakes | Stripe test-mode setup (Needs human #18) |
+| E2 Identity and sessions | `convex/identity.ts`, OAuth routes, server-side sessions; tested with fakes | OAuth apps + backfill (Needs human #19) |
+| E3 Landing page and docs | `app/page.tsx`, `/docs`, `/changelog`; verified locally end-to-end (production server) | Browser e2e (Needs human #10) |
+| E4 UI polish | Dashboard split, UI kit, analytics rollups/charts, diff viewer; tested with fakes + server-render smoke of every dashboard route | Browser e2e at desktop/390 px, light/dark (Needs human #10, #20) |
+| F1 Azure DevOps | `src/azure-devops.ts`, `src/text-diff.ts`; contract tests with a fake API | [Runbook](runbooks/azure-devops.md) (Needs human #21) |
+
+Provider runbooks: [GitHub Enterprise](runbooks/github-enterprise.md), [GitLab.com](runbooks/gitlab-com.md), [Bitbucket Cloud (Forge)](runbooks/bitbucket-cloud-forge.md), [Bitbucket Data Center](runbooks/bitbucket-data-center.md), [Azure DevOps](runbooks/azure-devops.md) and the [Origin fix loop](runbooks/origin-fix-loop.md).
+
 ## Providers and external requirements
 
 Every provider still requires acceptance of the exact deployed variant/version: connection, indexing, event or polling delivery, inline publication, follow-up and updated-revision review. A fixture/native API subset does not establish that complete loop.

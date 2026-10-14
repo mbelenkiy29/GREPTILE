@@ -123,7 +123,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: src/azure-devops.ts implements Scm against REST 7.1 (endpoints checked in current Microsoft Learn docs): PAT (Basic) or Entra service-principal client-credentials (cached bearer); repositories (project/repo, GUID externalId, disabled/empty filtered), refs/branches, commit→tree, octet-stream blobs (200 KB bound); PRs from the latest iteration with diffs computed locally (new src/text-diff.ts Myers unified diff, binary/oversized listed as omitted) and a re-read guard; positioned comment threads (threadContext + changeTrackingId/iterationContext) with hidden markers, one closed summary thread edited in place; thread replies with marker idempotency; PR statuses via an optional Scm.reportStatus wired into the review check hooks; source URLs; provider factory/discovery/connect form/providers page; webhook route accepts X-OpenReview-Token or Basic password and the body event id; providerJobs routes git.pullrequest.created/updated/merged and git.push; docs/azure-devops.md (+ /docs).
   evidence: tested with fakes; tests: tests/text-diff.test.ts (3: git-identical hunks, merging/round-trip, bounded fallback), tests/azure-devops.test.ts (4 contract tests mirroring providers/gitlab-approval: PAT + Entra auth, discovery/refs/tree/blob/source URL; iteration diffs, omitted binary, revision-change guard, catalog; positioned threads, closed summary edited in place, refusals; replies, marker idempotency, status body), tests/azure-devops.spec.ts (2: shared-secret verification + delivery dedupe + PR routing to one review + unknown repository ignored; push re-index only on the default branch + disconnect); commands: lint/typecheck/test (320 Node + 222 vitest)/build green; commit: see git log feat(F1)
   notes: follow-up @openreview commands are not supported on Azure DevOps yet (canReply not implemented: verifying another user's repository permission needs ACL APIs); approvals not supported.
-- [ ] F2 Live-verification runbooks — todo
+- [x] F2 Live-verification runbooks — done (the live runs themselves are Needs human #22)
+  plan: docs/runbooks/ with an index and exact, evidence-producing runbooks for GitHub Enterprise, GitLab.com, Bitbucket Cloud (Forge registration/deploy/install from forge/bitbucket with BITBUCKET_FORGE_* ARIs), Bitbucket Data Center, Azure DevOps, the Origin fix loop, and every Phase B–D capability (parity-features.md, one section per item); docs/acceptance-matrix.md gains a "Parity features" table (A2–F1) with each item's evidence level and remaining acceptance.
+  evidence: documentation; tests/docs-links.test.ts confirms every relative link resolves; commands: lint/typecheck/test/build green; commit: see git log feat(F2)
 - [ ] F3 Fix handoff — todo
 
 ## Needs human (ordered, exact steps)
@@ -167,6 +169,16 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
    3. Add Web Hooks service hooks (PR created, PR updated, Code pushed) to the shown URL with the header `X-OpenReview-Token: <secret>`.
    4. Enable a repository and open a PR. Confirm the positioned finding threads, the single closed summary thread, and the `openreview` status.
    5. Record the result in docs/acceptance-matrix.md.
+22. (F2) Run the live runbooks in docs/runbooks/ (README lists them), using disposable repositories and confirming the inference budget first:
+   - GitHub Enterprise.
+   - GitLab.com.
+   - Bitbucket Cloud (Forge).
+   - Bitbucket Data Center.
+   - Azure DevOps.
+   - The Origin fix loop.
+   - parity-features.md.
+
+   Record each result and its evidence level in docs/acceptance-matrix.md "Parity features".
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
