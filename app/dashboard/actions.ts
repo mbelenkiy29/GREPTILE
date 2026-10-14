@@ -219,6 +219,7 @@ export async function saveSettings(form: FormData) {
       model: text(form, "model"),
       instructions: text(form, "instructions"),
       commentStyle: text(form, "commentStyle"),
+      reviewEngine: text(form, "reviewEngine") || previous.settings.reviewEngine || "pipeline",
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

@@ -23,6 +23,15 @@ import { classifyChanges, riskScore } from "./classify";
 import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
+import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
+
+export type ReviewOptions = {
+  // "agentic" runs the tool-calling investigator instead of fixed specialists when the
+  // provider supports tool calling and a toolbox is supplied; every downstream gate is shared.
+  engine?: "pipeline" | "agentic";
+  tools?: AgentToolbox;
+  agent?: AgentHooks;
+};
 
 const specialties = {
   correctness: "Prove logic, state, race, null, and edge-case defects.",
@@ -71,6 +80,7 @@ export async function reviewChange(
   model: ModelProvider,
   progress: (stage: Stage) => Promise<void> = async () => {},
   signal?: AbortSignal,
+  options: ReviewOptions = {},
 ): Promise<ReviewResult> {
   if(!validSummarySections(input.settings?.summarySections))throw new Error("Invalid summary sections");
   const runtimeEvidence = input.runtimeEvidence
@@ -156,8 +166,20 @@ export async function reviewChange(
   const usage: ModelUsage[] = [];
   const candidates: (Candidate & { agent: string })[] = [];
   const failedSpecialists: { category: string; error: string }[] = [];
+  const engineLimits: string[] = [];
+  const agentic = options.engine === "agentic" && !!options.tools && !!model.runTools;
+  if (options.engine === "agentic" && !agentic) engineLimits.push("The agentic engine was requested but tool calling is unavailable for this provider; the specialist pipeline ran instead");
+  let agentRun: Awaited<ReturnType<typeof runReviewAgent>> | undefined;
+  if (agentic) {
+    agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent });
+    usage.push(...agentRun.usage);
+    candidates.push(...agentRun.candidates);
+    engineLimits.push(...agentRun.limits);
+    // Files read through tools come from the reviewed revision; they can back evidence quotes.
+    safeInput.files = [...index.files, ...agentRun.sources.filter((source) => !index.files.some((f) => f.path === source.path))];
+  }
   // ponytail: two simultaneous calls bound cost/rate pressure; configurable concurrency if measured throughput requires it.
-  for (let i = 0; i < selected.length; i += 2) {
+  for (let i = 0; i < selected.length && !agentic; i += 2) {
     signal?.throwIfAborted();
     const batch = selected.slice(i, i + 2);
     const results = await Promise.allSettled(
@@ -193,7 +215,7 @@ export async function reviewChange(
       failedSpecialists.push({ category: batch[j], error: redact(String(failure?.message ?? "Specialist failed")).slice(0, 500) });
     }
   }
-  if (failedSpecialists.length && failedSpecialists.length === selected.length)
+  if (!agentic && failedSpecialists.length && failedSpecialists.length === selected.length)
     throw new Error("Every review specialist failed: " + failedSpecialists.map((f) => f.category + ": " + f.error).join("; ").slice(0, 2000));
   await progress("verifying");
   const minimum = input.settings?.minimumConfidence ?? 0.85;
@@ -257,7 +279,7 @@ export async function reviewChange(
         if (f) suppress(f, decision.reason || "Verifier rejected candidate");
         continue;
       }
-      const evidence = f.evidence.map(e => ({filePath:e.filePath,startLine:e.startLine,quote:e.quote,...index.files.find(file=>file.path===e.filePath)?.provenance}));
+      const evidence = f.evidence.map(e => ({filePath:e.filePath,startLine:e.startLine,quote:e.quote,...safeInput.files.find(file=>file.path===e.filePath)?.provenance}));
       const existing=input.existingFindings?.find(x=>overlaps(x,f));
       if (existing) {
         carriedForward.push({...f,evidence,confidence:Math.min(f.confidence,decision.confidence),fingerprint:existing.fingerprint,commitSha:input.headSha});
@@ -299,6 +321,7 @@ export async function reviewChange(
     ...(ignoredCount ? ["Configured paths were excluded"] : []),
     ...(skippedFiles.length > ignoredCount ? [`${skippedFiles.length - ignoredCount} changed files were not reviewed (provider limits or the risk-ranked review budget); see Skipped files`] : []),
     ...(failedSpecialists.length ? [`Some review specialists failed and their categories were not reviewed: ${failedSpecialists.map((f) => f.category).join(", ")}`] : []),
+    ...engineLimits,
     ...(diff.some(f => !f.patch.trim()) ? ["Some changed files have no textual diff"] : []),
     ...(diff.some(f => f.status !== "removed" && !index.files.some(source => source.path === f.path)) ? ["Some changed source files were unavailable or excluded"] : []),
     ...(categories.some(c => c !== "rules" && !selected.includes(c)) ? ["Some review categories were disabled"] : []),
@@ -326,6 +349,8 @@ export async function reviewChange(
       coverageLimits,
       ...(skippedFiles.length ? { skippedFiles } : {}),
       ...(failedSpecialists.length ? { failedSpecialists } : {}),
+      engine: agentic ? "agentic" : "pipeline",
+      ...(agentRun ? { agentRun: { toolCalls: agentRun.state.toolCalls, turns: agentRun.state.turns, resumes: agentRun.state.resumes, ...(agentRun.state.stopReason ? { stopReason: agentRun.state.stopReason } : {}) } } : {}),
       baseSha: input.baseSha,
       headSha: input.headSha,
       mode: input.mode,

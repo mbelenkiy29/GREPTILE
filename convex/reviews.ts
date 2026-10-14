@@ -147,7 +147,7 @@ export const stage = internalMutation({
     if(args.status!=="ingesting")requireP4Worker(review,args.workerLease);
     if (
       args.status === "ingesting" &&
-      !["queued", "failed", "waiting_runtime"].includes(review.status)
+      !["queued", "failed", "waiting_runtime", "waiting_agent"].includes(review.status)
     )
       return false;
     if(args.status==="ingesting"&&review.retryScheduledId){
@@ -159,7 +159,7 @@ export const stage = internalMutation({
       status: args.status,
       updatedAt: Date.now(),
       ...(args.status === "ingesting" ? {error:undefined,finishedAt:undefined,retryScheduledId:undefined,retryAt:undefined} : {}),
-      ...(args.status === "ingesting" && review.status !== "waiting_runtime" ? { attempts: review.attempts + 1 } : {}),
+      ...(args.status === "ingesting" && review.status !== "waiting_runtime" && review.status !== "waiting_agent" ? { attempts: review.attempts + 1 } : {}),
     });
     await ctx.db.insert("reviewRuns", {
       organizationId: review.organizationId,
@@ -372,6 +372,27 @@ export const backfillFindings=internalMutation({args:{reviewId:v.id("reviews"),s
  }
  await ctx.db.patch(review._id,{findingsRecorded:true});
 }});
+export const agentStatus = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  return review?{status:review.status,headSha:review.headSha,agentStateStorageId:review.agentStateStorageId,agentStateHead:review.agentStateHead}:null;
+}});
+export const saveAgentState = internalMutation({args:{reviewId:v.id("reviews"),storageId:v.id("_storage"),headSha:v.string()},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  // Returning (not throwing) keeps the orphan-blob deletion committed.
+  if(!review||["cancelled","completed"].includes(review.status)||review.headSha!==a.headSha){await ctx.storage.delete(a.storageId);return false;}
+  if(review.agentStateStorageId)await ctx.storage.delete(review.agentStateStorageId);
+  await ctx.db.patch(review._id,{agentStateStorageId:a.storageId,agentStateHead:a.headSha,updatedAt:Date.now()});
+  return true;
+}});
+// Hands a long agentic investigation to a fresh action step without consuming a retry attempt.
+export const suspendAgent = internalMutation({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  if(!review||!["ingesting","retrieving_context","reviewing"].includes(review.status)||!review.agentStateStorageId)return false;
+  await ctx.db.patch(review._id,{status:"waiting_agent",updatedAt:Date.now()});
+  await ctx.db.insert("reviewRuns",{organizationId:review.organizationId,reviewId:review._id,stage:"waiting_agent",detail:"Agentic investigation continues in a new step",createdAt:Date.now()});
+  await ctx.scheduler.runAfter(0,internal.jobs.review,{reviewId:review._id});
+  return true;
+}});
 export const finished = internalMutation({
   args: {
     reviewId: v.id("reviews"),
@@ -391,6 +412,8 @@ export const finished = internalMutation({
     }
     const retryAt=args.error&&review.attempts>0&&review.attempts<3?Date.now()+10000*2**review.attempts:undefined;
     const retryScheduledId=retryAt===undefined?undefined:await ctx.scheduler.runAt(retryAt,internal.jobs.review,{reviewId:review._id});
+    // A scheduled retry resumes the saved agent state; a final outcome discards it.
+    if(!retryScheduledId&&review.agentStateStorageId){await ctx.storage.delete(review.agentStateStorageId);await ctx.db.patch(review._id,{agentStateStorageId:undefined,agentStateHead:undefined});}
     await ctx.db.patch(review._id, {
       status: args.error ? (retryScheduledId?"queued":"failed") : "completed",
       githubReviewId: args.githubReviewId,

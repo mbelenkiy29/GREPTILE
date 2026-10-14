@@ -4,12 +4,14 @@ import { fixtures } from "./fixtures";
 import { modelFromEnvironment } from "../src/engine/model";
 import { reviewChange } from "../src/engine/review";
 import {EvaluationUsage} from "../src/evaluation-usage";
+import {memoryToolbox} from "../src/engine/agent";
 const args=process.argv.slice(2).filter(arg=>arg!=="--");
 if(args.includes("--help")||args.includes("-h")){
- console.log("Usage: pnpm eval [--validate] [--fixture=ID]\n--validate checks fixtures without model calls. Otherwise a configured model evaluation incurs inference cost.");
+ console.log("Usage: pnpm eval [--validate] [--fixture=ID] [--engine=pipeline|agentic]\n--validate checks fixtures without model calls. Otherwise a configured model evaluation incurs inference cost.");
  process.exit(0);
 }
-if(args.some(arg=>arg!=="--validate"&&!arg.startsWith("--fixture=")))throw new Error("Unknown evaluation argument; use --help");
+if(args.some(arg=>arg!=="--validate"&&!arg.startsWith("--fixture=")&&!/^--engine=(pipeline|agentic)$/.test(arg)))throw new Error("Unknown evaluation argument; use --help");
+const engine=args.find(a=>a.startsWith("--engine="))?.slice("--engine=".length) as "pipeline"|"agentic"|undefined;
 try {
   loadEnvFile(".env.local");
 } catch {
@@ -20,6 +22,8 @@ for(const f of fixtures){
  const expected=f.expected;
  if(!f.input.diff.length||!f.input.files.length||f.input.baseSha===f.input.headSha||f.input.diff.some(d=>!d.patch))throw new Error("Incomplete fixture: "+f.id);
  if(expected&&(!expected.terms.length||!f.input.diff.some(d=>d.path===expected.path)||!f.input.files.some(s=>s.path===expected.path)))throw new Error("Invalid expected finding: "+f.id);
+ const paths=[...f.input.files,...(f.repositoryFiles??[])].map(s=>s.path);
+ if(new Set(paths).size!==paths.length||f.repositoryFiles?.some(s=>!s.content.trim()))throw new Error("Invalid repository files: "+f.id);
 }
 await mkdir("reports", { recursive: true });
 if (process.argv.includes("--validate")) {
@@ -29,6 +33,7 @@ if (process.argv.includes("--validate")) {
         fixtures: fixtures.length,
         status: "fixture validation only; no model quality measured",
         categories: fixtures.map((f) => f.id),
+        multiHop: fixtures.filter((f) => f.repositoryFiles?.length).map((f) => f.id),
       },
       null,
       2,
@@ -59,7 +64,7 @@ if (process.argv.includes("--validate")) {
     const started = Date.now();
     const tracked=new EvaluationUsage(modelFromEnvironment());
     try {
-      const result = await reviewChange(fixture.input, tracked);
+      const result = await reviewChange(fixture.input, tracked, undefined, undefined, engine==="agentic"?{engine,tools:memoryToolbox([...fixture.input.files,...(fixture.repositoryFiles??[])],fixture.input.headSha)}:{});
       const expected=fixture.expected;
       const matched = expected ? result.findings.filter(
         (f) =>
@@ -115,6 +120,7 @@ if (process.argv.includes("--validate")) {
     scoring:
       "Keyword/location heuristic; human adjudication required before quality claims.",
     model: process.env.LLM_MODEL,
+    engine: engine ?? "pipeline",
     usageComplete:results.every(result=>result.usageComplete),
     inferenceUsage:{tokens:results.reduce((sum,result)=>sum+(result.tokens??0),0),estimatedCost:results.reduce((sum,result)=>sum+(result.estimatedCost??0),0)},
     results,

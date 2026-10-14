@@ -38,6 +38,7 @@ export const settingsValidator = v.object({
   mode: v.string(),
   commentStyle: v.string(),
   summarySections:v.optional(v.array(v.string())),
+  reviewEngine:v.optional(v.string()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -348,6 +349,9 @@ export default defineSchema({
     updatedAt: v.number(),
     finishedAt: v.optional(v.number()),
     resultStorageId: v.optional(v.id("_storage")),
+    // Agentic tool-loop transcript/state, kept between execution steps and deleted when the review ends.
+    agentStateStorageId: v.optional(v.id("_storage")),
+    agentStateHead: v.optional(v.string()),
     repositoryContext:v.optional(repositoryContextValidator),
     nativeP4: v.optional(v.object({requestedBy:v.id("users"),connectionId:v.id("providerConnections"),credentialDigest:v.string(),baselineJobId:v.id("indexJobs"),inputStorageId:v.id("_storage"),polling:v.optional(p4PollingReference),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()}))})),
     retryScheduledId: v.optional(v.id("_scheduled_functions")),
@@ -390,6 +394,7 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_review", ["reviewId"])
     .index("by_repo", ["repositoryId"])
+    .index("by_repo_path", ["repositoryId", "filePath"])
     .index("by_pr", ["repositoryId", "prNumber"])
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
     .index("by_org_time", ["organizationId", "createdAt"]),

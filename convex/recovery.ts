@@ -90,6 +90,7 @@ export const sweep = internalMutation({
     }
     for (const stage of [
       "queued",
+      "waiting_agent",
       "ingesting",
       "retrieving_context",
       "reviewing",

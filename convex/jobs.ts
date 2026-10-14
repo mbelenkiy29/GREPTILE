@@ -10,6 +10,8 @@ import type {RepositoryContext} from "./repositoryContext";
 import { z } from "zod";
 import { provider } from "./scm";
 import { fileInventory, indexedFiles } from "./fileReads";
+import { reviewAgentHooks, reviewToolbox } from "./agentToolbox";
+import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
 import {decryptCredential} from "../src/credentials";
@@ -278,6 +280,7 @@ export const indexBatch = internalAction({
 export const review = internalAction({
   args: { reviewId: v.id("reviews") },
   handler: async (ctx, args) => {
+    const stepStarted = Date.now();
     const state = await ctx.runQuery(internal.reviews.data, args);
     if (["completed", "cancelled"].includes(state.review.status)) return;
     if(state.review.nativeP4){await ctx.runAction(internal.p4ReviewJobs.run,args);return;}
@@ -542,7 +545,19 @@ export const review = internalAction({
           if(cross.receipt)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:cross.receipt});
           return result;
         },
+        runTools: async (request) => {
+          if(cross.receipt)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:cross.receipt});
+          try {
+            const turn = await modelProvider.runTools(request);
+            await ctx.runMutation(internal.reviews.recordCall, { reviewId: args.reviewId, usage: turn.usage });
+            return turn;
+          } catch (error) {
+            if (error instanceof ModelFailure) await ctx.runMutation(internal.reviews.recordCall, { reviewId: args.reviewId, usage: error.usage, error: redact(error.message).slice(0, 4000) });
+            throw error;
+          }
+        },
       };
+      const agentic = settings.reviewEngine === "agentic";
       const result = {...await reviewChange(
         {
           repository: repo.fullName,
@@ -604,6 +619,8 @@ export const review = internalAction({
         async (status) => {
           await ctx.runMutation(internal.reviews.stage, { ...args, status });
         },
+        undefined,
+        agentic ? { engine: "agentic", tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: reviewAgentHooks(ctx, args.reviewId, stepStarted) } : {},
       ),integrationScopes:requirements.scopes,repositoryContext:cross.receipt??undefined};
       const storageId = await ctx.storage.store(
         new Blob([JSON.stringify(result)], { type: "application/json" }),
@@ -645,6 +662,10 @@ export const review = internalAction({
         comments: published.comments,
       });
     } catch (error) {
+      if (error instanceof AgentSuspended && await ctx.runMutation(internal.reviews.suspendAgent, args)) {
+        console.log(JSON.stringify({ event: "review.agent_suspended", reviewId: args.reviewId, toolCalls: error.state.toolCalls, turns: error.state.turns }));
+        return;
+      }
       const message = error instanceof Error ? error.message : "Review failed";
       console.error(
         JSON.stringify({

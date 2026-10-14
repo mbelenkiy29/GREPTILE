@@ -12,5 +12,6 @@ export function scopeSettingsFromForm(form:FormData){
   categories:form.has('categoriesConfigured')?form.getAll('categories').map(String):defaults.categories,
   summarySections:form.has('summaryConfigured')?form.getAll('summarySections').map(String):defaults.summarySections,
   commentStyle:value('commentStyle')||defaults.commentStyle,
+  reviewEngine:value('reviewEngine')||defaults.reviewEngine,
  };
 }

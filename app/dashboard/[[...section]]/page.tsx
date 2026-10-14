@@ -1223,6 +1223,16 @@ export default async function Dashboard({
                     </select>
                   </label>
                   <label>
+                    Review engine
+                    <select
+                      name="reviewEngine"
+                      defaultValue={repoSettings.settings.reviewEngine ?? "pipeline"}
+                    >
+                      <option value="pipeline">pipeline (specialists)</option>
+                      <option value="agentic">agentic (tool-calling, experimental)</option>
+                    </select>
+                  </label>
+                  <label>
                     Model override
                     <input
                       name="model"

@@ -14,7 +14,7 @@ import {indexWriteAllowed,indexBatchMatches} from "./indexAuthority";
 import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
-import { defaults,validSummarySections } from "../src/review-settings";
+import { defaults,validSummarySections,validReviewEngine } from "../src/review-settings";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
 import type {QueryCtx,MutationCtx} from "./_generated/server";
@@ -79,6 +79,7 @@ export const configure = mutation({
         !["fast", "standard", "deep"].includes(s.mode) ||
         !["concise", "detailed"].includes(s.commentStyle) ||
         !validSummarySections(s.summarySections) ||
+        !validReviewEngine(s.reviewEngine) ||
         s.categories.some((c) => !defaults.categories.includes(c))
       )
         throw new Error("Invalid review settings");

@@ -139,6 +139,8 @@ export type ReviewResult = {
     coverageLimits?: string[];
     skippedFiles?: SkippedFile[];
     failedSpecialists?: { category: string; error: string }[];
+    engine?: "pipeline" | "agentic";
+    agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
     baseSha: string;
     headSha: string;

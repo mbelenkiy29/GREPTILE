@@ -1,9 +1,15 @@
-import type { ReviewInput } from "../src/engine/types";
+import type { ReviewInput, SourceFile } from "../src/engine/types";
 type Fixture = {
   id: string;
   expected: { path: string; category: string; terms: string[] } | null;
   input: ReviewInput;
+  // Indexed repository files reachable only through agent tools (two or more hops from the change).
+  repositoryFiles?: SourceFile[];
 };
+// Multi-hop: the defect only shows at a caller two hops away, which the pipeline payload omits.
+function multiHop(id: string, category: string, before: string, after: string, context: Record<string, string>, repositoryOnly: Record<string, string>, terms: string[]): Fixture {
+  return { ...fixture(id, category, before, after, context, terms), repositoryFiles: Object.entries(repositoryOnly).map(([path, content]) => ({ path, content, sha: "d" })) };
+}
 function fixture(
   id: string,
   category: string,
@@ -44,6 +50,33 @@ function fixture(
   };
 }
 export const fixtures: Fixture[] = [
+  multiHop(
+    "multi-hop-currency",
+    "correctness",
+    "export function total(cents,qty) { return cents*qty; }",
+    "export function total(cents,qty) { return (cents*qty)/100; }",
+    { "src/cart.ts": "import { total } from './change';\nexport function checkoutAmount(cart) { return total(cart.priceInCents, cart.quantity); }" },
+    { "src/payments.ts": "import { checkoutAmount } from './cart';\n// The payment provider requires integer cents.\nexport function charge(provider,cart) { return provider.charge({amount:checkoutAmount(cart),currency:'USD'}); }" },
+    ["cents", "100", "dollar", "undercharg"],
+  ),
+  multiHop(
+    "multi-hop-authorization",
+    "security",
+    "export function isAdmin(user) { return user.role === 'admin'; }",
+    "export function isAdmin(user) { return user.role === 'admin' || user.isStaff === true; }",
+    { "src/middleware.ts": "import { isAdmin } from './change';\nexport function requireAdmin(user) { if (!isAdmin(user)) throw new Error('forbidden'); }" },
+    { "src/routes/admin.ts": "import { requireAdmin } from '../middleware';\n// Only administrators may erase customer data.\nexport function eraseAllCustomers(user, db) { requireAdmin(user); return db.customers.deleteMany({}); }" },
+    ["staff", "admin", "privilege", "escalat"],
+  ),
+  multiHop(
+    "multi-hop-retry-delay",
+    "performance",
+    "export function retryDelay(attempt) { return 1000 * 2 ** attempt; }",
+    "export function retryDelay(attempt) { return 2 ** attempt; }",
+    { "src/scheduler.ts": "import { retryDelay } from './change';\nexport function scheduleRetry(queue, job) { queue.later(job, retryDelay(job.attempt)); }" },
+    { "src/queue.ts": "// later(job, delayMs): delay is in milliseconds.\nexport const queue = { later(job, delayMs) { setTimeout(() => job.run(), delayMs); } };" },
+    ["millisecond", "1000", "retry", "hammer"],
+  ),
   fixture(
     "clean-refactor",
     "correctness",
