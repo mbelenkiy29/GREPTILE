@@ -113,7 +113,7 @@ test("the engine keeps a verified outside-diff finding, flags it, drops its sugg
   assert.deepEqual(inlineFindings(result.findings), []);
   assert.match(result.summary, /^\*\*Needs changes\*\* · Confidence score \*\*1\/5\*\*\n\n### Overview/);
   assert.match(result.summary, /### Issues\nNo verified findings on the changed lines; see Outside the changed code\.\n\n### Outside the changed code\n/);
-  assert.match(result.summary, /- \*\*critical\*\* · `payments\.ts:2` · Charges are 100 times too large\n  Caused by `cart\.ts:2`\. total\(\) now returns cents, but charge\(\) still converts dollars to cents\. \*\*Fix:\*\* Pass total\(items\) to the gateway without multiplying\./);
+  assert.match(result.summary, /- 🔴 \*\*P0\*\* · critical · `payments\.ts:2` · Charges are 100 times too large\n  Caused by `cart\.ts:2`\. total\(\) now returns cents, but charge\(\) still converts dollars to cents\. \*\*Fix:\*\* Pass total\(items\) to the gateway without multiplying\./);
   // Specialists are told how to anchor these.
   assert.match(model.requests.find((r) => r.task === "review:correctness")!.system, /anchor on that unchanged line and include at least one evidence quote of the changed line/);
 });
@@ -138,7 +138,7 @@ test("summary: the outside section follows Issues, shows even when Issues is off
   assert.doesNotMatch(reviewSummary({ ...data, findings: [inline] }), /Outside the changed code/);
   // Bounded: at most 20 listed.
   const many = reviewSummary({ ...data, findings: Array.from({ length: 23 }, (_, i) => make({ ...outside, title: "Outside finding " + i }, { outsideDiff: true, fingerprint: "f" + i })) }, []);
-  assert.equal((many.match(/^- \*\*critical\*\*/gm) ?? []).length, 20);
+  assert.equal((many.match(/^- 🔴 \*\*P0\*\* · critical/gm) ?? []).length, 20);
   assert.match(many, /- 3 more on the review page\./);
   // Incomplete coverage turns a clean review into "Review incomplete".
   assert.match(reviewSummary({ ...data, findings: [], score: { value: 5, reason: "No defects were found in the reviewed files." }, incomplete: true }), /^\*\*Review incomplete\*\* · Confidence score \*\*5\/5\*\*/);

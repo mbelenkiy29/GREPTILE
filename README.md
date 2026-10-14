@@ -16,6 +16,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
 - Grounded findings. Each finding quotes exact lines from the reviewed revision and passes a second verification before it is posted.
 - Committable suggestion blocks for small fixes, and multi-line comments within a hunk.
 - One summary comment, edited in place on every push. It opens with a verdict computed from the score, findings and coverage, then has an overview, files changed, issues, a confidence score, skipped files and an optional Mermaid sequence diagram.
+- Priority badges (🔴 P0 to 🔵 P3) and a 🔒 Security tag on comments, the summary, the dashboard, notifications, the CLI and the API, as text and emoji only.
 - Findings outside the changed code: a defect in an untouched caller is kept when its evidence quotes the changed line that causes it, and is listed in the summary instead of inline.
 - Incremental re-reviews that cover only new commits, and automatic resolution of fixed findings' threads.
 - GitHub check runs, used only when the app has Checks write permission. The conclusion is neutral by default, or fails at a severity you choose.

@@ -25,6 +25,19 @@ The first line of every summary is one of four verdicts. It is computed from rec
 
 The score is shown next to the verdict when the confidence-score summary section is enabled.
 
+## Priorities and tags
+
+Each finding carries a priority derived from its severity. Badges are text and emoji only, so they render the same on self-hosted installs, in Slack and in email:
+
+| Priority | Severity |
+| --- | --- |
+| 🔴 P0 | critical |
+| 🟠 P1 | high |
+| 🟡 P2 | medium |
+| 🔵 P3 | low |
+
+Findings in the security category also carry a separate 🔒 Security tag. Priorities and tags appear on inline comments, in the summary's issue table, on the dashboard, in Slack and email notifications, in the CLI output and as additive `priority` and `tags` fields in the REST API (`GET /api/reviews/{id}`) and the MCP `get_review`, `get_findings` and `get_finding` tools. Existing fields, including `severity`, are unchanged.
+
 ## Findings outside the changed code
 
 A change can break code it did not touch, such as a caller in another file that still expects the old behavior. OpenReview keeps such a finding only when its evidence quotes, exactly, a line the pull request changed that causes the problem. These findings are listed in an **Outside the changed code** section of the summary (always shown when there are any) and on the review page. They are never posted as inline comments, because providers only accept those on changed lines, and they carry no committable suggestion.

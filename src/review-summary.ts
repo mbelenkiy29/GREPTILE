@@ -3,6 +3,7 @@ import type {Finding,ReviewInput,ReviewResult,SourceFile} from "./engine/types";
 import {suggestionBlock,type SuggestionSyntax} from "./suggestions";
 import {changedLines} from "./engine/patch-lines";
 import {reviewVerdict,verdictLine} from "./verdict";
+import {priorityBadge,tagBadges} from "./priority";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -38,6 +39,8 @@ const cell=(value:string)=>value.replace(/[\r\n]+/g," ").replace(/\|/g,"\\|").sl
 const firstSentence=(text:string)=>{const sentence=text.replace(/\s+/g," ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0]??text.trim();return sentence.length>300?sentence.slice(0,297)+"…":sentence;};
 const lineStats=(patch:string)=>{let added=0,removed=0;for(const line of patch.split("\n")){if(/^\+(?!\+\+)/.test(line))added++;else if(/^-(?!--)/.test(line))removed++;}return `+${added} −${removed}`;};
 const severityOrder={critical:0,high:1,medium:2,low:3} as const;
+const badge=(f:Finding)=>priorityBadge(f.severity).replace(/P\d$/,"**$&**")+" · "+f.severity;
+const tags=(f:Finding)=>tagBadges(f).map(t=>" · "+t).join("");
 // The changed line an outside-the-diff finding cites as its cause.
 function cause(f:Finding,files:Summary["files"]){
  for(const e of f.evidence){
@@ -57,7 +60,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   overview:data.overview,
   diagram:data.diagram?"```mermaid\n"+data.diagram+"\n```":"",
   affectedAreas:files.length?"| File | Change |\n| --- | --- |\n"+files.map(f=>"| "+code(f.path)+" | "+cell(describe.get(f.path)??(f.status+" · "+lineStats(f.patch)))+" |").join("\n")+(data.files.length>files.length?"\n\n…and "+(data.files.length-files.length)+" more changed files.":""):"No remaining changed files.",
-  findings:inline.length?"| Severity | Location | Issue |\n| --- | --- | --- |\n"+[...inline].sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]).map(f=>"| **"+f.severity+"** | "+location(f)+" | "+cell(f.title)+" |").join("\n"):outside.length?"No verified findings on the changed lines; see Outside the changed code.":"No verified findings. This does not establish that the change is risk-free.",
+  findings:inline.length?"| Priority | Location | Issue |\n| --- | --- | --- |\n"+[...inline].sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]).map(f=>"| "+badge(f)+" | "+location(f)+" | "+cell(f.title)+tags(f)+" |").join("\n"):outside.length?"No verified findings on the changed lines; see Outside the changed code.":"No verified findings. This does not establish that the change is risk-free.",
   score:data.score?"**"+data.score.value+"/5** — "+firstSentence(data.score.reason):"Not recorded for this review.",
   risk:data.assessment?data.assessment.risk+" · Confidence "+Math.round(data.assessment.confidence*100)+"%\n\n"+data.assessment.reason:"Unknown: no structured risk assessment was recorded.",
   resolved:data.resolved.map(f=>"- "+f.title+" · "+code(f.filePath)).join("\n")||"No previously reported findings were confirmed resolved in this review.",
@@ -72,7 +75,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
  if(outside.length){
   const pivot=summarySections.indexOf("findings");
   const at=shown.reduce((last,s,i)=>summarySections.indexOf(s as (typeof summarySections)[number])<=pivot?i+1:last,0);
-  blocks.splice(at,0,"### Outside the changed code\nVerified findings on lines this change did not modify, caused by lines it did. They are not posted as inline comments.\n\n"+outside.slice(0,20).map(f=>{const by=cause(f,data.files);return "- **"+f.severity+"** · "+location(f)+" · "+cell(f.title)+"\n  "+(by?"Caused by "+by+". ":"")+firstSentence(f.description)+" **Fix:** "+firstSentence(f.suggestedFix);}).join("\n")+(outside.length>20?"\n- "+(outside.length-20)+" more on the review page.":""));
+  blocks.splice(at,0,"### Outside the changed code\nVerified findings on lines this change did not modify, caused by lines it did. They are not posted as inline comments.\n\n"+outside.slice(0,20).map(f=>{const by=cause(f,data.files);return "- "+badge(f)+" · "+location(f)+" · "+cell(f.title)+tags(f)+"\n  "+(by?"Caused by "+by+". ":"")+firstSentence(f.description)+" **Fix:** "+firstSentence(f.suggestedFix);}).join("\n")+(outside.length>20?"\n- "+(outside.length-20)+" more on the review page.":""));
  }
  return [verdictLine(verdict,selected.includes("score")?data.score:undefined),...blocks,
   "### Test execution\n"+(runtime?"Recorded command: "+code(runtime.command)+" · "+runtimeStatus(runtime)+" at "+runtime.headSha+".":"Not executed by OpenReview. Test files and CI metadata are context, not proof of a successful test run."),
@@ -88,7 +91,7 @@ export function findingComment(f: Finding, style: string = "detailed", suggestio
     )
     .join("\n\n") + f.evidence.filter(e => e.sourceUrl).map(e => "\n\n[Source: "+e.repository+" @ "+e.revision+"]("+e.sourceUrl+")").join("");
   const fix = f.suggestion && suggestion ? suggestionBlock(f.suggestion, suggestion.syntax, suggestion) : "";
-  return `**${f.severity.toUpperCase()}: ${f.title}** (${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
+  return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
 }
 
 export function reviewLinks(reviewId:string,unresolvedCount:number){

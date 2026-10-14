@@ -13,7 +13,7 @@ import { FixButton } from "../fix-button";
 import { PullList } from "../pulls";
 import { RuntimeReview, ApprovalReview } from "../runtime";
 import { ReviewDiff } from "../review-diff";
-import { when, status } from "./shared";
+import { when, status, priority } from "./shared";
 import type { DashboardContext } from "../load";
 
 export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
@@ -155,7 +155,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                   {detail.findings.map((finding) => (
                     <article key={finding._id}>
                       <h3>
-                        {status(finding.severity)} {finding.title}
+                        {priority(finding)} {finding.title}
                       </h3>
                       <p>
                         {finding.filePath}:{finding.startLine} ·{" "}

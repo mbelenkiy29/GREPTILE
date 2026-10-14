@@ -29,7 +29,8 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
     "**Needs changes** · Confidence score **1/5**",
     "### Overview\nTotals are now computed in a shared helper.",
     "### Files changed\n| File | Change |\n| --- | --- |\n| `src/total.ts` | Moves total computation into a helper \\| with pipes. |\n| `tests/total.test.ts` | added · +1 −0 |\n| `src/a|b.ts` | modified · +0 −0 |",
-    `### Issues\n| Severity | Location | Issue |\n| --- | --- | --- |\n| **critical** | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| **medium** | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
+    // G2: priority badges replace the bare severity column.
+    `### Issues\n| Priority | Location | Issue |\n| --- | --- | --- |\n| 🔴 **P0** · critical | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| 🟡 **P2** · medium | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
     "### Confidence score\n**1/5** — A critical currency defect blocks merging.",
     "### Risk assessment\nhigh · Confidence 90%\n\nMonetary totals change for every order.",
     "### Resolved findings\nNo previously reported findings were confirmed resolved in this review.",
@@ -50,7 +51,7 @@ test("summary sections toggle independently; skipped files fall back into covera
   assert.doesNotMatch(minimal, /### Overview|### Files changed|### Confidence score|### Skipped files/);
   assert.match(minimal, /### Coverage[\s\S]*Skipped files:\n- `package-lock.json`/);
   assert.match(reviewSummary({ ...data, findings: [], sourceLink: undefined }, ["findings"]), /No verified findings/);
-  assert.match(reviewSummary({ ...data, sourceLink: () => "javascript:alert(1)" }, ["findings"]), /\| \*\*critical\*\* \| `src\/total.ts:3–5` \|/, "non-HTTPS links are not rendered");
+  assert.match(reviewSummary({ ...data, sourceLink: () => "javascript:alert(1)" }, ["findings"]), /\| 🔴 \*\*P0\*\* · critical \| `src\/total.ts:3–5` \|/, "non-HTTPS links are not rendered");
   const many = { ...data, files: Array.from({ length: 65 }, (_, i) => ({ path: `f${i}.ts`, status: "added", patch: "" })) };
   assert.match(reviewSummary(many, ["affectedAreas"]), /…and 5 more changed files\./);
 });

@@ -23,6 +23,7 @@ import { runtimeEvidenceSchema, approvalAssessmentSchema, reviewScoreSchema } fr
 import {p4AutomaticAuthority} from "./p4Polling";
 import {cancelReview,requireP4Worker} from "./reviewLifecycle";
 import {p4Baseline} from "./p4Index";
+import {findingTags,priorityOf} from "../src/priority";
 
 const usageValidator = v.object({
   task: v.string(),
@@ -519,7 +520,8 @@ export const detail = query({
     const findings=await Promise.all(snapshots.map(async s=>{
       await requireFindingReader(ctx,viewer._id,s.snapshot);
       const current=await ctx.db.get(s.findingId);
-      return {...s.snapshot,title:executionExplanation(s.snapshot.title,executionEvidence),description:executionExplanation(s.snapshot.description,executionEvidence),impact:executionExplanation(s.snapshot.impact,executionEvidence),suggestedFix:executionExplanation(s.snapshot.suggestedFix,executionEvidence),_id:s.findingId,_creationTime:s._creationTime,organizationId:review.organizationId,repositoryId:review.repositoryId,reviewId:review._id,prNumber:review.prNumber,status:"open",currentStatus:current?.status??"unavailable",canFix:canWrite&&fixReady&&!!current&&eligibleFixFinding(current,review,latest?._id,config.minimumConfidence)};
+      // priority and tags are additive fields for API and MCP clients; existing fields are unchanged.
+      return {...s.snapshot,priority:priorityOf(s.snapshot.severity),tags:findingTags(s.snapshot),title:executionExplanation(s.snapshot.title,executionEvidence),description:executionExplanation(s.snapshot.description,executionEvidence),impact:executionExplanation(s.snapshot.impact,executionEvidence),suggestedFix:executionExplanation(s.snapshot.suggestedFix,executionEvidence),_id:s.findingId,_creationTime:s._creationTime,organizationId:review.organizationId,repositoryId:review.repositoryId,reviewId:review._id,prNumber:review.prNumber,status:"open",currentStatus:current?.status??"unavailable",canFix:canWrite&&fixReady&&!!current&&eligibleFixFinding(current,review,latest?._id,config.minimumConfidence)};
     }));
     const nativeRows=review.nativeP4?await ctx.db.query("conversations").withIndex("by_native_review",q=>q.eq("nativeP4.reviewId",review._id)).order("desc").take(21):[];
     const nativePoll=review.nativeP4?await ctx.db.query("p4Polls").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique():null;
