@@ -442,6 +442,23 @@ export default defineSchema({
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
     .index("by_org_time", ["organizationId", "createdAt"]),
   // Team conventions learned from human review comments (review guidance only).
+  // Cloud billing (BILLING_ENABLED=true only). One account per workspace; Stripe state is applied
+  // from signed webhooks, newest event wins.
+  billingAccounts: defineTable({
+    organizationId: org,
+    customerId: v.optional(v.string()),
+    subscriptionId: v.optional(v.string()),
+    subscriptionItemId: v.optional(v.string()),
+    status: v.string(), // trial | active | trialing | past_due | unpaid | canceled | incomplete | incomplete_expired | paused
+    seats: v.number(),
+    trialEndsAt: v.number(),
+    currentPeriodEnd: v.optional(v.number()),
+    pastDueSince: v.optional(v.number()),
+    lastEventCreated: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]).index("by_customer", ["customerId"]),
+  billingUsage: defineTable({ organizationId: org, period: v.string(), reviews: v.number(), blocked: v.number() }).index("by_org_period", ["organizationId", "period"]),
+  stripeEvents: defineTable({ eventId: v.string(), type: v.string(), outcome: v.string(), createdAt: v.number() }).index("by_event", ["eventId"]),
   // Slack app installs (one per Slack workspace); the bot token is encrypted with scope `<org>:slack`.
   slackInstallations: defineTable({
     organizationId: org,

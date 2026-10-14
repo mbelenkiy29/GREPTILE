@@ -6,6 +6,7 @@ import { z } from "zod";
 import {ConvexError} from "convex/values";
 import { runtimeEvidenceSchema } from "../src/engine/types";
 import { verifySlackSignature } from "../src/slack";
+import { verifyStripeSignature } from "../src/billing";
 
 const http = httpRouter();
 http.route({
@@ -57,6 +58,29 @@ http.route({
       payloadStorageId,
     });
     return new Response("Accepted", { status: 202 });
+  }),
+});
+// Stripe webhooks (cloud billing): signed with STRIPE_WEBHOOK_SECRET, applied idempotently.
+const stripeObject = z.object({ id: z.string().max(255).optional(), customer: z.string().max(255).nullish(), subscription: z.string().max(255).nullish(), status: z.string().max(40).optional(), client_reference_id: z.string().max(255).nullish(), mode: z.string().optional(), metadata: z.record(z.string()).nullish(), current_period_end: z.number().optional(), items: z.object({ data: z.array(z.object({ id: z.string(), quantity: z.number().int().nonnegative().optional(), current_period_end: z.number().optional() })).max(20) }).optional() }).passthrough();
+const stripeEvent = z.object({ id: z.string().regex(/^evt_[A-Za-z0-9_]{1,250}$/), type: z.string().max(100), created: z.number().int().positive(), data: z.object({ object: stripeObject }) }).passthrough();
+http.route({
+  path: "/stripe/webhook",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (process.env.BILLING_ENABLED !== "true") return new Response("Billing disabled", { status: 404 });
+    if (Number(request.headers.get("content-length") ?? 0) > 1_000_000) return new Response("Payload too large", { status: 413 });
+    const body = await request.text();
+    if (body.length > 1_000_000 || !await verifyStripeSignature(body, request.headers.get("stripe-signature"), process.env.STRIPE_WEBHOOK_SECRET)) return new Response("Unauthorized", { status: 401 });
+    let event;
+    try { event = stripeEvent.parse(JSON.parse(body)); } catch { return new Response("Invalid event", { status: 400 }); }
+    const o = event.data.object, created = event.created * 1000, base = { eventId: event.id, type: event.type, created };
+    if (event.type === "checkout.session.completed" && o.mode === "subscription" && o.client_reference_id && o.customer) await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, checkout: { organizationId: o.client_reference_id, customer: o.customer, ...(o.subscription ? { subscription: o.subscription } : {}) } });
+    else if (event.type.startsWith("customer.subscription.") && o.id && o.customer && o.status) {
+      const item = o.items?.data[0];
+      await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, subscription: { id: o.id, customer: o.customer, status: o.status, quantity: item?.quantity ?? 1, ...(item ? { itemId: item.id } : {}), ...((item?.current_period_end ?? o.current_period_end) ? { currentPeriodEnd: (item?.current_period_end ?? o.current_period_end)! * 1000 } : {}), ...(o.metadata?.organizationId ? { organizationId: o.metadata.organizationId } : {}) } });
+    } else if ((event.type === "invoice.payment_failed" || event.type === "invoice.paid") && o.customer) await ctx.runMutation(internal.billing.applyStripeEvent, { ...base, invoice: { customer: o.customer, ...(o.subscription ? { subscription: o.subscription } : {}) } });
+    else await ctx.runMutation(internal.billing.applyStripeEvent, base);
+    return new Response("ok", { status: 200 });
   }),
 });
 // Slack events and slash commands: signed requests only (SLACK_SIGNING_SECRET), answered fast;

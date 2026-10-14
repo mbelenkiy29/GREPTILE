@@ -720,3 +720,7 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 @media (max-width: 760px) { .chat-layout { grid-template-columns: 1fr; } }
 .resource-picker .resource-group { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
 .resource-picker .resource-group .row { align-items: center; gap: 8px; flex-wrap: wrap; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 12px 0 16px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .facts { grid-template-columns: 1fr; } .facts dd { margin-bottom: 6px; } }

@@ -12,7 +12,7 @@ import {analyticsPeriod} from "../../src/analytics-period";
 const settingsGroups = [
   { label: "Repositories", links: [["repositories", "Add/Remove Repos"], ["providers", "Code Providers"]] },
   { label: "Agent Config", links: [["review", "Code Review"], ["agents", "Personal agents"], ["automation", "Runtime & Approval"]] },
-  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["notifications", "Notifications"]] },
+  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"]] },
   { label: "Developer", links: [["keys", "API Keys"], ["audit", "Audit Log"]] },
 ];
 export const settingsNavigation = settingsGroups.flatMap(group => group.links);

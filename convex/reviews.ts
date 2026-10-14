@@ -1,5 +1,6 @@
 import {executionExplanation} from "../src/execution-claims";
 import { notificationsEnabled } from "./notifications";
+import { reviewAllowance } from "./billing";
 import {
   internalMutation,
   internalQuery,
@@ -90,6 +91,10 @@ export const enqueue = internalMutation({
       if (!["completed", "failed", "cancelled"].includes(r.status))
         await cancelReview(ctx,r);
     const config = await effectiveSettings(ctx,repo);
+    // Cloud billing quota (no-op when BILLING_ENABLED is unset): a blocked review is recorded
+    // as failed with the billing reason instead of running.
+    const allowance = await reviewAllowance(ctx, repo.organizationId);
+    if (!allowance.allowed) return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
     const reviewId = await ctx.db.insert("reviews", {
       organizationId: repo.organizationId,
       repositoryId: repo._id,

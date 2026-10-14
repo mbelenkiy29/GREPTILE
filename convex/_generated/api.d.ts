@@ -17,6 +17,8 @@ import type * as approvalJobs from "../approvalJobs.js";
 import type * as approvals from "../approvals.js";
 import type * as atlassianJobs from "../atlassianJobs.js";
 import type * as auth from "../auth.js";
+import type * as billing from "../billing.js";
+import type * as billingJobs from "../billingJobs.js";
 import type * as bitbucketPersonal from "../bitbucketPersonal.js";
 import type * as bridge from "../bridge.js";
 import type * as bridgeJobs from "../bridgeJobs.js";
@@ -113,6 +115,8 @@ declare const fullApi: ApiFromModules<{
   approvals: typeof approvals;
   atlassianJobs: typeof atlassianJobs;
   auth: typeof auth;
+  billing: typeof billing;
+  billingJobs: typeof billingJobs;
   bitbucketPersonal: typeof bitbucketPersonal;
   bridge: typeof bridge;
   bridgeJobs: typeof bridgeJobs;

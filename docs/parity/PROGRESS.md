@@ -97,7 +97,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   evidence: tested with fakes; tests: tests/notion.test.ts (3: OAuth URL/exchange/refresh/revoke incl. null refresh token, link extraction + cap, page text conversion/pagination/nesting/archived/401/100KB), tests/notion.spec.ts (3: connect + encrypted storage + one-time state + admin-only scope + cited requirements with provenance, 401 refresh-and-retry with rotated credentials + failed refresh + no-refresh reconnect prompt, disconnect revocation success and retry-to-manual); tests/atlassian.spec.ts still green; commands: lint/typecheck/test (298 Node + 206 vitest; bridge flake rerun once)/build green; commit: see git log feat(D5)
   notes: requirements-context overflow message now names Notion too ("Combined Linear and Atlassian plus Notion …"; the existing assertion's substring still holds). Needs human #17.
 - Phase D end: `pnpm build` green; `pnpm test:e2e` still blocked on Needs human #10.
-- [ ] E1 Billing — todo
+- [x] E1 Billing — done
+  plan: src/billing.ts (config with BILLING_ENABLED off by default, seat counting without viewers, monthly period, quota decision for trial/team/past-due grace/lapsed, Stripe-Signature verification via Web Crypto, minimal form-encoded Stripe client with idempotency keys and test-mode-only keys unless BILLING_ALLOW_LIVE); tables billingAccounts/billingUsage/stripeEvents; convex/billing.ts (reviewAllowance gate in reviews.enqueue → blocked reviews recorded as failed with a "Billing:" reason + usage counters; status query; idempotent applyStripeEvent with stale-event ordering and workspace/customer cross-checks; seat-sync scheduling on role change and invitation acceptance); convex/billingJobs.ts (Checkout, Customer Portal, syncSeats); Convex HTTP /stripe/webhook; Settings → Billing page; docs/billing.md, .env.example.
+  evidence: tested with fakes; tests: tests/billing.test.ts (5: config defaults, seat counting, quota decision matrix, signature verification incl. rotation/tolerance, Stripe client key/encoding/idempotency), tests/billing.spec.ts (4: trial quota enforcement + monthly reset + expiry, disabled = no enforcement + 404 webhook, signed webhook linking + replay + out-of-order + team quota + spoofed workspace + past-due grace + recovery + cancellation, checkout/portal admin-only + seat sync on role change + live-key refusal); commands: lint/typecheck/test (303 Node + 210 vitest; bridge flake rerun once)/build green; commit: see git log feat(E1)
+  notes: Stripe was never contacted (fake fetch only). Needs human #18.
 - [ ] E2 Identity — todo
 - [ ] E3 Marketing and docs — todo
 - [ ] E4 UI polish — todo
@@ -123,6 +126,13 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 15. (D4) Slack app: at https://api.slack.com/apps → Create New App → From a manifest, paste docs/slack-app-manifest.yml with APP_URL and CONVEX_SITE_URL replaced. Under Basic Information, copy the Client ID, Client Secret and Signing Secret. Set `SLACK_CLIENT_ID` in Vercel (Production) and Convex prod. Set `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` in Convex prod only (`npx convex env set NAME --prod`, with the value pasted at the prompt and never echoed). Redeploy, then confirm that Event Subscriptions shows the request URL as Verified.
 16. (D4) Email: create a Resend account, verify the sending domain (DNS records), and create an API key. Set `RESEND_API_KEY` and `EMAIL_FROM` (for example `OpenReview <noreply@your-domain>`) in Convex prod.
 17. (D5) Notion: at https://www.notion.so/profile/integrations create a **Public** integration with only the **Read content** capability, and set its redirect URI to `<APP_URL>/api/integrations/notion/callback`. Copy the OAuth client ID and secret. Set `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET` in Vercel (Production) and in Convex prod (`npx convex env set NAME --prod`, with the value pasted at the prompt), then redeploy.
+18. (E1) Stripe (cloud only, test mode first):
+   1. Create a product with a recurring per-unit price.
+   2. Add the webhook endpoint `https://<convex-site>/stripe/webhook` with the six events listed in docs/billing.md.
+   3. Enable the Customer Portal.
+   4. In Convex prod, set `STRIPE_SECRET_KEY` (sk_test_…), `STRIPE_WEBHOOK_SECRET`, `STRIPE_SEAT_PRICE_ID` and `BILLING_ENABLED=true`. Paste the values at the `npx convex env set NAME --prod` prompt.
+   5. Optional: set `BILLING_TRIAL_DAYS`, `BILLING_TRIAL_REVIEWS`, `BILLING_REVIEWS_PER_SEAT` and `BILLING_GRACE_DAYS`.
+   6. Go live only after a test-mode checkout, then set `BILLING_ALLOW_LIVE=true` with live keys.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -159,6 +169,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 - 2026-10-14 — Notion API calls pin `Notion-Version: 2022-06-28` (stable page/block shapes) rather than the SDK default 2025-09-03, which reworks databases into data sources that OpenReview does not need; revisit if Notion retires 2022-06-28.
 - 2026-10-14 — Notion access is scoped by Notion's own page picker (pages shared with the integration) plus admin-selected repositories; OpenReview stores a nominal one-year expiry because Notion does not report token lifetimes, and relies on refresh-on-401.
+
+- 2026-10-14 — Billing seats = owners + admins + members (viewers free); quota = seats × reviews per seat per UTC calendar month, counted at enqueue in a per-period counter table (no review scans).
+- 2026-10-14 — A review blocked by billing is stored as a `failed` review with a `Billing:` error (not a new status), so existing lifecycle, retry-on-new-request and UI paths handle it unchanged.
+- 2026-10-14 — Stripe is called with a tiny fetch client instead of the stripe SDK (only four endpoints are needed; keeps the Convex bundle small); live keys are refused unless BILLING_ALLOW_LIVE=true.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

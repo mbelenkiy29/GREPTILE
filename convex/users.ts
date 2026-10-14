@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { scheduleSeatSync } from "./billing";
 import { v } from "convex/values";
 import { authenticated, authorize, service, audit } from "./auth";
 import { rateLimit } from "./rateLimit";
@@ -152,6 +153,7 @@ export const acceptInvitation = mutation({
       });
     await ctx.db.delete(invitation._id);
     await audit(ctx,invitation.organizationId,user._id,"invitation.accepted",invitation._id);
+    await scheduleSeatSync(ctx, invitation.organizationId);
     return invitation.organizationId;
   },
 });

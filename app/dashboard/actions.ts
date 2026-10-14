@@ -234,6 +234,20 @@ export async function saveSettings(form: FormData) {
   });
   revalidatePath("/dashboard", "layout");
 }
+export async function startCheckout(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.checkout, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); }
+  catch { redirect("/dashboard/settings/billing?billing=error"); }
+  redirect(url);
+}
+export async function openBillingPortal(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.portal, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); }
+  catch { redirect("/dashboard/settings/billing?billing=error"); }
+  redirect(url);
+}
 export async function saveSlackChannel(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.notifications.saveChannel, { token, organizationId: text(form, "organizationId") as Id<"organizations">, channelId: text(form, "channelId"), repositoryIds: form.getAll("repositoryIds").map(String) as Id<"repositories">[], events: form.getAll("events").map(String), qa: form.has("qa") });

@@ -1,6 +1,7 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, audit } from "./auth";
+import { scheduleSeatSync } from "./billing";
 export const update = mutation({
   args: {
     token: v.string(),
@@ -43,5 +44,6 @@ export const update = mutation({
       await ctx.db.patch(target._id, { role: args.role });
       await audit(ctx,target.organizationId,user._id,"workspace.member_role_changed",target._id);
     }
+    await scheduleSeatSync(ctx, target.organizationId);
   },
 });

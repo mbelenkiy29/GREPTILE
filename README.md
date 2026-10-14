@@ -112,6 +112,8 @@ Notifications (Settings → Notifications, see [docs/notifications.md](docs/noti
 
 Requirements context from Notion: connect a Notion workspace in Memory → Integrations. When a pull request links Notion pages that were shared with OpenReview, their text is read as read-only requirements, alongside Linear issues, Jira issues and Confluence pages. See [docs/notion.md](docs/notion.md). The Confluence space and Jira project pickers group resources by site, can be filtered, and support select all/none per site. They also flag selections that are no longer authorized.
 
+Billing (cloud mode only, see [docs/billing.md](docs/billing.md)): when `BILLING_ENABLED=true`, a workspace gets a 14-day trial, then a Stripe per-seat subscription with a monthly review quota, grace for past-due payments, and Settings → Billing with Checkout and the Customer Portal. Self-hosted deployments leave it off and have no quotas.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):
