@@ -92,6 +92,43 @@ Evidence levels: *tested with fakes*, *verified locally end-to-end* or *verified
 
 Provider runbooks: [GitHub Enterprise](runbooks/github-enterprise.md), [GitLab.com](runbooks/gitlab-com.md), [Bitbucket Cloud (Forge)](runbooks/bitbucket-cloud-forge.md), [Bitbucket Data Center](runbooks/bitbucket-data-center.md), [Azure DevOps](runbooks/azure-devops.md) and the [Origin fix loop](runbooks/origin-fix-loop.md).
 
+## Parity round 2 (October 14, 2026)
+
+Same evidence levels as above. None of the round-2 features has been verified live on a real provider. The [round-2 runbook](runbooks/round-2.md) has the live steps, and "Needs human" numbers refer to [the parity ledger](parity/PROGRESS.md).
+
+| Feature | Implementation and evidence | Acceptance still required |
+| --- | --- | --- |
+| G1 Verdict first; findings outside the changed lines | `src/verdict.ts`, outside-diff grounding in `src/engine/review.ts`; tested with fakes | Seen in a live review (Needs human #22) |
+| G2 Priority badges | `src/priority.ts`; tested with fakes | Seen in a live review (Needs human #22) |
+| G3 Clarifying questions; replies without a mention | Finding `question`, `conversations.admitThreadReply`; tested with fakes (webhook to threaded answer) | [Runbook](runbooks/round-2.md#g3-replies-without-a-mention-github) (Needs human #32) |
+| G4 Review footer | `reviews.assignNumber`, `reviewFooter` in `src/review-summary.ts`; tested with fakes | Seen in a live review (Needs human #22) |
+| G5 Feature tips | `src/feature-tips.ts`, `convex/featureTips.ts`; tested with fakes | Seen in a live cloud review with billing on |
+| J1 Hypothesis agents | `src/engine/hypotheses.ts`; tested with fakes; eval fixture `hypothesis-page-offset` | Live three-engine evaluation ([runbook](runbooks/round-2.md#j1-three-engine-evaluation-needs-human-25), Needs human #25) |
+| J2 Security agent and advisories | `src/security-scan.ts`, `src/dependency-changes.ts`, `src/osv.ts`; tested with fakes (fake OSV); eval fixture `security-command-injection` | Live OSV lookup ([runbook](runbooks/round-2.md#j2-vulnerability-advisories-osv), Needs human #32) |
+| J3 Generated tests in the sandbox | Runtime `tests` jobs, `src/generated-tests.ts`; tested with fakes (fake docker worker) | Live sandbox run (Needs human #26) |
+| J4 Knowledge base in reviews | `src/knowledge-context.ts`; tested with fakes | Seen in a live review of a repository with knowledge entries |
+| J5 Requirements check | `src/requirements-check.ts`; tested with fakes; eval fixture `requirements-soft-delete` | Live review with a linked Linear or Jira ticket |
+| J6 Routing for AI-authored pull requests | `src/ai-authored.ts`; tested with fakes (webhook to review with a fake model) | Live pull request opened by a coding agent |
+| J7 Third-party API guidance packs | `src/guidance-packs.ts`; tested with fakes | Seen in a live review that touches a matching SDK |
+| J8 Elixir in the code graph | `extractElixir` in `src/engine/graph-extract.ts`; tested with the real grammar on fixtures | Hosted grammar load and an Elixir repository (Needs human #8) |
+| K1 Cascading directory config | `src/repo-config.ts` levels and per-file settings; tested with fakes | Live review in a repository with nested `.openreview/` folders |
+| K2 Per-PR effort overrides | `src/review-tier.ts`; tested with fakes (webhooks) | Live `@openreview review deep` comment and tier label |
+| K3 Configurable agent budgets | `configuredBudget`, `AGENT_MAX_*` caps; tested with fakes | Covered by the J1 live evaluation |
+| K4 Wildcard and team rule scopes | `src/rule-scopes.ts`; tested with fakes (convex-test) | Seen in a live review |
+| K5 AI rule assistant | `src/rule-assistant.ts`, `convex/ruleAssistant*.ts`; tested with fakes; panel in browser e2e | One approved live model run |
+| K6 Learning from commits | `src/commit-signals.ts`, `convex/commitSignals.ts`; tested with fakes | Live fixes and merges over time on GitHub |
+| K7 Repository onboarding automation | `convex/repositoryOnboarding.ts`, `src/cluster-suggestions.ts`; tested with fakes | Live GitHub installation with auto-enable on |
+| L1 CLI onboarding | `src/onboard.ts`, `src/rule-files.ts`; verified locally end-to-end | Against a deployed server |
+| L2 CLI resume and inline output | `src/local-review-state.ts`, `src/inline-output.ts`; tested with fakes | Live interrupted CLI review (spends inference) |
+| L3 MCP OAuth and new tools | `src/oauth-server.ts`, `convex/oauth.ts`, `src/mcp-tools.ts`; tested with fakes + verified locally end-to-end (discovery, registration, consent) | Real MCP client sign-in ([runbook](runbooks/round-2.md#l3-mcp-sign-in-with-a-real-client), Needs human #32) |
+| L4 Agent plugins and the resolve loop | `plugins/openreview`, `src/resolve-loop.ts`; tested with fakes + `claude plugin validate` | Install in Claude Code and Codex ([runbook](runbooks/round-2.md#l4-plugins-and-the-resolve-loop), Needs human #32) |
+| L5 Conductor and Devin handoff | `src/agent-links.ts`, `src/devin.ts`; tested with fakes | Devin test organization ([runbook](runbooks/round-2.md#l5-send-to-devin-optional), Needs human #32) |
+| M1 Free tier, credits and spending caps | `src/billing.ts`, `convex/billing*.ts`; tested with fakes (Stripe faked) | Stripe test mode (Needs human #27) |
+| M2 SSO (SAML and OIDC) | `src/sso.ts`, `convex/sso*.ts`; tested with fakes + verified locally end-to-end without an IdP | Real IdP tenant (Needs human #28) |
+| M3 Data controls and workspace deletion | `convex/dataControls.ts`; tested with fakes | Provider uninstall after a purge (Needs human #29) |
+| M4 Self-hosting kit and offline mode | `deploy/helm`, `deploy/terraform/aws`, `src/egress.ts`; tested with fakes + verified locally end-to-end (offline web and backend) | `helm lint`/`terraform validate`, a cluster and egress logs (Needs human #30) |
+| M5 Self-managed GitLab behind proxies | `src/scm-transport.ts`; tested with fakes + local TLS and proxy servers | Real GitLab behind a proxy (Needs human #31) |
+
 ## Providers and external requirements
 
 Every provider still requires acceptance of the exact deployed variant/version: connection, indexing, event or polling delivery, inline publication, follow-up and updated-revision review. A fixture/native API subset does not establish that complete loop.
