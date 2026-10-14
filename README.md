@@ -38,6 +38,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
 
 **Learning and memory**
 - 👍/👎 reactions and dashboard feedback become learned preferences. Reactions are polled on GitHub and arrive by webhook on GitLab.
+- Learning from commits: findings that a follow-up commit fixed, and findings merged unaddressed, feed a bounded per-category preference that never narrows security review. The Analytics page shows the fixed-before-merge rate over time.
 - Conventions learned from human reviewers' comments on merged pull requests. Each one cites its evidence and is applied only after an admin approves it, unless auto-approve is on.
 - A Memory page where admins can inspect, edit, scope (repository, team or workspace), enable, disable and delete learned rules. Every change is audited, and nothing learned can weaken security review.
 

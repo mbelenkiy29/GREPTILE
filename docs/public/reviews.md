@@ -104,3 +104,21 @@ When a change's intent is unclear, a finding can end with one short **Question f
 ## Learning
 
 Reactions (👍/👎) on findings, dashboard feedback and conventions learned from human review comments become memory. Memory is guidance that admins can inspect, edit, scope or disable. It never weakens security review.
+
+### Learning from commits
+
+OpenReview also learns from what authors do with findings:
+
+- **Addressed:** a later commit changed the flagged lines (within two lines), and the next review verified the fix against the new code. The commits are compared with the last reviewed commit. After a force-push or rebase, or when that comparison is unavailable or incomplete, fixes still count as resolved, but no commit is credited with them.
+- **Ignored:** the pull request merged while a finding was still open and nobody had given feedback on it. This is recorded only when the last review covered the merged commit. If commits landed after that review, nothing is recorded, because they may have fixed the finding.
+
+Each finding records at most one outcome. For each repository and category, OpenReview keeps one learned preference, built from the last 50 outcomes of the past 180 days:
+
+- It needs at least five outcomes, and at least 70% of them must point the same way.
+- When most findings in a category were fixed, the preference tells reviews to keep reporting that kind of issue.
+- When most were merged unaddressed, it asks for a concrete defect and its impact before reporting. It never asks for silence.
+- Security findings are never narrowed this way.
+- The preference is withdrawn when the outcomes stop pointing clearly one way.
+- An admin who disables it on the Memory page keeps it disabled, even as the counts update.
+
+On the Analytics page, **Fixed before merge** shows the share of findings with an outcome that were fixed by a follow-up commit, with a daily chart of both counts.

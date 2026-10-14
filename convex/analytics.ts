@@ -66,17 +66,19 @@ export const trends = query({
       .filter((r) => names.has(String(r.repositoryId)) && (!a.repositoryId || r.repositoryId === a.repositoryId) && (!author || r.author === author));
     const days: string[] = [];
     for (let t = Date.parse(from + "T00:00:00Z"); t <= Date.parse(to + "T00:00:00Z") && days.length < 367; t += 86400000) days.push(new Date(t).toISOString().slice(0, 10));
-    const empty = () => ({ reviews: 0, findings: 0, high: 0, addressed: 0 });
+    const empty = () => ({ reviews: 0, findings: 0, high: 0, addressed: 0, commitAddressed: 0, ignored: 0 });
     const byDay = new Map(days.map((d) => [d, empty()])), byRepo = new Map<string, ReturnType<typeof empty>>(), byAuthor = new Map<string, ReturnType<typeof empty>>();
-    const add = (m: Map<string, ReturnType<typeof empty>>, k: string, r: ReturnType<typeof empty>) => { const x = m.get(k) ?? empty(); x.reviews += r.reviews; x.findings += r.findings; x.high += r.high; x.addressed += r.addressed; m.set(k, x); };
-    for (const r of rows) { add(byDay, r.day, r); add(byRepo, String(r.repositoryId), r); if (r.author) add(byAuthor, r.author, r); }
+    const add = (m: Map<string, ReturnType<typeof empty>>, k: string, r: ReturnType<typeof empty>) => { const x = m.get(k) ?? empty(); x.reviews += r.reviews; x.findings += r.findings; x.high += r.high; x.addressed += r.addressed; x.commitAddressed += r.commitAddressed; x.ignored += r.ignored; m.set(k, x); };
+    for (const stored of rows) { const r = { ...stored, commitAddressed: stored.commitAddressed ?? 0, ignored: stored.ignored ?? 0 }; add(byDay, r.day, r); add(byRepo, String(r.repositoryId), r); if (r.author) add(byAuthor, r.author, r); }
     const organization = await ctx.db.get(a.organizationId), minutes = organization?.analyticsMinutesPerFinding ?? 15;
-    const totals = [...byDay.values()].reduce((t, d) => ({ reviews: t.reviews + d.reviews, findings: t.findings + d.findings, high: t.high + d.high, addressed: t.addressed + d.addressed }), empty());
+    const totals = [...byDay.values()].reduce((t, d) => ({ reviews: t.reviews + d.reviews, findings: t.findings + d.findings, high: t.high + d.high, addressed: t.addressed + d.addressed, commitAddressed: t.commitAddressed + d.commitAddressed, ignored: t.ignored + d.ignored }), empty());
     const top = (m: Map<string, ReturnType<typeof empty>>, label: (k: string) => string) => [...m].map(([k, x]) => ({ key: k, label: label(k), ...x })).sort((p, q) => q.findings - p.findings || q.reviews - p.reviews).slice(0, 10);
     return {
       days: days.map((d) => ({ day: d, ...byDay.get(d)! })),
       totals,
       addressedRate: totals.findings ? totals.addressed / totals.findings : null,
+      // Of the findings with a recorded outcome: share fixed by a follow-up commit rather than merged open.
+      fixRate: totals.commitAddressed + totals.ignored ? totals.commitAddressed / (totals.commitAddressed + totals.ignored) : null,
       minutesPerFinding: minutes,
       hoursSaved: Math.round((totals.addressed * minutes) / 6) / 10,
       byRepository: top(byRepo, (k) => names.get(k) ?? "Unknown repository"),

@@ -23,6 +23,7 @@ const payloadSchema = z.object({
       number: z.number(),
       draft: z.boolean(),
       state: z.string(),
+      merged: z.boolean().optional(),
       head: z.object({ sha: z.string(), ref: z.string() }),
       base: z.object({ ref: z.string() }),
       user: z.object({ login: z.string() }).optional(),
@@ -161,6 +162,7 @@ export const process = internalAction({
               defaultBranch: payload.repository.default_branch,
               prNumber: payload.pull_request?.number,
               state: payload.pull_request?.state,
+              ...(payload.pull_request?.merged ? { merged: true } : {}),
               observedAt,
             });
           if (

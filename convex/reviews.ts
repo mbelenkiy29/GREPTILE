@@ -10,7 +10,8 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories } from "./auth";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import { recordSignals } from "./commitSignals";
 import {p4FixAuthority} from "./p4FixAuthority";
 import { eligibleFixFinding } from "../src/fix-prompt";
 import { effectiveSettings } from "./scopes";
@@ -300,6 +301,8 @@ export const save = internalMutation({
     summary: v.string(),
     findings: v.array(findingValidator),
     resolved: v.array(v.string()),
+    // Resolved fingerprints whose flagged lines a commit since the last reviewed head changed (K6).
+    addressed: v.optional(v.array(v.string())),
     usage: v.array(usageValidator),
   },
   handler: async (ctx, args) => {
@@ -365,6 +368,7 @@ export const save = internalMutation({
       else await ctx.db.patch(exists._id,{...f,outsideDiff:f.outsideDiff,reviewId:review._id,status:"open",updatedAt:Date.now()});
       await ctx.db.insert("reviewFindings",{reviewId:review._id,findingId:findingId!,snapshot:f});
     }
+    const addressed: Doc<"findings">[] = [];
     for (const fingerprint of args.resolved) {
       const f = await ctx.db
         .query("findings")
@@ -375,12 +379,15 @@ export const save = internalMutation({
             .eq("fingerprint", fingerprint),
         )
         .first();
-      if (f)
+      if (f) {
         await ctx.db.patch(f._id, {
           status: "resolved",
           updatedAt: Date.now(),
         });
+        if (args.addressed?.includes(fingerprint)) addressed.push(f);
+      }
     }
+    if (addressed.length) await recordSignals(ctx, addressed, "addressed", review.headSha);
   },
 });
 export const backfillFindings=internalMutation({args:{reviewId:v.id("reviews"),storageId:v.id("_storage"),findings:v.array(findingValidator)},handler:async(ctx,a)=>{

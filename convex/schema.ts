@@ -242,6 +242,9 @@ export default defineSchema({
     addressed: v.number(),
     useful: v.number(),
     notUseful: v.number(),
+    // Outcome signals recorded that day: fixed by a follow-up commit / merged with the finding open.
+    commitAddressed: v.optional(v.number()),
+    ignored: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_org_day", ["organizationId", "day"]),
   organizationMembers: defineTable({
@@ -658,6 +661,23 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_finding", ["findingId"]),
+  // Learning from commits: one outcome per finding. "addressed" = a later commit changed the flagged
+  // lines and the fix was verified; "ignored" = merged while still open with no human feedback.
+  findingSignals: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    findingId: v.id("findings"),
+    prNumber: v.number(),
+    signal: v.string(), // addressed | ignored
+    category: v.string(),
+    severity: v.string(),
+    author: v.optional(v.string()),
+    commitSha: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_finding", ["findingId"])
+    .index("by_repo_category", ["repositoryId", "category", "createdAt"])
+    .index("by_org_time", ["organizationId", "createdAt"]),
   learnedPreferences: defineTable({
     organizationId: org,
     repositoryId: repo,

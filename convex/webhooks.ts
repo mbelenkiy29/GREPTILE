@@ -98,6 +98,8 @@ export const lifecycle = internalMutation({
     defaultBranch: v.optional(v.string()),
     prNumber: v.optional(v.number()),
     state: v.optional(v.string()),
+    // GitHub reports merged pull requests as closed with merged=true; other providers send "merged".
+    merged: v.optional(v.boolean()),
     observedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -120,6 +122,7 @@ export const lifecycle = internalMutation({
         )
         .unique();
       if (args.observedAt!==undefined&&pr?.nativeObservedAt!==undefined&&pr.nativeObservedAt>args.observedAt)return;
+      if (args.state === "merged" || (args.state === "closed" && args.merged)) await ctx.scheduler.runAfter(0, internal.commitSignals.recordMerge, { repositoryId: repo._id, prNumber: args.prNumber });
       if (pr)
         await ctx.db.patch(pr._id, {
           state: args.state,

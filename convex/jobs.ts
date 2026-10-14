@@ -18,6 +18,7 @@ import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
+import { addressedFindings } from "../src/commit-signals";
 import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
 import { applyRepoConfig, cascadeSummary, fileSettings, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
 import { checkConclusion, type CheckConclusion } from "../src/github";
@@ -692,6 +693,8 @@ export const review = internalAction({
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,
+        // K6: fixes attributed to the commits since the last reviewed head (never after a force-push).
+        addressed: addressedFindings(state.findings, result.metadata.resolvedFingerprints, comparison).addressed,
         usage: result.usage,
       }).catch(async(error)=>{await ctx.storage.delete(storageId);throw error;});
       if (await draftGeneratedTests(ctx, { reviewId: args.reviewId, repositoryId: repo._id, findings: result.findings, sources, existing: new Set(head.keys()), model, runtimeEvidence: state.review.runtimeEvidence })) return;
