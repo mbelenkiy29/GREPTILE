@@ -61,3 +61,5 @@ openreview bridge status
 ```
 
 The agent works in your registered checkout, and you review, commit and push its changes yourself. The next review checks whether each finding was resolved.
+
+Without the bridge, each finding offers prompt links for Cursor, Claude Code, Codex and Conductor. These are the agents' documented deep links, and each one only pre-fills the prompt. **Send to Devin** uses Devin's API with your own key, saved under Personal agents. It appears only after you save that key.

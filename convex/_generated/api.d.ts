@@ -71,6 +71,7 @@ import type * as p4Polling from "../p4Polling.js";
 import type * as p4ReviewJobs from "../p4ReviewJobs.js";
 import type * as p4Reviews from "../p4Reviews.js";
 import type * as p4ShelfJobs from "../p4ShelfJobs.js";
+import type * as personalCredentials from "../personalCredentials.js";
 import type * as providerConnections from "../providerConnections.js";
 import type * as providerIdentities from "../providerIdentities.js";
 import type * as providerIdentityJobs from "../providerIdentityJobs.js";
@@ -180,6 +181,7 @@ declare const fullApi: ApiFromModules<{
   p4ReviewJobs: typeof p4ReviewJobs;
   p4Reviews: typeof p4Reviews;
   p4ShelfJobs: typeof p4ShelfJobs;
+  personalCredentials: typeof personalCredentials;
   providerConnections: typeof providerConnections;
   providerIdentities: typeof providerIdentities;
   providerIdentityJobs: typeof providerIdentityJobs;

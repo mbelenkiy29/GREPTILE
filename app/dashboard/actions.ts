@@ -8,6 +8,9 @@ import { randomBytes, createHash } from "node:crypto";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { backend, current } from "../../src/server";
+import { decryptCredential, encryptCredential } from "../../src/credentials";
+import { createDevinSession, validDevinKey } from "../../src/devin";
+import { fixHandoffPrompt } from "../../src/fix-handoff";
 import {approvalPolicySchema} from "../../src/approval";
 import {runtimePolicySchema} from "../../src/runtime-policy";
 import {approvalDefaults,runtimeDefaults} from "../../src/review-settings";
@@ -437,6 +440,39 @@ export async function revokeMcpConnection(form: FormData) {
   try { await backend().mutation(api.oauth.revoke, { token, grantId: text(form, "grantId") as Id<"oauthGrants"> }); await notify("Connection revoked."); }
   catch { await notify("Could not revoke this connection.", "error"); }
   revalidatePath("/dashboard/settings/keys");
+}
+// Devin (opt-in): the developer's own API key, encrypted before it reaches the backend, used only when
+// they send a finding to Devin. Hidden everywhere until a key is saved.
+export async function saveDevinKey(form: FormData) {
+  const { token } = await current();
+  const key = text(form, "devinKey").trim();
+  if (!validDevinKey(key)) { await notify("That does not look like a Devin API key (apk_…).", "error"); return; }
+  try {
+    const { userId } = await backend().query(api.personalCredentials.status, { token });
+    await backend().mutation(api.personalCredentials.set, { token, kind: "devin", ciphertext: encryptCredential(key, `${userId}:devin`) });
+    await notify("Devin API key saved.");
+  } catch { await notify("Could not save the key. The server needs CREDENTIAL_ENCRYPTION_KEY.", "error"); }
+  revalidatePath("/dashboard/settings/agents");
+}
+export async function removeDevinKey() {
+  const { token } = await current();
+  await backend().mutation(api.personalCredentials.set, { token, kind: "devin" });
+  await notify("Devin API key removed.");
+  revalidatePath("/dashboard/settings/agents");
+}
+export async function sendToDevin(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try {
+    const [{ userId }, ciphertext] = await Promise.all([backend().query(api.personalCredentials.status, { token }), backend().query(api.personalCredentials.ciphertext, { token, kind: "devin" })]);
+    if (!ciphertext) throw new Error("Add your Devin API key in Personal agents first.");
+    const { prompt, title } = await fixHandoffPrompt(token, text(form, "reviewId") as Id<"reviews">, text(form, "finding") || undefined);
+    ({ url } = await createDevinSession(decryptCredential(ciphertext, `${userId}:devin`), prompt, title));
+  } catch (error) {
+    await notify(error instanceof Error && /Devin|finding|review|Personal agents/.test(error.message) ? error.message : "Could not send this to Devin.", "error");
+    return;
+  }
+  redirect(url);
 }
 export async function updateMember(form: FormData) {
   const { token } = await current();
