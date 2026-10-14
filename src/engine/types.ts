@@ -84,8 +84,11 @@ export type Rule = {
   enabled: boolean;
 };
 export type Preference = { category: string; instruction: string };
+export type SkippedFile = { path: string; reason: string };
 export type ReviewInput = {
   coverageLimits?: string[];
+  // Changed files the provider could not supply (e.g. omitted diffs); reported, never reviewed.
+  skippedFiles?: SkippedFile[];
   runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
   contextHints?: { path: string; reason: string; score: number }[];
   repository: string;
@@ -134,6 +137,8 @@ export type ReviewResult = {
     reviewScore?: z.infer<typeof reviewScoreSchema>;
     approvalAssessment?: z.infer<typeof approvalAssessmentSchema>;
     coverageLimits?: string[];
+    skippedFiles?: SkippedFile[];
+    failedSpecialists?: { category: string; error: string }[];
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
     baseSha: string;
     headSha: string;

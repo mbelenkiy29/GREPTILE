@@ -7,7 +7,7 @@ export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  return evidence.exitCode===0?"passed":evidence.exitCode===null?"outcome unavailable":"failed";
 }
 const code=(value:string)=>"`"+value.replaceAll("`","").replace(/[\r\n]/g," ")+"`";
-type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[]};
+type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[]};
 const label=(value:string)=>value.slice(0,200).replace(/[\r\n]/g," ").replace(/[\\[\]*_<>]/g,"\\$&");
 function requirementsLinks(context:Summary["requirementsContext"],cross=false,seen=new Set<string>()){
  const links:string[]=[];let bytes=0,omitted=0;
@@ -25,6 +25,10 @@ function requirementsLinks(context:Summary["requirementsContext"],cross=false,se
  return links.length||omitted?"\n\n"+(cross?"Fetched repository sources":"Fetched requirements")+" supplied as review context:\n"+links.join("\n")+(omitted?"\n- "+omitted+(cross?" additional fetched repository source links omitted by the summary size limit.":" additional fetched requirements links omitted by the summary size limit."):""):"";
 }
 function fetchedContextLinks(context:Summary["requirementsContext"]){const seen=new Set<string>();return requirementsLinks(context,false,seen)+requirementsLinks(context,true,seen);}
+function skippedList(files:Summary["skippedFiles"]){
+ if(!files?.length)return "";
+ return "\n\nSkipped files:\n"+files.slice(0,50).map(f=>"- "+code(f.path.slice(0,300))+" · "+label(f.reason)).join("\n")+(files.length>50?"\n- "+(files.length-50)+" more skipped files omitted from this summary.":"");
+}
 export function reviewSummary(data:Summary,selected:readonly string[]=summarySections){
  if(!validSummarySections(selected))throw new Error("Invalid summary sections");
  const sections:Record<(typeof summarySections)[number],string>={
@@ -39,7 +43,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
  const runtime=data.runtimeEvidence;
  return [...selected.map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]),
   "### Test execution\n"+(runtime?"Recorded command: "+code(runtime.command)+" · "+runtimeStatus(runtime)+" at "+runtime.headSha+".":"Not executed by OpenReview. Test files and CI metadata are context, not proof of a successful test run."),
-  `### Coverage\n${data.files.length} changed files; ${data.contextCount} retrieved context files. ${data.candidates} candidates; ${data.findings.length} verified findings; ${data.suppressed} suppressed.`+(data.coverageLimits.length?"\n\n"+data.coverageLimits.map(l=>"- "+l).join("\n"):"")+fetchedContextLinks(data.requirementsContext)].join("\n\n");
+  `### Coverage\n${data.files.length} changed files; ${data.contextCount} retrieved context files. ${data.candidates} candidates; ${data.findings.length} verified findings; ${data.suppressed} suppressed.`+(data.coverageLimits.length?"\n\n"+data.coverageLimits.map(l=>"- "+l).join("\n"):"")+skippedList(data.skippedFiles)+fetchedContextLinks(data.requirementsContext)].join("\n\n");
 }
 
 export function findingComment(f: Finding, style: string = "detailed"): string {

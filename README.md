@@ -195,7 +195,7 @@ pnpm eval
 * Invalid installation state: sign in again and restart installation within ten minutes.
 * No reviews: verify App permissions, webhook URL/secret, repository enabled status, draft behavior, branch filters, and automatic reviews.
 * Model failures: ensure model env variables exist in Convex, verify endpoint/model support JSON output, and inspect persisted review errors.
-* Failed indexing: inspect the repository error and retry indexing. GitHub tree truncation and source-size limits are explicit errors rather than silent partial coverage.
+* Failed indexing: inspect the repository error and retry indexing. Source-size limits are explicit; truncated GitHub trees are walked per subtree. Very large pull requests are reviewed risk-first within the mode's budget, and every skipped file is listed with its reason in the summary and review diagnostics.
 * Unknown cost: set provider/model token prices.
 
 See the [implementation and verification report](docs/implementation-status.md), [architecture](docs/architecture.md), [database](docs/database.md), [security policy](SECURITY.md), and [contributing](CONTRIBUTING.md).

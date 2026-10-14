@@ -35,6 +35,10 @@ export function findingFingerprint(body:string){
   if(/<!-- openreview:conversation:[^>]+ -->\s*$/.test(body))return undefined;
   return [...body.matchAll(/<!-- openreview-finding:([a-f0-9]+) -->/g)].at(-1)?.[1];
 }
+const treeSchema = z.object({
+  truncated: z.boolean(),
+  tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string(), size: z.number().optional() })),
+});
 export class GithubApiError extends Error {
  constructor(message:string,readonly status:number,readonly planRestricted=false){super(message);}
 }
@@ -275,6 +279,7 @@ export class Github {
         user: z.object({ id:z.number().int().positive().optional(),login: z.string() }),
         head: z.object({ sha: z.string(), ref: z.string() }),
         base: z.object({ sha: z.string(), ref: z.string() }),
+        changed_files: z.number().int().nonnegative().optional(),
       }),
     );
     const files = await this.paginate(
@@ -287,17 +292,13 @@ export class Github {
         changes: z.number(),
       }),
     );
-    if (
-      files.some(
-        (f) =>
-          !f.patch &&
-          f.changes > 0 &&
-          !/\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename),
-      )
-    )
-      throw new Error(
-        "GitHub omitted/truncated a text diff; split this PR to ensure complete review",
-      );
+    // Degrade instead of failing: GitHub omits patches for very large diffs and lists at most
+    // 3,000 files. Those files stay visible as skipped with a reason; grounding never anchors on them.
+    const omitted = files
+      .filter((f) => !f.patch && f.changes > 0 && !/\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename))
+      .map((f) => ({ path: f.filename, reason: "GitHub omitted the text diff (too large to display)" }));
+    if (pr.changed_files !== undefined && pr.changed_files > files.length)
+      omitted.push({ path: `(${pr.changed_files - files.length} more files)`, reason: "GitHub lists at most 3,000 changed files per pull request" });
     const diff: ChangedFile[] = files.map((f) => ({
       path: f.filename,
       previousPath: f.previous_filename,
@@ -345,6 +346,7 @@ export class Github {
       ...pr,
       ...(pr.user.id?{authorExternalId:String(pr.user.id)}:{}),
       diff,
+      ...(omitted.length ? { omitted: omitted as { path: string; reason: string }[] | undefined } : {}),
       comments,
       reviews,
       commits,
@@ -390,23 +392,36 @@ export class Github {
   async tree(repository: string, sha: string) {
     const result = await this.request(
       `/repos/${repository}/git/trees/${encodeURIComponent(sha)}?recursive=1`,
-      z.object({
-        truncated: z.boolean(),
-        tree: z.array(
-          z.object({
-            path: z.string(),
-            type: z.string(),
-            sha: z.string(),
-            size: z.number().optional(),
-          }),
-        ),
-      }),
+      treeSchema,
     );
-    if (result.truncated)
-      throw new Error(
-        "Repository tree exceeds GitHub recursive tree limit; subtree indexing required",
-      );
-    return result.tree.filter(f => f.type === "blob");
+    if (!result.truncated) return result.tree.filter(f => f.type === "blob");
+    // GitHub truncates recursive listings (~100k entries / 7 MB); walk subtrees instead.
+    return this.walkTree(repository, sha, "", { requests: 1, entries: 0 });
+  }
+  private async walkTree(repository: string, sha: string, prefix: string, budget: { requests: number; entries: number }): Promise<z.infer<typeof treeSchema>["tree"]> {
+    const take = (n: number) => {
+      budget.requests += n;
+      if (budget.requests > 3000) throw new Error("Repository tree exceeds 3,000 subtree requests; add ignored paths or index a smaller repository");
+    };
+    take(1);
+    const listing = await this.request(`/repos/${repository}/git/trees/${encodeURIComponent(sha)}`, treeSchema);
+    const out: z.infer<typeof treeSchema>["tree"] = [];
+    const add = (entries: z.infer<typeof treeSchema>["tree"]) => {
+      budget.entries += entries.length;
+      if (budget.entries > 1_000_000) throw new Error("Repository tree exceeds 1,000,000 files");
+      out.push(...entries);
+    };
+    for (const entry of listing.tree) {
+      const path = prefix + entry.path;
+      if (entry.type === "blob") add([{ ...entry, path }]);
+      else if (entry.type === "tree") {
+        take(1);
+        const sub = await this.request(`/repos/${repository}/git/trees/${encodeURIComponent(entry.sha)}?recursive=1`, treeSchema);
+        if (sub.truncated) out.push(...await this.walkTree(repository, entry.sha, path + "/", budget));
+        else add(sub.tree.filter(f => f.type === "blob").map(f => ({ ...f, path: path + "/" + f.path })));
+      }
+    }
+    return out;
   }
 
   async blob(

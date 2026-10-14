@@ -9,6 +9,7 @@ import {hasCurrentRepositoryEvidence} from "../src/context-history";
 import type {RepositoryContext} from "./repositoryContext";
 import { z } from "zod";
 import { provider } from "./scm";
+import { fileInventory, indexedFiles } from "./fileReads";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
 import {decryptCredential} from "../src/credentials";
@@ -42,11 +43,12 @@ export const backfillReviewFindings=internalAction({args:{reviewId:v.id("reviews
 export const index = internalAction({
   args: { repositoryId: v.id("repositories") },
   handler: async (ctx, args) => {
-    const { repo, files } = await ctx.runQuery(
+    const { repo } = await ctx.runQuery(
       internal.repositories.data,
       args,
     );
     if (!repo.enabled) return;
+    const known = await fileInventory(ctx, repo._id);
     let jobId:Id<"indexJobs">|null=null;
     try {
     const github = await provider(ctx,repo);
@@ -61,13 +63,10 @@ export const index = internalAction({
     const entries = tree.filter((f) =>
       eligibleFile({ path: f.path, sha: f.sha, size:f.size, content: "" }, gitignore),
     );
-    const known = new Map(files.map((f) => [f.path, f.sha]));
     const indexedPaths = new Set(entries.map((entry) => entry.path));
     const changedPaths = [
       ...entries.filter((f) => known.get(f.path) !== f.sha).map((f) => f.path),
-      ...files
-        .filter((file) => !indexedPaths.has(file.path))
-        .map((file) => file.path),
+      ...[...known.keys()].filter((path) => !indexedPaths.has(path)),
     ];
     jobId = await ctx.runMutation(internal.repositories.indexing, {
       repositoryId: repo._id,
@@ -133,10 +132,10 @@ export const indexBatch = internalAction({
         if(JSON.stringify(await p4.project(inventory.project.id))!==JSON.stringify(inventory.project))throw new Error("P4 project views changed during hosted indexing");
       }
       const github = inventory?undefined:await provider(ctx,data.repo);
-      const known = new Map(data.files.map((f) => [f.path, f]));
       const allPaths = manifest.entries.map((f) => f.path);
       const pathSet=new Set(allPaths);
       const batch=manifest.entries.slice(cursor,cursor+20);
+      const known = new Map((await indexedFiles(ctx, data.repo._id, batch.map((f) => f.path))).map((f) => [f.path, f]));
       const receipts=await ctx.runQuery(internal.repositories.indexModuleReferences,{repositoryId:data.repo._id,paths:batch.map(f=>f.path)});
       const references=new Map(receipts.filter(r=>r!==null).map(r=>[r.path,r]));
       for (const entry of batch) {
@@ -239,13 +238,18 @@ export const indexBatch = internalAction({
         });
       else {
         if(inventory&&JSON.stringify(await p4!.project(inventory.project.id))!==JSON.stringify(inventory.project))throw new Error("P4 project views changed before index completion");
+        // Sweep stored files missing from this revision in small batches before completing.
+        const stale=[...(await fileInventory(ctx,data.repo._id)).keys()].filter(path=>!pathSet.has(path));
+        for(let i=0;i<stale.length;i+=10)if(!await ctx.runMutation(internal.repositories.removeIndexedFiles,{repositoryId:data.repo._id,jobId:job._id,leaseId,paths:stale.slice(i,i+10)}))return;
+        const knowledgePaths=manifest.changedPaths?.slice(0,500);
         const finished=await ctx.runMutation(internal.repositories.finishIndex, {
           repositoryId: data.repo._id,
           jobId: job._id,
           sha: manifest.sha,
           leaseId,
-          paths: allPaths,
-          knowledgePaths: manifest.changedPaths?.slice(0,500),
+          processed: allPaths.length,
+          knowledgePaths,
+          removedPaths: knowledgePaths?.filter(path=>!pathSet.has(path)),
         });
         // Submitted P4 inventories remain available for exact-baseline shelf ingestion.
         if(finished&&!job.nativeDepot)await ctx.storage.delete(job.manifestStorageId);
@@ -264,7 +268,6 @@ export const indexBatch = internalAction({
         jobId: job._id,
         sha: job.sha,
         leaseId,
-        paths: [],
         error: error instanceof Error ? error.message : "Index batch failed",
       });
       throw error;
@@ -305,7 +308,7 @@ export const review = internalAction({
         status: "ingesting",
       });
       if (!claimed) return;
-      const { repo, settings, rules, preferences, files } = await ctx.runQuery(
+      const { repo, settings, rules, preferences } = await ctx.runQuery(
         internal.repositories.data,
         { repositoryId: state.review.repositoryId },
       );
@@ -464,7 +467,7 @@ export const review = internalAction({
       ];
       const sources: SourceFile[] = [];
       let bytes = 0;
-      const cached = new Map(files.map((f) => [f.path, f]));
+      const cached = new Map((await indexedFiles(ctx, repo._id, paths.filter((path) => head.has(path)))).map((f) => [f.path, f]));
       for (const path of paths) {
         const entry = head.get(path);
         if (!entry || bytes > 500000) continue;
@@ -569,6 +572,7 @@ export const review = internalAction({
             })),
           ],
           diff: pr.diff,
+          skippedFiles: pr.omitted,
           mode: z.enum(["fast", "standard", "deep"]).parse(settings.mode),
           rules: rules.map((r) => ({
             id: r._id,
@@ -657,11 +661,11 @@ export const review = internalAction({
   },
 });
 
-export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[]} | null>=>{
+export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[]} | null>=>{
  const {review}=await ctx.runQuery(api.reviews.detail,a);
  if(!review.resultStorageId)return null;
  const blob=await ctx.storage.get(review.resultStorageId);if(!blob||blob.size>2000000)throw new Error("Saved review diagnostics unavailable");
- const result=z.object({metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([])})}).parse(JSON.parse(await blob.text()));
+ const result=z.object({metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([])})}).parse(JSON.parse(await blob.text()));
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
  return {...result.metadata,suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});

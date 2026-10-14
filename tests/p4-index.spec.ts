@@ -110,7 +110,7 @@ test("P4 digest failures retry visibly; membership loss cancels recovery and com
  const member=await t.run(ctx=>ctx.db.query("organizationMembers").withIndex("by_org_user",q=>q.eq("organizationId",args.organizationId).eq("userId",userId)).unique());
  await t.run(ctx=>ctx.db.delete(member!._id));
  expect(await t.query(internal.repositories.indexAllowed,{jobId:result.jobId})).toBe(false);
- expect(await t.mutation(internal.repositories.finishIndex,{jobId:result.jobId,repositoryId:args.repositoryId,sha:result.revision,paths:[]})).toBe(false);
+ expect(await t.mutation(internal.repositories.finishIndex,{jobId:result.jobId,repositoryId:args.repositoryId,sha:result.revision})).toBe(false);
  expect(await t.run(ctx=>ctx.db.get(result.jobId))).toMatchObject({status:"cancelled"});
  await t.finishAllScheduledFunctions(vi.runAllTimers);
  }finally{vi.unstubAllGlobals();vi.useRealTimers();}
@@ -125,7 +125,7 @@ test("expired index leases can recover once and stale batches cannot advance or 
  expect(await t.mutation(internal.repositories.claimIndexBatch,{jobId:result.jobId,leaseId:"replacement"})).not.toBeNull();
  await t.mutation(internal.repositories.indexProgress,{jobId:result.jobId,cursor:20,leaseId:"first"});
  expect(await t.run(ctx=>ctx.db.get(result.jobId))).toMatchObject({cursor:0,batchLease:{id:"replacement"}});
- expect(await t.mutation(internal.repositories.finishIndex,{repositoryId:args.repositoryId,jobId:result.jobId,sha:result.revision,paths:[],leaseId:"first"})).toBe(false);
+ expect(await t.mutation(internal.repositories.finishIndex,{repositoryId:args.repositoryId,jobId:result.jobId,sha:result.revision,leaseId:"first"})).toBe(false);
  const storageId=await t.run(ctx=>ctx.storage.store(new Blob(["untrusted stale source"])));
  await t.mutation(internal.repositories.indexedFile,{repositoryId:args.repositoryId,jobId:result.jobId,path:"depot/main/stale.ts",sha:"stale",storageId,chunks:[],symbols:[],relationships:[],leaseId:"first"});
  expect(await t.run(ctx=>ctx.db.query("repositoryFiles").collect())).toHaveLength(0);

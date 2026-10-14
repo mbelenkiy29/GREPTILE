@@ -13,12 +13,13 @@ import {
   type ModelUsage,
   type ReviewInput,
   type ReviewResult,
+  type SkippedFile,
   type Stage,
 } from "./types";
 import { changedLines, fingerprint, overlaps } from "./diff";
 import { indexRepository, redact } from "./indexer";
 import { retrieve } from "./retrieval";
-import { classifyChanges } from "./classify";
+import { classifyChanges, riskScore } from "./classify";
 import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
@@ -38,6 +39,9 @@ const specialties = {
     "Check only applicable custom rules. Include ruleId for rule findings.",
 };
 const specialistSystem = `You are one of OpenReview's specialist reviewers. The final input block assigns your category (assignment.category) and its focus (assignment.focus); review only for that category. Report only bugs introduced or materially affected by this change. Zero findings is valid. Anchor filePath and startLine on an added or modified line in the supplied diff, not the function declaration unless that declaration changed. endLine must be at least startLine. Context content prefixes each source line with its absolute line number followed by a colon. Use that number for evidence.startLine; omit the number and colon from evidence.quote. Use changedLineNumbers for finding anchors. Evidence quotes must exactly match complete source lines at their stated 1-based positions, including indentation and blank lines. Respond as {"findings": [...]} with each finding: title,description,severity (critical/high/medium/low),confidence (0..1),category (must equal assignment.category; allowed categories are ${categories.join(", ")}),filePath,startLine,endLine (at least startLine),evidence:[{filePath,startLine,quote}],impact,suggestedFix,symbol,optional ruleId. Test source supplies assertions, not recorded execution. Do not claim test outcomes or test-verified behavior without supplied runtime evidence. No style advice or speculation.`;
+// Changed-file budgets per mode; larger changes are risk-ranked and the rest reported as skipped.
+export const reviewFileLimits = { fast: 200, standard: 350, deep: 500 } as const;
+export const payloadByteLimit = 300000;
 export function grounded(finding: Candidate, input: ReviewInput): boolean {
   if(!citesFetchedRequirements([finding.title,finding.description,finding.impact,finding.suggestedFix].join("\n"),input.files.flatMap(f=>f.provenance?[f.provenance.sourceUrl]:[])))return false;
   const changed = input.diff.find((d) => d.path === finding.filePath);
@@ -75,15 +79,25 @@ export async function reviewChange(
   if (runtimeEvidence && runtimeEvidence.headSha !== input.headSha)
     throw new Error("Runtime evidence belongs to a different commit");
   if (runtimeEvidence) runtimeEvidence.output = redact(runtimeEvidence.output);
-  if (input.diff.length > 500)
-    throw new Error("Review exceeds 500 changed files; split the change");
   await progress("retrieving_context");
   signal?.throwIfAborted();
   const index = indexRepository(input.files);
-  const safeInput = { ...input, files: index.files };
   const ignored = picomatch(input.settings?.ignoredPaths ?? []);
-  const diff = input.diff.filter((f) => !ignored(f.path));
-  const context = retrieve(
+  const skippedFiles: SkippedFile[] = [...(input.skippedFiles ?? [])];
+  const included = input.diff.filter((f) => {
+    if (!ignored(f.path)) return true;
+    skippedFiles.push({ path: f.path, reason: "Excluded by the ignored paths setting" });
+    return false;
+  });
+  // Degrade instead of failing on oversized changes: review the riskiest files within budget.
+  const ranked = included.map((file, order) => ({ file, order, score: riskScore(file) })).sort((a, b) => b.score - a.score || a.order - b.order);
+  const fileLimit = reviewFileLimits[input.mode];
+  for (const { file } of ranked.slice(fileLimit)) skippedFiles.push({ path: file.path, reason: `Lower-risk file beyond the ${input.mode} review limit of ${fileLimit} files` });
+  let kept = ranked.slice(0, fileLimit);
+  let diff = [...kept].sort((a, b) => a.order - b.order).map((r) => r.file);
+  const ignoredCount = input.diff.length - included.length;
+  const safeInput = { ...input, files: index.files, diff };
+  let context = retrieve(
     index,
     diff,
     input.mode === "fast" ? 8000 : input.mode === "deep" ? 40000 : 16000,
@@ -99,7 +113,7 @@ export async function reviewChange(
       r.enabled &&
       (!r.globs.length || diff.some((f) => picomatch(r.globs)(f.path))),
   );
-  const payload = {
+  const buildPayload = () => ({
     classification: classifyChanges(diff),
     repository: input.repository,
     baseSha: input.baseSha,
@@ -113,23 +127,41 @@ export async function reviewChange(
     historicalFindings: input.historicalFindings ?? [],
     runtimeEvidence,
     instructions: input.settings?.instructions ?? "",
-  };
-  const totalBytes = JSON.stringify(payload).length;
-  if (totalBytes > 300000)
-    throw new Error(
-      "Change exceeds context budget; reduce PR size or ignored paths",
-    );
+  });
+  let payload = buildPayload();
+  // Over the context budget: drop the lowest-risk files first, then trailing context.
+  for (let size = JSON.stringify(payload).length; size > payloadByteLimit; size = JSON.stringify(payload).length) {
+    if (kept.length) {
+      // Drop enough lowest-risk files to cover the overflow, then re-measure.
+      let freed = 0;
+      const dropped = new Set<(typeof kept)[number]["file"]>();
+      while (kept.length && freed < size - payloadByteLimit) {
+        const file = kept[kept.length - 1].file;
+        kept = kept.slice(0, -1);
+        dropped.add(file);
+        freed += file.patch.length + file.path.length + 64 + context.filter((c) => c.path === file.path).reduce((n, c) => n + c.content.length, 0);
+        skippedFiles.push({ path: file.path, reason: "Lower-risk file dropped to fit the review context budget" });
+      }
+      diff = diff.filter((f) => !dropped.has(f));
+      safeInput.diff = diff;
+      context = context.filter((c) => ![...dropped].some((f) => f.path === c.path));
+    } else if (context.length) context = context.slice(0, -1);
+    else throw new Error("Review metadata alone exceeds the context budget; shorten the description or rules");
+    payload = buildPayload();
+  }
   await progress("reviewing");
   const selected = (input.settings?.categories ?? [...categories]).filter(
     (c) => c !== "rules" || rules.length,
   );
   const usage: ModelUsage[] = [];
   const candidates: (Candidate & { agent: string })[] = [];
+  const failedSpecialists: { category: string; error: string }[] = [];
   // ponytail: two simultaneous calls bound cost/rate pressure; configurable concurrency if measured throughput requires it.
   for (let i = 0; i < selected.length; i += 2) {
     signal?.throwIfAborted();
-    const results = await Promise.all(
-      selected.slice(i, i + 2).map(async (category) => {
+    const batch = selected.slice(i, i + 2);
+    const results = await Promise.allSettled(
+      batch.map(async (category) => {
         const result = await model.generate(
           {
             task: `review:${category}`,
@@ -146,13 +178,23 @@ export async function reviewChange(
         return { ...result, category };
       }),
     );
-    for (const result of results) {
-      usage.push(result.usage);
-      candidates.push(
-        ...result.value.findings.map((f) => ({ ...f, agent: result.category })),
-      );
+    // One failing specialist yields a partial review with a visible note; cancellation still aborts.
+    for (const [j, result] of results.entries()) {
+      if (result.status === "fulfilled") {
+        usage.push(result.value.usage);
+        candidates.push(
+          ...result.value.value.findings.map((f) => ({ ...f, agent: result.value.category })),
+        );
+        continue;
+      }
+      if (signal?.aborted) throw result.reason;
+      const failure = result.reason as { usage?: ModelUsage; message?: string };
+      if (failure?.usage) usage.push(failure.usage);
+      failedSpecialists.push({ category: batch[j], error: redact(String(failure?.message ?? "Specialist failed")).slice(0, 500) });
     }
   }
+  if (failedSpecialists.length && failedSpecialists.length === selected.length)
+    throw new Error("Every review specialist failed: " + failedSpecialists.map((f) => f.category + ": " + f.error).join("; ").slice(0, 2000));
   await progress("verifying");
   const minimum = input.settings?.minimumConfidence ?? 0.85;
   const threshold = severities.indexOf(
@@ -254,7 +296,9 @@ export async function reviewChange(
     ...(input.coverageLimits ?? []),
     ...(previous.some(f=>!resolvedFingerprints.includes(f.fingerprint))?["Some previously reported findings could not be confirmed resolved at the current revision"]:[]),
     ...(index.files.some(f=>f.provenance&&(!context.some(c=>c.path===f.path)||context.some(c=>c.path===f.path&&(c.startLine!==1||c.content.length<f.content.length))))?["Some external context was omitted or truncated by the retrieval budget"]:[]),
-    ...(diff.length !== input.diff.length ? ["Configured paths were excluded"] : []),
+    ...(ignoredCount ? ["Configured paths were excluded"] : []),
+    ...(skippedFiles.length > ignoredCount ? [`${skippedFiles.length - ignoredCount} changed files were not reviewed (provider limits or the risk-ranked review budget); see Skipped files`] : []),
+    ...(failedSpecialists.length ? [`Some review specialists failed and their categories were not reviewed: ${failedSpecialists.map((f) => f.category).join(", ")}`] : []),
     ...(diff.some(f => !f.patch.trim()) ? ["Some changed files have no textual diff"] : []),
     ...(diff.some(f => f.status !== "removed" && !index.files.some(source => source.path === f.path)) ? ["Some changed source files were unavailable or excluded"] : []),
     ...(categories.some(c => c !== "rules" && !selected.includes(c)) ? ["Some review categories were disabled"] : []),
@@ -272,7 +316,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length,suppressed:suppressions.length,requirementsContext:context},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles},input.settings?.summarySections),
     findings,
     diagrams: [],
     metadata: {
@@ -280,6 +324,8 @@ export async function reviewChange(
       reviewScore: summary.value.reviewScore,
       approvalAssessment: summary.value.approvalAssessment ?? {risk:"unknown",confidence:0,reason:"The model did not supply a structured risk and confidence assessment."},
       coverageLimits,
+      ...(skippedFiles.length ? { skippedFiles } : {}),
+      ...(failedSpecialists.length ? { failedSpecialists } : {}),
       baseSha: input.baseSha,
       headSha: input.headSha,
       mode: input.mode,
