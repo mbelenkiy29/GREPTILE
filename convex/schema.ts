@@ -271,7 +271,7 @@ export default defineSchema({
     conventionsCursor: v.optional(v.number()),
     conventionsSyncedAt: v.optional(v.number()),
     // Latest repository config file read from a pull request base revision (for the dashboard).
-    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number() })),
+    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number(), cascade: v.optional(v.string()) })),
     branches: v.optional(
       v.array(
         v.object({ name: v.string(), sha: v.string(), protected: v.boolean() }),

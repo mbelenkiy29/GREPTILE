@@ -19,7 +19,7 @@ import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
 import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
-import { applyRepoConfig, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
+import { applyRepoConfig, cascadeSummary, fileSettings, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
 import { checkConclusion, type CheckConclusion } from "../src/github";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
@@ -439,11 +439,18 @@ export const review = internalAction({
       check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha, pr.number);
       // Repository config as code, read from the BASE revision so a change cannot weaken its own review.
       const repoConfig = await loadRepoConfig(github, repo.fullName, pr.base.sha).catch((error): LoadedRepoConfig => ({ settings: {}, rules: [], files: [], directories: [], warnings: ["Repository config could not be read from the base revision: " + redact(error instanceof Error ? error.message : "unavailable").slice(0, 200)] }));
-      const configured = applyRepoConfig(settings, repoConfig);
+      const configured = applyRepoConfig(settings, repoConfig, pr.diff.map((f) => f.path));
       const effective = configured.settings;
       if (repoConfig.files.length || repoConfig.warnings.length || repo.configFile)
-        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length });
+        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length, ...(repoConfig.levels?.length ? { cascade: JSON.stringify(cascadeSummary(repoConfig.levels)) } : {}) });
       const guidance = repositoryGuidance(repoConfig.guides ?? []);
+      const directorySettings = (path: string) => {
+        const resolved = fileSettings(repoConfig.levels ?? [], path, settings.lockedKeys ?? []);
+        if (!Object.keys(resolved.settings).length && !resolved.ignored) return undefined;
+        const thresholds = effectiveThresholds({ ...effective, ...resolved.settings });
+        return { ...(resolved.settings.categories ? { categories: resolved.settings.categories } : {}), minimumConfidence: thresholds.minimumConfidence, severityThreshold: z.enum(severities).parse(thresholds.severityThreshold), ignored: resolved.ignored, ...(resolved.ignoredBy ? { ignoredBy: resolved.ignoredBy } : {}) };
+      };
+      const touchedDirectories = pr.diff.flatMap((f) => { const d = directorySettings(f.path); return d && !d.ignored ? [d] : []; });
       const configNotes = [...repoConfig.warnings, ...guidance.rejected, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
       // Incremental review when the last reviewed head is an ancestor of this head.
       const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
@@ -640,16 +647,17 @@ export const review = internalAction({
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
+          // Cascading directory settings: findings are checked per file; the review itself runs with the
+          // union of categories and the least strict thresholds among the changed files.
+          fileSettings: directorySettings,
           settings: {
-            minimumConfidence: effectiveThresholds(effective).minimumConfidence,
-            severityThreshold: z
-              .enum(severities)
-              .parse(effectiveThresholds(effective).severityThreshold),
+            minimumConfidence: Math.min(effectiveThresholds(effective).minimumConfidence, ...touchedDirectories.map((d) => d.minimumConfidence ?? 1)),
+            severityThreshold: severities[Math.max(severities.indexOf(z.enum(severities).parse(effectiveThresholds(effective).severityThreshold)), ...touchedDirectories.map((d) => d.severityThreshold ? severities.indexOf(d.severityThreshold) : 0))],
             maxComments: effective.maxComments,
             ignoredPaths: effective.ignoredPaths,
             categories: state.review.category
               ? [z.enum(categories).parse(state.review.category)]
-              : effective.categories.map((c) => z.enum(categories).parse(c)),
+              : [...new Set([...effective.categories, ...touchedDirectories.flatMap((d) => d.categories ?? [])])].map((c) => z.enum(categories).parse(c)),
             instructions: effective.instructions,
             summarySections:effective.summarySections,
             securityScan: effective.securityScan !== false,

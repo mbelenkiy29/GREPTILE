@@ -143,10 +143,20 @@ export async function reviewChange(
   const ignored = picomatch(input.settings?.ignoredPaths ?? []);
   const skippedFiles: SkippedFile[] = [...(input.skippedFiles ?? [])];
   const included = input.diff.filter((f) => {
-    if (!ignored(f.path)) return true;
-    skippedFiles.push({ path: f.path, reason: "Excluded by the ignored paths setting" });
+    const directory = input.fileSettings?.(f.path);
+    if (!ignored(f.path) && !directory?.ignored) return true;
+    skippedFiles.push({ path: f.path, reason: directory?.ignored ? `Excluded by ${directory.ignoredBy ?? "a directory's .openreview/files.json"}` : "Excluded by the ignored paths setting" });
     return false;
   });
+  // A finding must also pass its own file's directory settings (categories and thresholds).
+  const directoryReason = (f: Candidate) => {
+    const d = input.fileSettings?.(f.filePath);
+    if (!d) return "";
+    if (d.categories && !d.categories.includes(f.category)) return "Category disabled for this file's directory";
+    if (d.minimumConfidence !== undefined && f.confidence < d.minimumConfidence) return "Below this directory's confidence threshold";
+    if (d.severityThreshold && severities.indexOf(f.severity) > severities.indexOf(d.severityThreshold)) return "Below this directory's severity threshold";
+    return "";
+  };
   // Degrade instead of failing on oversized changes: review the riskiest files within budget.
   const ranked = included.map((file, order) => ({ file, order, score: riskScore(file) })).sort((a, b) => b.score - a.score || a.order - b.order);
   const fileLimit = reviewFileLimits[input.mode];
@@ -323,6 +333,7 @@ export async function reviewChange(
       : severities.indexOf(f.severity) > threshold ? "Below severity threshold"
       : !grounded(f, safeInput) && !groundedOutside(f, safeInput) ? "Evidence or changed-line location does not match source"
       : f.ruleId && !rules.some((r) => r.id === f.ruleId) ? "Unknown or inapplicable rule"
+      : directoryReason(f) ? directoryReason(f)
       : f.category === "security" && deterministic.findings.some((d) => d.filePath === f.filePath && f.startLine <= d.endLine && d.startLine <= f.endLine) ? "Duplicate of a deterministic security check" : "";
     if (reason) suppress(f, reason);
     return !reason;
@@ -367,6 +378,7 @@ export async function reviewChange(
         !f ||
         !decision.publish ||
         decision.confidence < minimum ||
+        (f && directoryReason({ ...f, confidence: Math.min(f.confidence, decision.confidence) }) !== "") ||
         findings.some((x) => overlaps(x, f))
       ) {
         if (f) suppress(f, decision.reason || "Verifier rejected candidate");
@@ -397,6 +409,7 @@ export async function reviewChange(
   // dedupe and carry-forward still apply.
   for (const f of deterministic.findings) {
     const reason = severities.indexOf(f.severity) > threshold ? "Below severity threshold"
+      : directoryReason(f) ? directoryReason(f)
       : !deterministicGrounded(f, diff, input.fullDiff) ? "Evidence or changed-line location does not match the diff"
       : findings.some((x) => overlaps(x, f)) ? "Duplicate candidate" : "";
     if (reason) { suppress(f, reason); continue; }

@@ -9,6 +9,8 @@ OpenReview reads review configuration from the repository. Server reviews always
 | `.openreview.json` | `settings` and `rules` (schema below) |
 | `.openreview/config.json` | Same schema; applied after `.openreview.json` |
 | `.openreview/rules.md` | Markdown rules: one `## Title` per rule, optional `severity:`, `category:` and `globs:` lines, then the instructions |
+| `.openreview/files.json` | `{"ignore": [...], "include": [...]}` globs (repository-relative at the root) |
+| `<dir>/.openreview/config.json`, `rules.md`, `files.json` | A cascade level for files under `<dir>/` (see [Directory cascade](#directory-cascade)) |
 | `<dir>/.openreview.json` (nested) | Rules scoped to `<dir>/` (globs are prefixed; no globs means `<dir>/**`) plus scoped `settings.instructions`; other nested settings are ignored with a warning |
 
 ```json
@@ -31,6 +33,16 @@ OpenReview reads review configuration from the repository. Server reviews always
   ]
 }
 ```
+
+## Directory cascade
+
+`.openreview/` folders can sit at any depth. Each one applies to the files under its parent directory, read from the base revision like everything else:
+- **Per file:** `categories`, `strictness`, `severityThreshold` and `minimumConfidence` from a folder's `config.json` apply to that folder's files; a deeper folder overrides a shallower one field by field. `files.json` ignore globs (relative to the folder's directory) skip files, and a deeper `include` re-admits a file a shallower folder ignored. The review checks each finding against its own file's values; files ignored this way are listed as skipped with the folder that excluded them.
+- **Per pull request:** the review tier (`mode`) and `maxComments` use the highest value among the root and the folders a change touches. A folder can raise them, never lower them.
+- **Rules and instructions:** a folder's `rules.md` and `config.json` rules are scoped to its directory, and its `instructions` are added as scoped text.
+- **Locks:** keys an admin locked in the dashboard never change at any level (a locked `ignoredPaths` also disables folder ignores).
+
+Invalid files produce a warning in the review's coverage notes and in the dashboard; the rest of the cascade still applies. The dashboard's **Effective configuration and sources** panel lists each level, what it overrides and which files it came from. At most 50 nested folders are read.
 
 ## API guidance packs
 

@@ -32,7 +32,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Automatic reviews, label-only reviews, or reviews on `@openreview` mention.
   - Excluded authors and branches, draft handling and size limits.
   - Strictness presets and opt-in comment categories.
-- Configuration as code in `.openreview.json`, read from the base branch, with admin locks that a pull request cannot override.
+- Configuration as code in `.openreview.json` and cascading `.openreview/` folders (per-directory categories, strictness, thresholds and ignore/include globs; the highest tier among touched directories), read from the base branch, with admin locks that a pull request cannot override.
 
 **Learning and memory**
 - 👍/👎 reactions and dashboard feedback become learned preferences. Reactions are polled on GitHub and arrive by webhook on GitLab.

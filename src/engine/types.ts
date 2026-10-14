@@ -126,6 +126,8 @@ export type ReviewInput = {
   diff: ChangedFile[];
   rules: Rule[];
   preferences?: Preference[];
+  // Per-file values from cascading .openreview/ folders (K1); settings hold the union/least strict.
+  fileSettings?: (path: string) => { categories?: string[]; minimumConfidence?: number; severityThreshold?: (typeof severities)[number]; ignored?: boolean; ignoredBy?: string } | undefined;
   // API guidance packs matched to the change's imports (guidance only; never suppresses).
   guidance?: { id: string; version: number; title: string; body: string; source: "built-in" | "repository" }[];
   // Knowledge base entries about the changed code (derived background; never evidence).
