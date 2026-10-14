@@ -35,6 +35,7 @@ import { osvClient, osvEnabled } from "../src/osv";
 import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
 import { knowledgeTokenBudgets, selectKnowledge } from "../src/knowledge-context";
 import { detectAiAuthored, reviewModelFor } from "../src/ai-authored";
+import { resolveTier, tiers } from "../src/review-tier";
 import { repositoryGuidance, selectPacks } from "../src/guidance-packs";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
@@ -450,6 +451,8 @@ export const review = internalAction({
         const thresholds = effectiveThresholds({ ...effective, ...resolved.settings });
         return { ...(resolved.settings.categories ? { categories: resolved.settings.categories } : {}), minimumConfidence: thresholds.minimumConfidence, severityThreshold: z.enum(severities).parse(thresholds.severityThreshold), ignored: resolved.ignored, ...(resolved.ignoredBy ? { ignoredBy: resolved.ignoredBy } : {}) };
       };
+      // K2: comment > label > configured tier (raised by touched folders); the admin cap applies last.
+      const tier = resolveTier({ configured: z.enum(tiers).parse(effective.mode), requested: state.review.requestedMode ? { mode: state.review.requestedMode, source: state.review.requestedModeSource ?? "comment" } : undefined, cap: z.enum(tiers).catch("deep").parse(effective.maxReviewTier ?? "deep") });
       const touchedDirectories = pr.diff.flatMap((f) => { const d = directorySettings(f.path); return d && !d.ignored ? [d] : []; });
       const configNotes = [...repoConfig.warnings, ...guidance.rejected, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
       // Incremental review when the last reviewed head is an ancestor of this head.
@@ -632,7 +635,7 @@ export const review = internalAction({
           ...(scope.incremental ? { fullDiff: pr.diff } : {}),
           skippedFiles: pr.omitted,
           sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
-          mode: z.enum(["fast", "standard", "deep"]).parse(effective.mode),
+          mode: tier.mode,
           rules: [...rules.map((r) => ({
             id: r._id as string,
             instructions: r.instructions,
@@ -643,7 +646,7 @@ export const review = internalAction({
           })), ...repoConfig.rules],
           preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
           guidance: selectPacks(guidance.packs, scope.diff, sources).map(({ id, version, title, body, source }) => ({ id, version, title, body, source })),
-          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[z.enum(["fast", "standard", "deep"]).parse(effective.mode)]).selected,
+          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[tier.mode]).selected,
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
@@ -684,6 +687,7 @@ export const review = internalAction({
         reviewScore: result.metadata.reviewScore,
         verdict: result.metadata.verdict,
         requirementsNotMet: result.metadata.requirementsNotMet,
+        modeDecision: tier,
         aiAuthored: aiAuthored ? { ...aiAuthored, ...(routed.routed ? { model: routed.model } : {}) } : undefined,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],

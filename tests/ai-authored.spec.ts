@@ -59,5 +59,7 @@ test("agent-authored pull requests are reviewed with the configured model and th
   expect([agent.status, human.status]).toEqual(["completed", "completed"]);
   expect(agent.aiAuthored).toEqual({ agent: "Claude Code", kind: "trailer", detail: "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>", model: "claude-sonnet-5-5" });
   expect(human.aiAuthored).toBeUndefined();
+  // K2: the job records the tier it used and why (here: the configured tier, no request, no cap).
+  expect(agent.modeDecision).toEqual({ mode: "standard", source: "settings", capped: false, requested: "standard" });
   expect((await t.query(api.reviews.detail, { token, reviewId: agent._id })).review.aiAuthored?.agent).toBe("Claude Code");
 });

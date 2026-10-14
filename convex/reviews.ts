@@ -49,6 +49,8 @@ export const enqueue = internalMutation({
     runtimeEvidence: v.optional(runtimeEvidenceValidator),
     // How the review was requested: automatic/label reviews honour size limits; mention bypasses them.
     trigger: v.optional(v.union(v.literal("automatic"), v.literal("label"), v.literal("mention"), v.literal("manual"))),
+    requestedMode: v.optional(v.union(v.literal("fast"),v.literal("standard"),v.literal("deep"))),
+    requestedModeSource: v.optional(v.union(v.literal("comment"), v.literal("label"))),
   },
   handler: async (ctx, args) => {
     if (args.runtimeEvidence) {
@@ -105,6 +107,7 @@ export const enqueue = internalMutation({
       status: "queued",
       mode: config.mode,
       category: args.category,
+      ...(args.requestedMode ? { requestedMode: args.requestedMode, requestedModeSource: args.requestedModeSource ?? "comment" } : {}),
       runtimeEvidence: args.runtimeEvidence,
       ...(args.trigger ? { trigger: args.trigger } : {}),
       attempts: 0,
@@ -289,6 +292,7 @@ export const save = internalMutation({
     verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     requirementsNotMet: v.optional(v.number()),
     aiAuthored: v.optional(v.object({ agent: v.string(), kind: v.string(), detail: v.string(), model: v.optional(v.string()) })),
+    modeDecision: v.optional(v.object({ mode: v.string(), source: v.string(), capped: v.boolean(), requested: v.string() })),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     reviewId: v.id("reviews"),
@@ -317,6 +321,7 @@ export const save = internalMutation({
       verdict: args.verdict,
       requirementsNotMet: args.requirementsNotMet,
       aiAuthored: args.aiAuthored,
+      modeDecision: args.modeDecision,
       approvalAssessment: args.approvalAssessment ? approvalAssessmentSchema.parse(args.approvalAssessment) : undefined,
       coverageLimits: args.coverageLimits,
       findingCount: args.findings.length,

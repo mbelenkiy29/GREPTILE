@@ -22,5 +22,6 @@ export function scopeSettingsFromForm(form:FormData){
   threadReplies:form.has('threadRepliesConfigured')?form.has('threadReplies'):defaults.threadReplies,
   securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
   aiAuthoredModel:value('aiAuthoredModel').trim(),
+  maxReviewTier:value('maxReviewTier')||defaults.maxReviewTier,
  };
 }

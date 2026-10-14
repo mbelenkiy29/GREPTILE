@@ -50,6 +50,8 @@ export const defaults = {
   securityScan: true,
   // Model for pull requests detected as written by a coding agent ("" = use the usual model).
   aiAuthoredModel: "",
+  // Highest review tier any request may use (comment, label or directory); "deep" means no cap.
+  maxReviewTier: "deep",
   commentStyle: "concise",
   summarySections:[...defaultSummarySections] as string[],
 };

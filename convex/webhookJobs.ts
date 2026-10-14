@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Github } from "../src/github";
 import { pullRequestTrigger } from "../src/triggers";
 import { wantsAnswer } from "../src/thread-replies";
+import { labelTier, tiers } from "../src/review-tier";
 
 const payloadSchema = z.object({
   action: z.string().optional(),
@@ -170,13 +171,16 @@ export const process = internalAction({
             )
           ) {
             const pr = payload.pull_request;
-            const decision = settings ? pullRequestTrigger({ action: payload.action ?? "", label: payload.label?.name, pr }, settings) : { review: false as const, reason: "No settings" };
+            // openreview:<tier> labels request a tier and, like trigger labels, start reviews of labelled PRs.
+            const tierLabel = labelTier((pr.labels ?? []).map((l) => l.name));
+            const decision = settings ? pullRequestTrigger({ action: payload.action ?? "", label: payload.label?.name, pr }, { ...settings, triggerLabels: [...(settings.triggerLabels ?? []), ...tiers.map((t) => "openreview:" + t)] }) : { review: false as const, reason: "No settings" };
             if (decision.review)
               await ctx.runMutation(internal.reviews.enqueue, {
                 repositoryId: repo._id,
                 prNumber: pr.number,
                 headSha: pr.head.sha,
                 trigger: decision.trigger,
+                ...(tierLabel ? { requestedMode: tierLabel, requestedModeSource: "label" as const } : {}),
               });
             else console.log(JSON.stringify({ event: "review.not_triggered", repositoryId: repo._id, prNumber: pr.number, action: payload.action, reason: decision.reason }));
           }

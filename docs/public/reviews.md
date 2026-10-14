@@ -68,6 +68,10 @@ Findings in the security category also carry a separate 🔒 Security tag. Prior
 
 A change can break code it did not touch, such as a caller in another file that still expects the old behavior. OpenReview keeps such a finding only when its evidence quotes, exactly, a line the pull request changed that causes the problem. These findings are listed in an **Outside the changed code** section of the summary (always shown when there are any) and on the review page. They are never posted as inline comments, because providers only accept those on changed lines, and they carry no committable suggestion.
 
+## Review tier per pull request
+
+The tier (fast, standard or deep) comes from, in order: an `@openreview review fast|standard|deep` comment for that run, an `openreview:fast|standard|deep` label on the pull request (several labels: the highest wins; a tier label also starts reviews of labelled pull requests even when automatic reviews are off), then the configured tier, which touched `.openreview/` folders can raise. Admins can cap the tier with **Highest tier a request may use** (`maxReviewTier`); the cap applies to every source. The review page shows the tier used and where it came from.
+
 ## Commands in pull requests
 
 Collaborators with write access can mention `@openreview`:
@@ -76,6 +80,7 @@ Collaborators with write access can mention `@openreview`:
 | --- | --- |
 | `@openreview review again` | Re-review the current revision |
 | `@openreview review security` | Run a security-focused review |
+| `@openreview review fast` / `standard` / `deep` | Re-review at that tier for this run (an admin cap may lower it) |
 | `@openreview explain this` | Explain a finding or code, citing current source |
 | `@openreview what code depends on this` | Show callers and dependents |
 | `@openreview fix this` | In a finding thread: reply with a validated suggestion and a fix-with-your-agent link |

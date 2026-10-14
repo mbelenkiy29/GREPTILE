@@ -66,6 +66,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
               )}
               {detail.retryPending&&<p role="status">Retry {detail.review.retryAt ? "scheduled for "+when(detail.review.retryAt) : "pending"}. The review will update automatically.</p>}
               <RuntimeReview token={user.token} reviewId={detail.review._id} evidence={detail.review.runtimeEvidence}/>{detail.review.nativeP4?<p>Automatic approval is not available for Perforce reviews.</p>:<ApprovalReview token={user.token} reviewId={detail.review._id}/>}
+              {detail.review.modeDecision && <p className="muted">Review tier: <strong>{detail.review.modeDecision.mode}</strong> ({detail.review.modeDecision.source === "settings" ? "configured" : `requested by ${detail.review.modeDecision.source}`}{detail.review.modeDecision.capped ? `; ${detail.review.modeDecision.requested} was capped by the workspace limit` : ""})</p>}
               {detail.review.aiAuthored && <p role="note">Written by a coding agent: <strong>{detail.review.aiAuthored.agent}</strong> ({detail.review.aiAuthored.detail}){detail.review.aiAuthored.model ? <> · reviewed with <code>{detail.review.aiAuthored.model}</code></> : null}</p>}
               {detail.review.verdict && <section aria-label="Verdict"><h2>Verdict</h2><p><strong>{verdictLabels[detail.review.verdict]}</strong> · computed from the score, unresolved findings and review coverage</p></section>}
               <section aria-label="Confidence score">

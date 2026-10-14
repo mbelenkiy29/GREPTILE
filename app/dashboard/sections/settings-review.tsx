@@ -178,6 +178,11 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
                   </fieldset>
                   <fieldset className="wide">
+                    <legend>Per-pull-request review tier</legend>
+                    <label>Highest tier a request may use<select name="maxReviewTier" defaultValue={repoSettings.settings.maxReviewTier ?? "deep"}><option value="deep">deep (no cap)</option><option value="standard">standard</option><option value="fast">fast</option></select></label>
+                    <p className="muted">People with write access can comment <code>@openreview review fast</code>, <code>standard</code> or <code>deep</code>, or add an <code>openreview:fast|standard|deep</code> label. A comment wins over a label, a label over the configured tier (which touched <code>.openreview/</code> folders can raise). This cap applies to all of them.</p>
+                  </fieldset>
+                  <fieldset className="wide">
                     <legend>Agent-authored pull requests (experimental)</legend>
                     <label>Review model for agent-authored pull requests<input name="aiAuthoredModel" maxLength={200} defaultValue={repoSettings.settings.aiAuthoredModel ?? ""} placeholder="Leave empty to use the usual model" /></label>
                     <p className="muted">Detection uses explicit signals only: a known agent bot author, a Co-Authored-By trailer naming a coding agent, an agent branch prefix (claude/, copilot/, cursor/, codex/, devin/, jules/) or a marker the agent adds to the description. The reason is shown on the review.</p>
