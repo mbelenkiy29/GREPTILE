@@ -71,7 +71,11 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: scope (repo/team/workspace) + teamId + by_org_scope on learnedPreferences and learnedRules; convex/memory.ts editPreference / editLearnedRule / deleteLearnedRule (workspace admin, audited, guardrailed) + rules query (visible repos, search, status filter); scope application in repositories.data (shared workspace/team preferences) and conventions.approvedForRepo; Memory page lists preferences + conventions with provenance, filters, edit/scope/enable/disable/approve/reject/delete forms for admins only; resetPreference wired.
   evidence: tested with fakes; tests: tests/memory.spec.ts (4: viewer read-only + no audit writes, admin edits/approve/delete with one audit event per change + guardrails incl. security-suppression rejection + team scope requires team, scope inheritance for preferences and conventions across team/workspace/disable, no cross-organization leakage); scripts/browser.ts Memory page filter check (runs once Needs human #10 is done); commands: lint/typecheck/test (280 Node + 181 vitest)/build green; commit: see git log feat(C3)
   notes: admin-edited preferences may narrow reporting (their purpose) but never for security (preferenceProblem); conventions may only add guidance (conventionProblem). Team scope uses the source repository's team at edit time.
-- [ ] C4 `@openreview fix this` — todo
+- [x] C4 `@openreview fix this` — done
+  plan: src/fix-command.ts (strict parser, PR opt-in phrases, applySuggestion, namespaced branch + safeFixBranch, handoff URL, reply body); conversationJobs fix path reuses the finding's stored suggestion when it still applies, otherwise a fake-tested model call (task "fix", redacted context, secret-bearing ranges refused) whose replacement must pass suggestionProblem; reply carries the provider suggestion block + Fix link; opt-in `fixPullRequests` setting + Github.openFixPullRequest (contents:write detected at runtime, same-repo open PR at the reviewed head only, new `openreview/fix-*` branch, PR targets the PR branch, idempotent retries).
+  evidence: tested with fakes; tests: tests/fix-command.test.ts (6: parsing incl. rejected look-alikes, apply/stale refusal, branch safety + handoff URL, permission skip without network, new-branch write sequence never naming the PR branch, fork/moved/closed/unsafe/reuse/retry), tests/fix-command.spec.ts (4: stored suggestion without model call, model suggestion validated + sanitized + usage, non-thread/closed finding/no write access, setting off/on/permission missing); commands: lint/typecheck/test (286 Node + 185 vitest; bridge flake rerun once)/build green; commit: see git log feat(C4)
+  notes: fix PRs are GitHub-only (Gitea inherits the client but has no permissions record, so it skips). CRLF files never yield suggestions (same as B1). Needs human #14 for Contents: write.
+- Phase C end: `pnpm build` green; `pnpm test:e2e` still blocked on Needs human #10.
 - [ ] D1 Codebase chat (web) — todo
 - [ ] D2 Public query API — todo
 - [ ] D3 Remote MCP — todo
@@ -99,6 +103,7 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 11. (B6) GitHub App settings → Permissions → Repository permissions → **Checks: Read and write** → Save; each installation owner must accept the updated permissions (GitHub emails them / Settings → Applications → Configure). Until accepted, check runs are skipped silently.
 12. (C1) GitLab connections: in each project's Settings → Webhooks, enable **Emoji events** on the OpenReview hook so 👍/👎 reactions arrive (GitHub reactions are polled automatically).
 13. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+14. (C4) Optional, only if fix pull requests are wanted: GitHub App settings → Permissions → Repository permissions → **Contents: Read and write** → Save; installation owners accept the updated permissions. Then a workspace admin enables “Fix pull requests” in repository settings. Without both, `@openreview fix this in a new PR` replies with the suggestion and a note.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -122,6 +127,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 - 2026-10-14 — Memory scope is stored on the record (scope + teamId snapshot at edit time) and applied at read time through an (organizationId, scope) index — no copying of preferences into other repositories, so disable/delete takes effect everywhere at once.
 - 2026-10-14 — Edited preferences reuse the convention guardrails but allow "do not flag X" wording outside security, because narrowing noise is what a preference is for; security-related suppression stays rejected.
+
+- 2026-10-14 — `@openreview fix this` opens a pull request only when the comment asks for one ("in a new PR") and the repository setting allows it; a plain "fix this" never writes to the repository — least surprise for a command anyone with write access can type.
+- 2026-10-14 — Fix pull requests are opened only for same-repository changes at the exact reviewed head, from a new `openreview/fix-<pr>-<fingerprint>` branch via the Contents API (preserves file mode, one commit) — forks are skipped because the app cannot write to them and opening against a fork branch from the base repository is not possible.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

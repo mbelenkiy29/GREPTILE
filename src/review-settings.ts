@@ -39,6 +39,8 @@ export const defaults = {
   lockedKeys: [] as string[],
   // Learned team conventions start as suggestions; admins may auto-approve them per scope.
   autoApproveConventions: false,
+  // "@openreview fix this in a new PR" may open a fix pull request on a new branch (needs contents:write).
+  fixPullRequests: false,
   commentStyle: "concise",
   summarySections:[...summarySections],
 };

@@ -1,4 +1,5 @@
 import {changeMetadataSchema,catalogPageSize,numberedPage,validateChangePage,type ChangeMetadata,type ChangePage} from "./change-metadata";
+import { safeFixBranch } from "./fix-command";
 import {githubWebOrigin} from "./github-enterprise";
 import { reviewLinks } from "./review-summary";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -425,6 +426,38 @@ export class Github {
   async completeCheckRun(repository: string, id: number, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
     if (this.permissions?.checks !== "write") return;
     await this.request(`/repos/${repository}/check-runs/${id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ status: "completed", conclusion: result.conclusion, completed_at: new Date().toISOString(), ...(result.detailsUrl ? { details_url: result.detailsUrl } : {}), output: { title: result.title.slice(0, 255), summary: result.summary.slice(0, 60000) } }) });
+  }
+  // Fix pull requests need contents:write; without it the feature is skipped, never an error.
+  // Only a new namespaced branch is created and written, from the reviewed head; the pull
+  // request's own branch (and its base) is never written. Retries reuse the branch or open PR.
+  async openFixPullRequest(repository: string, number: number, fix: { branch: string; expectedHead: string; path: string; blobSha: string; content: string; title: string; body: string; message: string }): Promise<{ url: string; reused: boolean } | { skipped: string }> {
+    if (this.permissions?.contents !== "write") return { skipped: "the GitHub App does not have Contents: Read and write permission" };
+    const prefix = `/repos/${repository}`;
+    const pr = await this.request(`${prefix}/pulls/${number}`, z.object({ state: z.string(), head: z.object({ sha: z.string(), ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }), base: z.object({ ref: z.string() }) }));
+    if (pr.state !== "open") return { skipped: "the pull request is not open" };
+    if (pr.head.repo?.full_name.toLowerCase() !== repository.toLowerCase()) return { skipped: "fix pull requests are not opened for changes from forks" };
+    if (pr.head.sha !== fix.expectedHead) return { skipped: "the pull request changed while the fix was prepared; ask again" };
+    if (!safeFixBranch(fix.branch, [pr.head.ref, pr.base.ref])) throw new Error("Unsafe fix branch");
+    const open = await this.request(`${prefix}/pulls?state=open&head=${encodeURIComponent(repository.split("/")[0] + ":" + fix.branch)}&base=${encodeURIComponent(pr.head.ref)}`, z.array(z.object({ html_url: z.string() })));
+    if (open.length) return { url: open[0].html_url, reused: true };
+    const ref = `${prefix}/git/ref/heads/${fix.branch.split("/").map(encodeURIComponent).join("/")}`;
+    let commit = true;
+    try {
+      await this.request(`${prefix}/git/refs`, z.object({ ref: z.string() }), { method: "POST", body: JSON.stringify({ ref: `refs/heads/${fix.branch}`, sha: fix.expectedHead }) });
+    } catch (error) {
+      if (!(error instanceof GithubApiError) || error.status !== 422) throw error;
+      // The branch survives from an earlier attempt: continue only if it is still at the reviewed
+      // head, or holds exactly one fix commit on top of it.
+      const existing = await this.request(ref, z.object({ object: z.object({ sha: z.string() }) }));
+      if (existing.object.sha !== fix.expectedHead) {
+        const head = await this.request(`${prefix}/git/commits/${existing.object.sha}`, z.object({ parents: z.array(z.object({ sha: z.string() })) }));
+        if (head.parents.length !== 1 || head.parents[0].sha !== fix.expectedHead) return { skipped: `branch ${fix.branch} already exists with other commits; delete it to open a new fix pull request` };
+        commit = false;
+      }
+    }
+    if (commit) await this.request(`${prefix}/contents/${fix.path.split("/").map(encodeURIComponent).join("/")}`, z.object({ commit: z.object({ sha: z.string() }) }), { method: "PUT", body: JSON.stringify({ message: fix.message, content: Buffer.from(fix.content, "utf8").toString("base64"), sha: fix.blobSha, branch: fix.branch }) });
+    const created = await this.request(`${prefix}/pulls`, z.object({ html_url: z.string() }), { method: "POST", body: JSON.stringify({ title: fix.title, head: fix.branch, base: pr.head.ref, body: fix.body }) });
+    return { url: created.html_url, reused: false };
   }
   // 👍/👎 reactions on review comments (GitHub sends no reaction webhooks, so callers poll).
   async reactions(repository: string, commentIds: number[]) {

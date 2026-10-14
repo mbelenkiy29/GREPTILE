@@ -1280,6 +1280,11 @@ export default async function Dashboard({
                     <label className="check"><input type="checkbox" name="autoApproveConventions" defaultChecked={repoSettings.settings.autoApproveConventions ?? false} /> Auto-approve conventions learned from human review comments (they only add review guidance)</label>
                   </fieldset>
                   <fieldset className="wide">
+                    <legend>Fix pull requests</legend>
+                    <input type="hidden" name="fixConfigured" value="true" />
+                    <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
+                  </fieldset>
+                  <fieldset className="wide">
                     <legend>Lock against the repository config file</legend>
                     <input type="hidden" name="lockedConfigured" value="true" />
                     {lockableKeys.map((key) => (

@@ -47,6 +47,7 @@ export const settingsValidator = v.object({
   strictness:v.optional(v.number()),
   lockedKeys:v.optional(v.array(v.string())),
   autoApproveConventions:v.optional(v.boolean()),
+  fixPullRequests:v.optional(v.boolean()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
