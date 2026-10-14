@@ -497,14 +497,23 @@ form:not(.toolbar):not(.form-grid):not(.feedback) {
   min-width: 0;
   width: 100%;
 }
+/* Fixed row heights keep --header-h (52 + 40 + 1px border) exact for the sticky sidebar. */
 .primary-nav {
   display: flex;
   flex-direction: row;
+  align-items: flex-start;
   gap: 2px;
+  height: 40px;
   padding: 0 14px 8px;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.primary-nav::-webkit-scrollbar {
+  display: none;
 }
 .primary-nav a {
+  line-height: 20px;
   padding: 6px 10px;
   border-radius: var(--radius);
   color: var(--muted);
@@ -557,8 +566,8 @@ form:not(.toolbar):not(.form-grid):not(.feedback) {
   padding: 6px 10px;
   margin-bottom: 16px;
 }
-.settings-navigation {
-  gap: 14px !important;
+.secondary-nav .settings-navigation {
+  gap: 14px;
 }
 .settings-nav-group {
   margin: 0;
@@ -2209,8 +2218,8 @@ form.catalog-review {
   .secondary-nav > input[type="search"] {
     margin-bottom: 8px;
   }
-  .settings-navigation {
-    gap: 12px !important;
+  .secondary-nav .settings-navigation {
+    gap: 12px;
   }
   .settings-nav-group {
     flex: none;

@@ -33,7 +33,7 @@ const faq = [
   ["Will it flood our PRs with comments?", "Findings must pass confidence, severity and evidence thresholds. You choose the maximum comment count, strictness and categories, and learned preferences reduce repeat noise."],
   ["Which models are supported?", "Claude and OpenAI models, or any OpenAI-compatible endpoint, with per-task model routing."],
 ] as const;
-const commands = ["pnpm install", "pnpm setup:local", "pnpm backend", "pnpm dev"];
+const commands = ["pnpm install", "CONVEX_AGENT_MODE=anonymous pnpm exec convex dev --once", "pnpm setup:local", "pnpm backend", "pnpm dev"];
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ error?: string; email?: string; signedout?: string }> }) {
   const { error, email, signedout } = await searchParams;
@@ -121,6 +121,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
         </div>
       </section>
     </main>
-    <SiteFooter />
+    <SiteFooter home />
   </div>;
 }

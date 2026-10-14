@@ -7,7 +7,9 @@ import { Mark } from "./ui/logo";
 // page links are in-page anchors; elsewhere they point back to the landing sections.
 export function SiteHeader({ home = false, current }: { home?: boolean; current?: "docs" | "changelog" }) {
   const base = home ? "" : "/";
-  const pricing = billingConfig().enabled;
+  // Pricing lives on the landing page; statically built pages skip it so the link never
+  // depends on the build environment.
+  const pricing = home && billingConfig().enabled;
   return <header className="site-header">
     <Link className="brand" href="/"><Mark /> OpenReview</Link>
     <nav className="site-nav" aria-label="Site">
@@ -19,7 +21,7 @@ export function SiteHeader({ home = false, current }: { home?: boolean; current?
     </nav>
     <div className="site-actions">
       {home ? <a href="#sign-in">Sign in</a> : <Link href="/dashboard">Dashboard</Link>}
-      <Link className="button primary small" href="/docs/quickstart">Get started</Link>
+      <Link className="button primary small" href={home ? "#sign-in" : "/#sign-in"}>Get started</Link>
     </div>
   </header>;
 }
@@ -30,8 +32,8 @@ const columns: [string, [string, string][]][] = [
   ["Integrations", [["/docs/github-app", "GitHub App"], ["/docs/notifications", "Slack and email"], ["/docs/linear", "Linear"], ["/docs/atlassian", "Jira and Confluence"]]],
 ];
 
-export function SiteFooter() {
-  const pricing = billingConfig().enabled;
+export function SiteFooter({ home = false }: { home?: boolean }) {
+  const pricing = home && billingConfig().enabled;
   return <footer className="site-footer">
     <div className="footer-grid">
       <div>
