@@ -552,3 +552,271 @@ Each step needs approval before it runs.
    Otherwise keep `pipeline` as the default and document agentic as an opt-in for `deep` mode. Record the decision under Decisions in the ledger and in the acceptance matrix.
 
 Do not describe review quality publicly until step 5 is done.
+
+---
+
+# Round 2
+
+October 14, 2026 · branch `parity` (local only, not pushed) · round-2 baseline `09adf93` (`be59b7f` added the round-2 plan) · ledger: [PROGRESS.md](PROGRESS.md) ("### Round 2")
+
+Round 2 closed the 31 gaps in `ITEMS.md` (G1–V1) found by a second feature audit. As in round 1, the work is original: equivalent behaviour built from public descriptions, with no copied code, prompts, copy or branding. User-facing docs describe OpenReview on its own terms.
+
+## Outcome
+
+| | Count | Items |
+|---|---|---|
+| Done | 31 | G1–G5, J1–J8, K1–K7, L1–L5, M1–M5, V1 |
+| Needs human | 0 | Live acceptance for every item is listed as steps, not as blocked items |
+| Blocked | 0 | |
+| Remaining | 0 | |
+
+Final gate on the last round-2 commit:
+
+| Check | Result |
+|---|---|
+| `pnpm lint` | ✓ (the 2 pre-existing warnings in `tests/index-skips.spec.ts`) |
+| `pnpm typecheck` | ✓ |
+| `pnpm test` | ✓ 464 Node + 263 vitest tests across 113 `*.test.ts` and 55 `*.spec.ts` files (round 1 ended at 326 + 222) |
+| `pnpm build` | ✓ |
+| `pnpm test:e2e` | ✓ after every UI item and at each phase end: landing, docs, changelog, onboarding, 26 dashboard pages, saved settings and rules, Memory filters, Chat, 390 px mobile and dark theme. During M4 it also passed against an instance with `OPENREVIEW_OFFLINE=true` |
+| `pnpm test:smoke` | ✓ 27 routes at the end of each phase |
+| `pnpm eval --validate` | ✓ 18 fixtures, no model calls |
+| `docker build -t openreview:local .` | ✗ environmental: the Colima VM's 20 GiB data disk is 100% full (`no space left on device` while unpacking `node_modules`). Round 1's working approach (a scratch `DOCKER_CONFIG` without the credential store) was used. Freeing the disk means deleting the user's images, containers or volumes, or resizing the VM, so it is Needs human #33. The Dockerfile itself did not change in round 2 |
+
+Evidence levels mean the same as in round 1. No round-2 item reached *verified live*. Several reached *verified locally end-to-end*: L1, L3a (discovery, registration, consent), M2 (without an IdP), M4 (offline web and backend) and M5 (local TLS and proxy servers).
+
+Dependencies added, all exact pins: `@node-saml/node-saml` 5.1.0 and `openid-client` 6.8.8 (M2), `xml-crypto` 6.3.3 (M2, dev only) and `undici` 7.29.1 (M5).
+
+Rules followed throughout: no live model, embedding or evaluation calls; no calls to live third-party APIs (OSV, Stripe, IdPs, Devin); no pushes, deploys or remote settings changes; no secret values read or printed; every new Convex function is access-checked, and admin changes are audited; every schema change is additive.
+
+## Per item
+
+Commit SHAs and the full test lists are in the ledger. "Fakes" means fake providers, fake models and convex-test.
+
+### Phase G: Review output
+
+**G1 Verdict first, and findings outside the changed lines** (tested with fakes)
+- Shipped: the summary opens with one of four verdicts computed from the score, unresolved severities and incomplete coverage. A defect in an untouched line is kept only when its evidence quotes a changed line that causes it; such findings appear in an always-on "Outside the changed code" section and are never posted inline.
+- Tests: `tests/outside-diff.test.ts` (5).
+- Limits: outside findings lose any suggestion block.
+
+**G2 Priority badges** (tested with fakes)
+- Shipped: P0–P3 from severity plus a Security tag, as text and emoji in comments, the summary, the dashboard, notifications, the CLI, the REST API and MCP.
+- Tests: `tests/priority.test.ts` (5), `tests/priority.spec.ts`.
+- Limits: no hosted images.
+
+**G3 Clarifying questions and replies without a mention** (tested with fakes)
+- Shipped: findings can carry one clarifying question. On GitHub, replies in OpenReview's own finding threads are answered without `@openreview`, after the write-permission check, rate-limited to 3 per thread and 10 per pull request per hour. A per-repository setting, on by default.
+- Tests: `tests/thread-replies.spec.ts` (3, webhook to answer), `tests/finding-questions.test.ts` (3).
+- Limits: mention-less replies are GitHub only.
+
+**G4 Review footer** (tested with fakes)
+- Shipped: "Review N on this pull request" with the provider's re-run command, numbered once per published review.
+- Tests: `tests/review-footer.test.ts` (2), `tests/review-footer.spec.ts`.
+- Limits: Azure DevOps has no comment command, so its footer points to the dashboard.
+
+**G5 Feature tips** (tested with fakes)
+- Shipped: at most one tip per review, chosen by priority, with a 3-day cooldown per repository and 30 days before a tip repeats. On by default only when billing is on.
+- Tests: `tests/feature-tips.test.ts` (4), `tests/feature-tips.spec.ts` (3).
+- Limits: tips are off in offline mode.
+
+### Phase J: Engine
+
+**J1 Hypothesis agents** (tested with fakes)
+- Shipped: a third engine. A planner proposes concrete hypotheses (capped per tier), and each one is investigated by a tool-using agent with its own budget, a shared token and time budget, and bounded concurrency. Falls back to the pipeline when tool calling is missing or planning fails. `pnpm eval --engine=hypotheses` keeps one transcript per hypothesis.
+- Tests: `tests/hypotheses.test.ts` (6), `tests/hypotheses.spec.ts`.
+- Limits: not evaluated live (see the evaluation plan below).
+
+**J2 Security agent** (tested with fakes)
+- Shipped: eight deterministic checks on added lines (secrets with masking, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization and others), dependency diffs for npm, PyPI, Go, crates.io and Maven lockfiles and manifests, and batched OSV advisory lookups. Feedback and learned preferences cannot suppress these findings.
+- Tests: `tests/security-agent.test.ts` (6: 19 true-positive and 15 false-positive fixtures, fake OSV).
+- Limits: pattern checks are heuristics on added lines; unsupported lockfiles (for example `Gemfile.lock`) are reported as such; OSV is off with `OSV_ENABLED=false` or offline mode.
+
+**J3 Generated tests in the sandbox** (tested with fakes)
+- Shipped: opt-in reproduction tests for up to three findings, run in the isolated runtime worker on fresh copies of the snapshot. The recorded outcome is attached to the finding; nothing is committed.
+- Tests: `tests/generated-tests.test.ts` (6, a POSIX fake docker), `tests/generated-tests.spec.ts` (2).
+- Limits: needs the separate worker host and a digest-pinned image (Needs human #26).
+
+**J4 Knowledge base in reviews** (tested with fakes)
+- Shipped: stored knowledge about the changed files is ranked, trimmed to a per-tier token budget and passed as labelled background. It is never evidence, and the summary's coverage lists the entries used.
+- Tests: `tests/knowledge-context.test.ts` (3).
+
+**J5 Requirements check** (tested with fakes)
+- Shipped: for pull requests linking Linear, Jira or Notion tickets, criteria are quoted from the ticket and marked met, not met or unclear with code evidence. Fabricated quotes are dropped, and grounded "not met" items become findings that block automatic approval.
+- Tests: `tests/requirements-check.test.ts` (3); eval fixture `requirements-soft-delete`.
+
+**J6 Routing for AI-authored pull requests** (tested with fakes)
+- Shipped: explicit signals only (agent bot authors, Co-Authored-By trailers, branch prefixes, description markers) can route a pull request to a configured review model. The decision is recorded.
+- Tests: `tests/ai-authored.test.ts` (3), `tests/ai-authored.spec.ts`.
+- Limits: experimental; no guessing from code style.
+
+**J7 Third-party API guidance packs** (tested with fakes)
+- Shipped: three built-in packs that cite official docs, plus repository packs in `.openreview/guides/*.md` behind an injection and suppression guard. Guidance only: no code path filters findings by pack.
+- Tests: `tests/guidance-packs.test.ts` (5).
+
+**J8 Elixir in the code graph** (tested with the real grammar on fixtures)
+- Shipped: definitions, aliases, imports and remote calls resolved to files by Elixir's naming convention. The graph version was bumped, so stored graphs re-index.
+- Tests: `tests/elixir-graph.test.ts` (2) and an Elixir fixture in `tests/graph.test.ts`.
+- Limits: hosted grammar loading is checked only after deploying (Needs human #8).
+
+### Phase K: Configuration and learning
+
+**K1 Real cascading directory config** (tested with fakes)
+- Shipped: `.openreview/` folders at any depth (up to 50), read from the base branch, with per-file categories, strictness, thresholds and ignore/include, and the highest tier among touched folders. Admin locks still win.
+- Tests: `tests/repo-config-cascade.test.ts` (5).
+
+**K2 Per-PR effort overrides** (tested with fakes)
+- Shipped: `@openreview review fast|standard|deep` and `openreview:<tier>` labels, with precedence comment > label > configuration, and an admin tier cap applied last.
+- Tests: `tests/review-tier.test.ts` (3), `tests/review-tier.spec.ts` (3).
+
+**K3 Configurable agent budgets** (tested with fakes)
+- Shipped: turn and tool-call budgets for the agent and for each hypothesis, inherited through workspace, team and repository, clamped by operator caps `AGENT_MAX_TURNS` and `AGENT_MAX_TOOL_CALLS`.
+- Tests: `tests/agent-budgets.test.ts` (4).
+
+**K4 Wildcard and team rule scopes** (tested with fakes)
+- Shipped: rules scoped to a team or a repository-name pattern, besides the workspace and single-repository scopes. The most specific same-titled rule wins. Rule changes are now audited.
+- Tests: `tests/rule-scopes.spec.ts` (2).
+
+**K5 AI rule assistant** (tested with fakes)
+- Shipped: draft, refine, flag and suggest rules, with cited sources. Every output is a suggestion behind admin approval and the guidance-only guard.
+- Tests: `tests/rule-assistant.test.ts` (5), `tests/rule-assistant.spec.ts`; the panel is checked in the browser e2e.
+- Limits: no live model run yet.
+
+**K6 Learning from commits** (tested with fakes)
+- Shipped: findings fixed by a later commit and findings merged unaddressed feed a bounded per-category preference (at least 5 signals, at least 70% one way). Security is never narrowed. Analytics shows the fixed-before-merge rate.
+- Tests: `tests/commit-signals.test.ts` (5), `tests/commit-signals.spec.ts`.
+- Limits: force-pushes, rebases and incomplete comparisons attribute nothing.
+
+**K7 Repository onboarding automation** (tested with fakes)
+- Shipped: optional auto-enable for newly installed repositories per workspace or team, and cluster suggestions from manifests, shared dependencies and names that wait for admin approval.
+- Tests: `tests/cluster-suggestions.test.ts` (3), `tests/repository-onboarding.spec.ts` (2).
+
+### Phase L: Developer tools
+
+**L1 CLI onboarding** (verified locally end-to-end)
+- Shipped: `openreview onboard` (workspace, install link, repositories, and rule import from CLAUDE.md, AGENTS.md and similar files as suggestions), with a non-interactive `--yes --json` mode, and the `GET /api/workspace` and `POST /api/rules/import` endpoints.
+- Tests: `tests/onboard.test.ts` (7), `tests/rule-files.test.ts` (3), `tests/rule-import.spec.ts`.
+- Limits: API keys are workspace-bound, so choosing another workspace prints dashboard steps.
+
+**L2 CLI review: resume and inline output** (tested with fakes)
+- Shipped: `--resume` continues an interrupted agentic review on the same commit from an owner-only state file; `--inline` prints findings next to the code.
+- Tests: `tests/local-review-resume.test.ts` (4).
+- Limits: resume needs the same HEAD; L2's first commit skipped typecheck and was fixed in a follow-up commit (recorded in the ledger).
+
+**L3 MCP: OAuth and more tools** (tested with fakes + verified locally end-to-end for discovery, registration and consent)
+- Shipped: OAuth 2.1 following the MCP authorization specification (protected-resource and authorization-server metadata, Client ID Metadata Documents with SSRF guards, Dynamic Client Registration, PKCE, consent, audience-bound tokens, rotating refresh tokens, revocation). Five new tools: trigger review, unresolved comments, review status, custom context and reports (16 in total).
+- Tests: `tests/oauth-server.test.ts` (4), `tests/mcp-oauth.spec.ts`, `tests/mcp-tools-more.spec.ts` (5).
+- Limits: the code-to-token path is covered by convex-test, not a live client (Needs human #32).
+
+**L4 Claude Code and Codex plugins, and a resolve loop** (tested with fakes + `claude plugin validate`)
+- Shipped: one plugin package for both agents with the MCP server and two skills, marketplaces for both, and `openreview resolve`, which fixes, commits, asks before pushing, never force-pushes and re-reviews until clean or three rounds.
+- Tests: `tests/resolve-loop.test.ts` (5), `tests/plugins.test.ts` (4).
+- Limits: not installed in a live session (Needs human #32).
+
+**L5 More fix-handoff targets** (tested with fakes)
+- Shipped: an "Open in Conductor" link, and an opt-in "Send to Devin" using the user's own encrypted Devin API key.
+- Tests: `tests/handoff-targets.test.ts` (2), `tests/devin-handoff.spec.ts` (2).
+- Limits: the Conductor link leaves out the local path and branch; no call to Devin was made.
+
+### Phase M: Platform
+
+**M1 Free tier, credits and spending caps** (tested with fakes)
+- Shipped: credits beside the review quota (the defaults reproduce today's behaviour), extra credit packs, a free plan for small teams, and monthly caps with Stripe metered overage and 80%/100% notices. Everything is off with `BILLING_ENABLED=false`.
+- Tests: `tests/credits.test.ts` (4), `tests/credits.spec.ts` (4).
+- Limits: Stripe was never contacted (Needs human #27).
+
+**M2 SSO (SAML and OIDC)** (tested with fakes + verified locally end-to-end without an IdP)
+- Shipped: per-workspace SAML 2.0 or OIDC connections, domains proven by DNS TXT, linking only through verified domains, single-use assertions, optional just-in-time membership, and optional enforcement that exempts owners and API keys.
+- Tests: `tests/sso.test.ts` (4, real RSA-signed SAML responses), `tests/sso.spec.ts`.
+- Limits: no IdP tenant used (Needs human #28).
+
+**M3 Data controls and workspace deletion** (tested with fakes)
+- Shipped: private by default with opt-in aggregate counts, retention for reviews and transcripts, and owner-only deletion with a grace period, then a declarative, resumable purge. A test fails if a table is not accounted for.
+- Tests: `tests/data-controls.spec.ts` (4).
+- Limits: provider uninstalls after a purge are manual (Needs human #29).
+
+**M4 Self-hosting kit** (tested with fakes + verified locally end-to-end)
+- Shipped: a Helm chart (web Deployment and a single-writer Convex StatefulSet), AWS Terraform (VPC, ALB, ECS Fargate, EFS, Secrets Manager), offline mode (`OPENREVIEW_OFFLINE=true` keeps only model, embedding, SCM and SSO hosts, with visible notices), a checksummed tree-sitter grammar bundle, and an egress list.
+- Tests: `tests/offline-mode.test.ts` (5, fetch spies), `tests/offline-mode.spec.ts`, `tests/deploy-kit.test.ts` (3).
+- Limits: `helm` and `terraform` are not installed here, so lint, template and validate are Needs human #30. Convex external packages need npm (or a mirror) at deploy time.
+
+**M5 Self-managed GitLab behind proxies** (tested with fakes + local TLS and proxy servers)
+- Shipped: per-connection internal API URL (links keep the external URL), a private CA bundle added to the public roots, an operator-allowed HTTPS proxy, and same-origin read redirects only (at most five), refused across hosts before the token is sent.
+- Tests: `tests/scm-transport.test.ts` (6, including a real local CONNECT proxy and a throwaway CA), `tests/gitlab-network.spec.ts`.
+- Limits: GitLab only; proxies with credentials are refused; GitLab sign-in is not covered. Seven GitLab test assertions in four files changed from `redirect: "error"` to `"manual"` on purpose (logged in the ledger).
+
+### Phase V: Verification
+
+**V1 Runbooks, matrix and fixtures** (tested with fakes)
+- Shipped: [the round-2 runbook](../runbooks/round-2.md), a "Parity round 2" table in [the acceptance matrix](../acceptance-matrix.md), and eval fixtures `hypothesis-page-offset` (J1), `security-command-injection` (J2) and `requirements-soft-delete` (J5).
+- Tests: `tests/eval-fixtures.test.ts` (3); `pnpm eval --validate` lists 18 fixtures.
+- Limits: the fixtures have not been run live.
+
+## Needs-human checklist for round 2 (priority order)
+
+The ledger number for each step is in brackets; the exact sub-steps are in the ledger. A read-only go-live audit on October 14 found that production (`https://openreview-flame-two.vercel.app`, Convex `tidy-ocelot-457`) still serves a manual deploy from October 4 that matches the round-1 baseline. None of `main` (round 1, G1–J5) or round 2 is live yet. Never paste secret values into chat, logs or commits.
+
+### Before anything else
+
+1. **Rotate the model key before November 1, 2026** [#2]. Keep `LLM_PROVIDER` on OpenAI until the new code is deployed: the live build only prices gpt-4.1, so switching first would make every review fail. Rotate `EMBEDDING_API_KEY` too if it holds the same key.
+2. **Raise the inference budget before deploying** [#6]. About $0.12 is unreserved, $0.27 is held in reservations that no code path releases, and `main` adds a daily conventions cron that makes model calls. There is no raise path in code: edit `limitMicros` in the dashboard after a backup, or ask for a small audited mutation.
+3. **Decide who may install the GitHub App** [#34]. Every workspace shares one budget and key. For a private pilot, choose "Only on this account".
+4. **Back up the work and decide the repository's visibility** [#1]. Round 2 exists only on this machine, and `mbelenkiy29/GREPTILE` is public while the plan asked for a private remote.
+5. **Back up Convex production** [#7].
+
+### Release
+
+6. **Reconnect Vercel's Git link** [#34]. It points at the old repository `mbelenkiy29/openreview`, so merges to `main` never deploy. Before connecting, confirm the preview-scoped `CONVEX_DEPLOY_KEY` is not the production key.
+7. **Merge round 2 into `main`** [#1]. Commit, merge `parity` on a branch from `origin/main`, run the gate and build, push and merge. Consider pinning the Convex Node action runtime to the version the project is tested on (see #34).
+8. **Deploy from a clean clone, or through Git** [#4, #34]. `.vercelignore` does not exclude `.claude/`, so deploying from the main checkout would upload a large stale worktree.
+9. **Check the environment and the GitHub App** [#4, #5]. Round 2 adds no required environment variables or App permissions.
+
+### Right after deploying
+
+10. **Confirm the new build is live**, then check the grammars [#8] (including one Elixir repository), backfill identities [#19] and re-index [#8].
+11. **Cap the review tier** while the budget is small, then run one end-to-end review and record it.
+
+### Live acceptance for round 2
+
+12. **Run the round-2 runbook sections without another number** [#32]: G3, J2, L3, L4 and optionally L5.
+13. **Run the three-engine evaluation** [#25] (see below). It spends money.
+14. **Sandbox tests** [#26], **Stripe credits** [#27, cloud only], **SSO with a test IdP** [#28], **provider cleanup after a purge** [#29], **the cluster kit** [#30] and **GitLab behind a proxy** [#31].
+15. **Local Docker** [#33]. Optional: free or enlarge the Colima disk, then run `docker build -t openreview:local .`.
+
+## Proposed live evaluation: three engines
+
+**Purpose.** Decide the default engine per review tier among `pipeline` (default), `agentic` (A2) and `hypotheses` (J1). Round 1's pilot on `multi-hop-currency` is in [Pilot results](#pilot-results-october-14-2026). **Every live step below spends inference budget and needs explicit approval before it runs.**
+
+### Fixtures
+
+`pnpm eval --validate` lists 18 fixtures and makes no model calls:
+- 12 seeded defects, including the round-2 `security-command-injection` and `requirements-soft-delete` (a linked ticket with provenance),
+- 2 behaviour-preserving changes that should produce no findings,
+- 4 multi-hop defects whose cause is reachable only through agent tools: the three from A2 and `hypothesis-page-offset`.
+
+### Cost estimate
+
+From round 1's pilot (about $0.03 per fixture for the pipeline and $0.01–0.05 per agentic run on gpt-4.1) and the standard-tier ceilings (agentic: 400k tokens per review; hypotheses: up to 6 investigations sharing 600k tokens):
+
+| Run | Estimate |
+|---|---|
+| One pipeline pass (18 fixtures) | About $0.50–1 |
+| One agentic pass | About $1–4 typical; ceiling about $18 |
+| One hypotheses pass | About $4–9 typical; ceiling about $25 |
+| Recommended total (three passes per engine) | **About $15–40.** Approve a ceiling of **$40**, on a separate key with a provider-side spending limit |
+
+The CLI evaluation does not go through the Convex inference budget, so a shared key would draw down the hosted budget unseen.
+
+### Steps
+
+1. **Prerequisites.** A rotated key [#2] that is separate from the hosted one; the same model for all three engines; `reports/evaluation.json` committed or moved aside, because each run overwrites it.
+2. **Pilot (about $2).** Run `--fixture=hypothesis-page-offset` and `--fixture=requirements-soft-delete` once per engine. Check the reports are well formed and look at the per-fixture cost.
+3. **Full passes.** Run `pnpm eval`, `pnpm eval --engine=agentic` and `pnpm eval --engine=hypotheses`, three times each. Rename `reports/evaluation.json` after every run (`reports/eval-<engine>-run<n>.json`).
+4. **Measure** for each engine: recall on seeded defects; multi-hop recall; findings on clean changes; duplicates; requirement findings with correct ticket quotes; unscored provider or schema failures; runs stopped by budget; cost and wall time per fixture. For hypotheses, also the number of hypotheses planned, reported and refuted.
+5. **Adjudicate by hand.** The automated score is only a keyword and location heuristic, so read every finding and check its line and evidence quote.
+6. **Decide.**
+   - Agentic becomes the default for a tier only under round 1's rule: it matches every seeded defect the pipeline matches, finds at least 2 of the multi-hop defects the pipeline misses, adds no false positives on clean changes, and its median cost is at most 3× the pipeline's.
+   - Hypotheses becomes the default for `deep` only if it meets the same conditions, finds at least 3 of the 4 multi-hop defects, and its median cost is at most 6× the pipeline's with wall time inside the deep budget (8 minutes).
+   - Otherwise keep `pipeline` as the default and document the other engines as opt-in. Record the decision in the ledger and the acceptance matrix.
+
+Do not describe review quality publicly until step 5 is done.
