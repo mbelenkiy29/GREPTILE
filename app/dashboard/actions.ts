@@ -456,6 +456,12 @@ export async function disconnectLinear(form:FormData) {
  catch {redirect("/dashboard/memory/integrations?error=disconnect");}
  revalidatePath("/dashboard","layout");redirect("/dashboard/memory/integrations?saved=disconnected");
 }
+export async function configureNotion(form:FormData) {
+ const {token}=await current(),id=text(form,"integrationId") as Id<"integrationConnections">;
+ try {await backend().action(api.notionJobs.configure,{token,id,repositoryIds:form.getAll("repositoryIds").map(String) as Id<"repositories">[]});}
+ catch {redirect("/dashboard/memory/integrations?error=notion-scope&integration="+encodeURIComponent(id));}
+ revalidatePath("/dashboard","layout");redirect("/dashboard/memory/integrations?saved=true&integration="+encodeURIComponent(id));
+}
 export async function refreshLinear(form:FormData) {
  const {token}=await current(),id=text(form,"integrationId") as Id<"integrationConnections">;
  try {await backend().action(api.integrationJobs.refresh,{token,id});}

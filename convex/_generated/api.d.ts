@@ -47,6 +47,8 @@ import type * as knowledgeJobs from "../knowledgeJobs.js";
 import type * as memory from "../memory.js";
 import type * as notificationJobs from "../notificationJobs.js";
 import type * as notifications from "../notifications.js";
+import type * as notionData from "../notionData.js";
+import type * as notionJobs from "../notionJobs.js";
 import type * as onboarding from "../onboarding.js";
 import type * as p4ConversationJobs from "../p4ConversationJobs.js";
 import type * as p4Conversations from "../p4Conversations.js";
@@ -141,6 +143,8 @@ declare const fullApi: ApiFromModules<{
   memory: typeof memory;
   notificationJobs: typeof notificationJobs;
   notifications: typeof notifications;
+  notionData: typeof notionData;
+  notionJobs: typeof notionJobs;
   onboarding: typeof onboarding;
   p4ConversationJobs: typeof p4ConversationJobs;
   p4Conversations: typeof p4Conversations;
