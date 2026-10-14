@@ -130,6 +130,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: bridge-free handoff: the existing "Copy fix prompt" plus src/agent-links.ts "Open in" links built only from officially documented schemes, each verified in current vendor docs on 2026-10-14 (Cursor cursor://anysphere.cursor-deeplink/prompt?text ≤10,000 encoded chars; Claude Code claude-cli://open?q ≤5,000 chars with &repo=owner/name for GitHub; Codex codex://new?prompt with &originUrl), all pre-fill only, with over-limit prompts falling back to copy; shown on every finding and on the /fix page (which now renders the same portable prompt); src/bridge-install.installProtocol takes an injectable OS environment (platform, home, mkdir/writeFile/chmod/execute) and validates the platform before any change, so the Windows registry and Linux xdg-mime registration paths are tested with fakes.
   evidence: tested with fakes; tests: tests/agent-links.test.ts (3: prompt rendering, exact link formats/encoding/repo context, limits), tests/bridge-install.test.ts (3: Linux desktop entry + xdg-mime, Windows HKCU registration with PowerShell quoting, macOS app + unknown platform rejected with no OS change); existing tests/bridge.test.ts still covers protocol files and Windows Codex resolution; commands: lint/typecheck/test (326 Node + 222 vitest; bridge flake rerun once)/build green; commit: see git log feat(F3)
 
+- Finish — done: full gate green (lint 0 errors/2 pre-existing warnings, typecheck, test 326 Node + 222 vitest, build); `docker build -t openreview:local .` ✓ on the second approach (first: base-image metadata timed out because ~/.docker/config.json uses credsStore "desktop" while Docker Desktop is stopped; second: temporary DOCKER_CONFIG without a credential store + DOCKER_HOST=Colima socket) and the container served /docs/quickstart, /api/health, /robots.txt with 200; README gains a Features section; .env.example documents client-only variables; docs/parity/REPORT.md written (per item, prioritized Needs-human checklist, live eval plan awaiting approval); `pnpm eval --validate` 15 fixtures valid (no model calls).
+
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
 2. (H4) Before 2026-11-01: rotate the model key in Convex production (`LLM_API_KEY`) per docs/production-checklist.md §4; optionally switch to `LLM_PROVIDER=anthropic` with empty `LLM_MODEL`.
@@ -189,6 +191,7 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
      1. Run `openreview bridge install`.
      2. Confirm that `xdg-mime query default x-scheme-handler/openreview` returns openreview-fix.desktop and that a link opens a terminal.
    - **"Open in" links:** on each OS with the agent installed, click Open in Cursor, Claude Code and Codex from a finding, and confirm each opens with the prompt pre-filled and nothing sent.
+24. (Finish, optional) This machine's Docker: `~/.docker/config.json` sets `"credsStore": "desktop"` but Docker runs on Colima, so pulls hang. Start Docker Desktop or remove that key, then plain `docker build -t openreview:local .` works without the temporary-config workaround.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -245,6 +248,7 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — Azure DevOps diffs are computed locally (Myers, 3-line context, edit bound 4,000 → whole-file fallback) because the iteration-changes API returns object IDs only; the summary thread is created closed so it never blocks comment-resolution branch policies; PR statuses (not commit statuses) carry the outcome because Azure check-like UI is per pull request.
 
 - 2026-10-14 — "Open in agent" links are limited to the three officially documented prompt deep links (verified in Cursor, Claude Code and OpenAI docs on 2026-10-14); Codex documents no prompt length limit, so OpenReview caps it at 8,000 characters and offers copy beyond that. No other schemes are invented.
+- 2026-10-14 — Docker verification used a scratch DOCKER_CONFIG (no credential store) with DOCKER_HOST pointing at the Colima socket instead of editing ~/.docker/config.json — the user's Docker configuration is theirs to change; the Dockerfile itself needed no change.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

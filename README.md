@@ -6,6 +6,53 @@ OpenReview is an open-source, self-hostable, repository-aware AI pull request re
 
 Documentation is published at `/docs` (Markdown in `docs/public/` plus selected guides), and the changelog at `/changelog`. Internal QA and acceptance logs live in `docs/internal/`.
 
+## Features
+
+Each feature below has automated tests. The evidence level for each one (tests with fakes, verified locally, or verified live on a provider) is listed in [the acceptance matrix](docs/acceptance-matrix.md) and [the parity report](docs/parity/REPORT.md).
+
+**Reviews**
+- Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
+- Two engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions.
+- Grounded findings. Each finding quotes exact lines from the reviewed revision and passes a second verification before it is posted.
+- Committable suggestion blocks for small fixes, and multi-line comments within a hunk.
+- One summary comment, edited in place on every push. It has an overview, files changed, issues, a confidence score, skipped files and an optional Mermaid sequence diagram.
+- Incremental re-reviews that cover only new commits, and automatic resolution of fixed findings' threads.
+- GitHub check runs, used only when the app has Checks write permission. The conclusion is neutral by default, or fails at a severity you choose.
+- Configurable triggers:
+  - Automatic reviews, label-only reviews, or reviews on `@openreview` mention.
+  - Excluded authors and branches, draft handling and size limits.
+  - Strictness presets and opt-in comment categories.
+- Configuration as code in `.openreview.json`, read from the base branch, with admin locks that a pull request cannot override.
+
+**Learning and memory**
+- 👍/👎 reactions and dashboard feedback become learned preferences. Reactions are polled on GitHub and arrive by webhook on GitLab.
+- Conventions learned from human reviewers' comments on merged pull requests. Each one cites its evidence and is applied only after an admin approves it, unless auto-approve is on.
+- A Memory page where admins can inspect, edit, scope (repository, team or workspace), enable, disable and delete learned rules. Every change is audited, and nothing learned can weaken security review.
+
+**Fixes**
+- `@openreview fix this` replies with a validated suggestion. `… in a new PR` opens a fix pull request from an `openreview/fix-*` branch. This is opt-in, needs Contents write, and never writes to the PR branch.
+- Fix handoff to Codex, Claude Code or Cursor Agent: through the paired local bridge, a copied prompt, or the agents' documented "open with prompt" links.
+
+**Ask your codebase**
+- Dashboard chat with streamed investigation steps. Every citation is checked against the indexed source.
+- A public API with read, write and admin key scopes: `POST /api/query` (JSON or SSE), `POST /api/search` and repository enable/status.
+- A remote MCP server at `/api/mcp` (Streamable HTTP) and a local stdio MCP server, both with the same 11 tools.
+- Slack: review and high-severity notifications, `@OpenReview` questions in threads, and `/openreview status`. Email notifications through Resend.
+
+**Context and integrations**
+- Requirements from Linear, Jira, Confluence and Notion pages linked in the pull request, with read-only scopes chosen by an admin.
+
+**Providers**
+- GitHub and GitHub Enterprise, GitLab, Azure DevOps (PAT or Entra service principal), Bitbucket Cloud and Data Center, Gitea and Perforce.
+
+**Workspaces**
+- Sign-in with GitHub, GitLab or Google, or by email link. Identities link only through verified email.
+- Server-side sessions with revoke and sign-out-everywhere, and email invitations.
+- Teams, roles and audit logs.
+- Analytics trends: reviews, findings, addressed rate and estimated time saved.
+- A diff viewer with inline findings.
+- Optional Stripe seat billing with review quotas. It is off unless `BILLING_ENABLED=true`.
+
 ## Architecture
 
 ```
@@ -237,7 +284,7 @@ Both servers expose the same tools:
 - **Reviews and findings:** `get_review`, `get_findings`, `get_finding`.
 - **Repository context:** `get_repository_context`, `search_codebase` (paths and symbols), `get_related_files`, `get_custom_rules`, `list_repositories`.
 - **Codebase questions and search:** `ask_codebase` (cited answers, as in `POST /api/query`) and `search_code` (hybrid semantic search, as in `POST /api/search`).
-- **Feedback:** `mark_finding_resolved` (needs a write-scoped key). Keep keys in your client's secret configuration. Portable fix prompts support Codex, Claude Code, Cursor, and Fix All; they contain evidence and commit coordinates rather than relying on unverified application deep links.
+- **Feedback:** `mark_finding_resolved` (needs a write-scoped key). Keep keys in your client's secret configuration. Portable fix prompts support Codex, Claude Code, Cursor, and Fix All; they contain evidence and commit coordinates, and the dashboard's "Open in" links use only each agent's documented prompt deep link.
 
 ## Self-hosting
 
