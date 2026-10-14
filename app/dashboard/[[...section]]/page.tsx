@@ -39,6 +39,7 @@ import { ProvidersPanel } from "../providers";
 import { IntegrationsPanel } from "../integrations";
 import {PreferencesPanel} from "../preferences";
 import {ChatPanel} from "../chat";
+import {NotificationsPanel} from "../notifications";
 import { ScopePanel, AuditPanel } from "../scopes";
 import { AgentSettings } from "../agents";
 import { Onboarding } from "../onboarding";
@@ -1120,6 +1121,7 @@ export default async function Dashboard({
         )}
         {route === "settings" && section[1] === "agents" && <AgentSettings token={user.token} organizationId={organization._id} />}
         {route === "settings" && section[1] === "automation" && (isAdmin?<RuntimeSettings token={user.token} organizationId={organization._id}/>:<p>Workspace admin access required.</p>)}
+        {route === "settings" && section[1] === "notifications" && <NotificationsPanel token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters}/>}
         {route === "chat" && <ChatPanel token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters}/>}
         {route === "memory" && section[1] === "preferences" && <PreferencesPanel token={user.token} organizationId={organization._id} repositories={data.repositories} admin={isAdmin} filters={filters}/>}
         {route === "memory" && section[1] === "integrations" && <IntegrationsPanel token={user.token} organizationId={organization._id} admin={isAdmin} repositories={data.repositories} selected={filters.integration} error={filters.error} saved={filters.saved} />}

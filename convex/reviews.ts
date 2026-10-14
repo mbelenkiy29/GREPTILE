@@ -1,4 +1,5 @@
 import {executionExplanation} from "../src/execution-claims";
+import { notificationsEnabled } from "./notifications";
 import {
   internalMutation,
   internalQuery,
@@ -468,6 +469,7 @@ export const finished = internalMutation({
         });
     }
     if(!args.error&&!review.nativeP4)await ctx.scheduler.runAfter(0,internal.approvals.request,{reviewId:review._id});
+    if(!args.error&&await notificationsEnabled(ctx,review.organizationId))await ctx.scheduler.runAfter(0,internal.notificationJobs.reviewCompleted,{reviewId:review._id});
   },
 });
 export const list = query({

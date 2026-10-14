@@ -442,6 +442,53 @@ export default defineSchema({
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
     .index("by_org_time", ["organizationId", "createdAt"]),
   // Team conventions learned from human review comments (review guidance only).
+  // Slack app installs (one per Slack workspace); the bot token is encrypted with scope `<org>:slack`.
+  slackInstallations: defineTable({
+    organizationId: org,
+    teamId: v.string(),
+    teamName: v.string(),
+    botUserId: v.string(),
+    credentials: v.string(),
+    installedBy: v.id("users"),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_team", ["teamId"]).index("by_org", ["organizationId"]),
+  // Admin-linked Slack channels: notification events, and the repositories Q&A may read
+  // (empty repositoryIds = notifications for every repository, Q&A disabled).
+  notificationChannels: defineTable({
+    organizationId: org,
+    installationId: v.id("slackInstallations"),
+    channelId: v.string(),
+    repositoryIds: v.array(repo),
+    events: v.array(v.string()),
+    qa: v.boolean(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_org", ["organizationId"]).index("by_channel", ["installationId", "channelId"]),
+  // Per-member email notifications ("off" | "mine" | "all"); sent only to a verified address.
+  notificationPreferences: defineTable({
+    organizationId: org,
+    userId: v.id("users"),
+    email: v.optional(v.string()),
+    emailVerifiedAt: v.optional(v.number()),
+    verificationHash: v.optional(v.string()),
+    verificationExpiresAt: v.optional(v.number()),
+    reviewCompleted: v.string(),
+    highSeverity: v.string(),
+    updatedAt: v.number(),
+  }).index("by_user_org", ["userId", "organizationId"]).index("by_org", ["organizationId"]).index("by_verification", ["verificationHash"]),
+  // One row per (event, review, target): retries never notify twice.
+  notificationDeliveries: defineTable({
+    organizationId: org,
+    key: v.string(),
+    channel: v.string(),
+    status: v.string(), // sending | sent | skipped | failed
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+  slackEventReceipts: defineTable({ eventId: v.string(), createdAt: v.number() }).index("by_event", ["eventId"]),
   // Codebase chat (web): threads are private to the member who started them.
   chatThreads: defineTable({
     organizationId: org,

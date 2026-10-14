@@ -234,6 +234,32 @@ export async function saveSettings(form: FormData) {
   });
   revalidatePath("/dashboard", "layout");
 }
+export async function saveSlackChannel(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.saveChannel, { token, organizationId: text(form, "organizationId") as Id<"organizations">, channelId: text(form, "channelId"), repositoryIds: form.getAll("repositoryIds").map(String) as Id<"repositories">[], events: form.getAll("events").map(String), qa: form.has("qa") });
+  revalidatePath("/dashboard", "layout");
+}
+export async function removeSlackChannel(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.removeChannel, { token, channelId: text(form, "channelId") as Id<"notificationChannels"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function disconnectSlack(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.disconnectSlack, { token, organizationId: text(form, "organizationId") as Id<"organizations"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function saveNotificationPreferences(form: FormData) {
+  const { token } = await current();
+  const level = z.enum(["off", "mine", "all"]);
+  await backend().mutation(api.notifications.savePreferences, { token, organizationId: text(form, "organizationId") as Id<"organizations">, reviewCompleted: level.parse(text(form, "reviewCompleted")), highSeverity: level.parse(text(form, "highSeverity")) });
+  revalidatePath("/dashboard", "layout");
+}
+export async function setNotificationEmail(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.setEmail, { token, organizationId: text(form, "organizationId") as Id<"organizations">, email: text(form, "email") });
+  revalidatePath("/dashboard", "layout");
+}
 export async function askChat(form: FormData) {
   const { token } = await current();
   const threadId = text(form, "threadId");

@@ -5,6 +5,7 @@ import type { Id } from "./_generated/dataModel";
 import { z } from "zod";
 import {ConvexError} from "convex/values";
 import { runtimeEvidenceSchema } from "../src/engine/types";
+import { verifySlackSignature } from "../src/slack";
 
 const http = httpRouter();
 http.route({
@@ -56,6 +57,42 @@ http.route({
       payloadStorageId,
     });
     return new Response("Accepted", { status: 202 });
+  }),
+});
+// Slack events and slash commands: signed requests only (SLACK_SIGNING_SECRET), answered fast;
+// questions are queued as jobs.
+async function slackRequest(request: Request) {
+  if (Number(request.headers.get("content-length") ?? 0) > 1_000_000) return null;
+  const body = await request.text();
+  if (body.length > 1_000_000) return null;
+  return await verifySlackSignature(body, request.headers.get("x-slack-request-timestamp"), request.headers.get("x-slack-signature"), process.env.SLACK_SIGNING_SECRET) ? body : null;
+}
+const slackEvent = z.object({ type: z.string(), challenge: z.string().max(200).optional(), team_id: z.string().max(40).optional(), event_id: z.string().max(100).optional(), event: z.object({ type: z.string(), text: z.string().max(40000).optional(), channel: z.string().max(40).optional(), ts: z.string().max(40).optional(), thread_ts: z.string().max(40).optional(), bot_id: z.string().optional(), subtype: z.string().optional() }).passthrough().optional() }).passthrough();
+http.route({
+  path: "/slack/events",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await slackRequest(request);
+    if (body === null) return new Response("Unauthorized", { status: 401 });
+    let payload;
+    try { payload = slackEvent.parse(JSON.parse(body)); } catch { return new Response("Invalid payload", { status: 400 }); }
+    if (payload.type === "url_verification") return Response.json({ challenge: payload.challenge ?? "" });
+    const event = payload.event;
+    if (payload.type === "event_callback" && event?.type === "app_mention" && !event.bot_id && !event.subtype && payload.team_id && payload.event_id && event.channel && event.ts)
+      await ctx.runMutation(internal.notifications.enqueueMention, { eventId: payload.event_id, teamId: payload.team_id, channelId: event.channel, text: event.text ?? "", ts: event.ts, ...(event.thread_ts ? { threadTs: event.thread_ts } : {}) });
+    return new Response("ok", { status: 200 });
+  }),
+});
+http.route({
+  path: "/slack/commands",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const body = await slackRequest(request);
+    if (body === null) return new Response("Unauthorized", { status: 401 });
+    const form = new URLSearchParams(body), teamId = form.get("team_id") ?? "", channelId = form.get("channel_id") ?? "";
+    if (!/^T[A-Z0-9]+$/.test(teamId) || !/^[CGD][A-Z0-9]+$/.test(channelId)) return new Response("Invalid command", { status: 400 });
+    const text = await ctx.runQuery(internal.notifications.commandStatus, { teamId, channelId, text: (form.get("text") ?? "").slice(0, 200) });
+    return Response.json({ response_type: "ephemeral", text });
   }),
 });
 http.route({
