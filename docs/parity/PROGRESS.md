@@ -16,7 +16,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: data() without inventory + filesByPath/filePage/filesUnder; sweep-then-finish indexing; GitHub subtree walk; omitted diffs → skipped; risk-ranked per-mode budgets + context trimming; allSettled specialists; skipped files in summary/dashboard.
   evidence: tested with fakes (+ convex-test at 33,000 files); tests: tests/scale.spec.ts (above-ceiling repo: bounded pages, path lookups, batch sweep, finishIndex), tests/resilience.test.ts (7: truncated tree walk, untruncated single call, omitted diffs, 600-file PR, context-budget trimming, one/all specialists failing + cancellation, ignored paths); commands: lint/typecheck/test (215 Node + 162 vitest)/build green; commit: db71bf0
   notes: convex-test doesn't enforce Convex read limits — the test proves every query is bounded by construction. Deliberately updated: finishIndex callers in tests use the sweep protocol (no `paths`); diagnostics toEqual includes new empty arrays. Grounding now uses the reviewed diff, so findings can't anchor on ignored/skipped files.
-- [ ] A2 Agentic reviewer — todo
+- [x] A2 Agentic reviewer — done (default stays pipeline)
+  plan: engine tool loop + memory toolbox; reviewChange options; Convex tenant-scoped tool queries + head-consistent reads; persisted state, waiting_agent resume, checkpoints; reviewEngine setting; multi-hop fixtures.
+  evidence: tested with fakes; tests: tests/agent.test.ts (7: multi-hop via find_references with evidence from a tool-read file, shared gates suppress ungrounded, budget exhaustion partial, cancellation mid-loop, suspend/resume without repeated calls + revision mismatch, injection cannot alter tools/budgets/permissions, provider fallback), tests/agent-tools.spec.ts (tenant isolation across 6 tool queries; state save/replace/stale/suspend/attempts/cleanup), tests/agent-toolbox.test.ts (head-consistent reads); `pnpm eval --validate` passes with 3 multi-hop fixtures (not run live); commands: lint/typecheck/test (223 Node + 164 vitest)/build green; commit: 5d5690d
+  notes: tests/cli.test.ts now derives the fixture count from scripts/fixtures.ts (deliberate: 3 fixtures added). Pre-existing load-dependent flake seen once in tests/bridge.test.ts ("dispatch records agent exit failures…"), passes 3/3 in isolation.
 - [ ] A3 Multi-language code graph — todo
 - [ ] A4 Semantic retrieval — todo
 - [ ] B1 Committable suggestions — todo
@@ -51,9 +54,14 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 4. (H4) Set `APP_URL` identically in Vercel and Convex; set GitHub App callback/setup/webhook URLs per §2; redeploy; confirm a 2xx webhook delivery.
 5. (H4) Confirm Vercel/Convex env var names per §3 (dashboard; `convex env list --prod` prints values — private terminal only).
 6. (H4) Raise/reconcile the inference budget per §5 (≈$0.12 unreserved at audit).
+8. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
 
 ## Decisions (date — decision — reason)
+- 2026-10-14 — Agentic resume uses a `waiting_agent` review status + per-review state blob (saved every turn) and a soft step deadline (AGENT_STEP_SECONDS=420) instead of a separate job table — reuses the existing review lifecycle, recovery sweep and retry semantics; resumes capped at 6.
+- 2026-10-14 — Agent budgets count uncached input + output tokens (cache reads excluded) because every turn re-sends the cached review payload.
+- 2026-10-14 — Agent tool results from the index are labelled with the indexed SHA; read_file always resolves to the PR head tree so cited evidence matches the reviewed revision.
+- 2026-10-14 — Agentic CLI (`src/cli.ts`) support deferred; the engine is available to server reviews and `pnpm eval --engine=agentic`.
 - 2026-10-14 — Review file limits per mode: fast 200, standard 350, deep 500 (was a hard failure above 500 for all modes); payload stays capped at 300 KB with lowest-risk trimming — keeps cost bounded while never failing outright.
 - 2026-10-14 — Rules and learned preferences in repositories.data are capped at 1,000 rows each (newest preferences first) — bounded reads; real deployments are far below this.
 - 2026-10-14 — `pnpm test:e2e` runs at the end of each phase rather than after every small dashboard change, since it needs both local dev servers.
