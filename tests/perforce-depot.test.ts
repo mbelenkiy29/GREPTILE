@@ -93,7 +93,7 @@ else if(command==='print'){
   let raceDuringInference=false;
   HttpModel.prototype.generate=async function<T>(request:ModelRequest,validator:z.ZodType<T>){
    modelCalls++;
-   const input=request.input as {context:{path:string;content:string}[];baseSha:string;headSha:string};
+   const input=(request.context??request.input) as {context:{path:string;content:string}[];baseSha:string;headSha:string};
    assert.ok(input.context.some(f=>f.path.endsWith('billing.ts')));assert.ok(input.context.some(f=>f.path.endsWith('price.ts')&&f.content.includes('price / 100')));assert.equal(input.headSha,shelf.input.headSha);assert.equal(input.baseSha,shelf.input.baseSha);
    const candidate={title:'Currency calculation undercharges billing',description:'Dividing by 100 returns dollars where the billing caller requires integer cents.',severity:'high',confidence:1,category:'correctness',filePath:'depot/main/src/price.ts',startLine:1,endLine:1,evidence:[{filePath:'depot/main/src/price.ts',startLine:1,quote:head.trimEnd()},{filePath:'depot/main/src/billing.ts',startLine:2,quote:billing.split('\n')[1]}],impact:'Billing uses the wrong currency units.',suggestedFix:'Multiply price by 100 to preserve integer cents.',symbol:'cents'};
    const value=request.task.startsWith('review:')?{findings:request.task==='review:correctness'?[candidate]:[]}:request.task==='verify'?{decisions:[{index:0,publish:true,confidence:1,reason:'The pinned shelf and billing caller use incompatible currency units.'}]}:{summary:'The shelf changes currency calculation in a way incompatible with the unchanged billing caller.',reviewScore:{value:2,reason:'The verified currency conversion defect requires correction before merging.'}};

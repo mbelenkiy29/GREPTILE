@@ -18,7 +18,7 @@ import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
 import { reviewChange } from "../src/engine/review";
 import { sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
-import { ModelFailure } from "../src/engine/model";
+import { ModelFailure, configuredModel } from "../src/engine/model";
 import {
   categories,
   findingSchema,
@@ -519,13 +519,7 @@ export const review = internalAction({
                 usage: error instanceof ModelFailure ? error.usage : {
                   task: request.task,
                   provider: process.env.LLM_PROVIDER ?? "openai",
-                  model:
-                    process.env[
-                      `LLM_MODEL_${request.task.split(":")[0].toUpperCase()}`
-                    ] ||
-                    settings.model ||
-                    process.env.LLM_MODEL ||
-                    "gpt-4.1",
+                  model: configuredModel(request.task, settings.model),
                   inputTokens: 0,
                   outputTokens: 0,
                   estimatedCost: 0,

@@ -37,6 +37,7 @@ const specialties = {
   rules:
     "Check only applicable custom rules. Include ruleId for rule findings.",
 };
+const specialistSystem = `You are one of OpenReview's specialist reviewers. The final input block assigns your category (assignment.category) and its focus (assignment.focus); review only for that category. Report only bugs introduced or materially affected by this change. Zero findings is valid. Anchor filePath and startLine on an added or modified line in the supplied diff, not the function declaration unless that declaration changed. endLine must be at least startLine. Context content prefixes each source line with its absolute line number followed by a colon. Use that number for evidence.startLine; omit the number and colon from evidence.quote. Use changedLineNumbers for finding anchors. Evidence quotes must exactly match complete source lines at their stated 1-based positions, including indentation and blank lines. Respond as {"findings": [...]} with each finding: title,description,severity (critical/high/medium/low),confidence (0..1),category (must equal assignment.category; allowed categories are ${categories.join(", ")}),filePath,startLine,endLine (at least startLine),evidence:[{filePath,startLine,quote}],impact,suggestedFix,symbol,optional ruleId. Test source supplies assertions, not recorded execution. Do not claim test outcomes or test-verified behavior without supplied runtime evidence. No style advice or speculation.`;
 export function grounded(finding: Candidate, input: ReviewInput): boolean {
   if(!citesFetchedRequirements([finding.title,finding.description,finding.impact,finding.suggestedFix].join("\n"),input.files.flatMap(f=>f.provenance?[f.provenance.sourceUrl]:[])))return false;
   const changed = input.diff.find((d) => d.path === finding.filePath);
@@ -133,8 +134,10 @@ export async function reviewChange(
           {
             task: `review:${category}`,
             signal,
-            system: `You are OpenReview's ${category} reviewer. ${specialties[category]} Report only bugs introduced or materially affected by this change. Zero findings is valid. Anchor filePath and startLine on an added or modified line in the supplied diff, not the function declaration unless that declaration changed. endLine must be at least startLine. Context content prefixes each source line with its absolute line number followed by a colon. Use that number for evidence.startLine; omit the number and colon from evidence.quote. Use changedLineNumbers for finding anchors. Evidence quotes must exactly match complete source lines at their stated 1-based positions, including indentation and blank lines. Respond as {"findings": [...]} with each finding: title,description,severity (critical/high/medium/low),confidence (0..1),category (must be "${category}"; allowed categories are ${categories.join(", ")}),filePath,startLine,endLine (at least startLine),evidence:[{filePath,startLine,quote}],impact,suggestedFix,symbol,optional ruleId. Test source supplies assertions, not recorded execution. Do not claim test outcomes or test-verified behavior without supplied runtime evidence. No style advice or speculation.`,
-            input: payload,
+            system: specialistSystem,
+            // Every specialist shares one system prompt and the payload prefix, so providers can cache it.
+            context: payload,
+            input: { assignment: { category, focus: specialties[category] } },
           },
           z.object({ findings: z.array(findingSchema).max(30) }).superRefine((value,ctx)=>{
             for(const [index,f] of value.findings.entries())for(const message of executionClaimIssues(f.title+"\n"+f.description+"\n"+f.impact+"\n"+f.suggestedFix,runtimeEvidence))ctx.addIssue({code:z.ZodIssueCode.custom,path:["findings",index],message});

@@ -31,6 +31,8 @@ const usageValidator = v.object({
   latencyMs: v.number(),
   estimatedCost: v.number(),
   cached: v.boolean(),
+  cacheReadTokens: v.optional(v.number()),
+  cacheWriteTokens: v.optional(v.number()),
 });
 
 export const enqueue = internalMutation({

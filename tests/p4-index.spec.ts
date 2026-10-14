@@ -173,7 +173,7 @@ test("hosted P4 review queues the pinned native shelf, reviews unchanged callers
  vi.useFakeTimers();
  const {P4CodeReview}=await import('../src/perforce');const {HttpModel}=await import('../src/engine/model');
  const generate=vi.spyOn(HttpModel.prototype,'generate').mockImplementation(async(request,validator)=>{
-  expect(JSON.stringify(request.input)).toContain('export const charge = cents(2)');
+  expect(JSON.stringify([request.context,request.input])).toContain('export const charge = cents(2)');
   const finding={title:'Currency scale is inverted',description:'The cents helper now divides the price while its unchanged billing caller requires multiplication.',severity:'high',confidence:1,category:'correctness',filePath:'depot/main/file00.ts',startLine:1,endLine:1,evidence:[{filePath:'depot/main/file00.ts',startLine:1,quote:'export function cents(price: number) { return price / 100; }'},{filePath:'depot/main/file01.ts',startLine:2,quote:'export const charge = cents(2);'}],impact:'Billing receives an amount ten thousand times smaller than expected.',suggestedFix:'Multiply the price by 100.',symbol:'cents'};
   const value=request.task==='review:correctness'?{findings:[finding]}:request.task.startsWith('review:')?{findings:[]}:request.task==='verify'?{decisions:[{index:0,publish:true,confidence:1,reason:'Pinned shelf and unchanged caller demonstrate a scale regression.'}]}:{summary:'Changes currency arithmetic and introduces an integer cents contract regression.',reviewScore:{value:1,reason:'The verified billing regression requires correction before this change is ready.'}};
   return {value:validator.parse(value),usage:{task:request.task,provider:'fixture',model:'fixture',inputTokens:0,outputTokens:0,estimatedCost:0,latencyMs:0,cached:false}};

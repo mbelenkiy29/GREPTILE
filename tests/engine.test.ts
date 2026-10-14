@@ -127,6 +127,16 @@ class FixtureModel implements ModelProvider {
     };
   }
 }
+test("specialists share one system prompt and one payload object so providers can cache the prefix", async () => {
+  const model = new FixtureModel();
+  await reviewChange(input, model);
+  const specialists = model.requests.filter((r) => r.task.startsWith("review:"));
+  assert.ok(specialists.length >= 6);
+  assert.equal(new Set(specialists.map((r) => r.system)).size, 1);
+  assert.equal(new Set(specialists.map((r) => JSON.stringify(r.context))).size, 1);
+  assert.deepEqual(specialists.map((r) => (r.input as { assignment: { category: string } }).assignment.category), specialists.map((r) => r.task.slice("review:".length)));
+  assert.ok(specialists.every((r) => !JSON.stringify(r.input).includes("auth.ts")));
+});
 test("candidate remediation execution claims are repaired before publication and caching", async t => {
   const unsupported = "The regression tests passed after requiring a present active user.";
   const corrected = candidate.suggestedFix + " Run the regression tests to verify authentication.";
@@ -292,7 +302,7 @@ test("shared pipeline runs specialties, verifies, deduplicates, persists usage a
     stages.push(stage);
   });
   assert.equal(result.findings.length, 1);
-  const numbered=model.requests.find(r=>r.task==="review:security")!.input as {context:{path:string;content:string}[];diff:{changedLineNumbers:number[]}[]};
+  const numbered=model.requests.find(r=>r.task==="review:security")!.context as {context:{path:string;content:string}[];diff:{changedLineNumbers:number[]}[]};
   assert.ok(numbered.context.find(c=>c.path==="auth.ts")!.content.includes("2:   return user?.active !== false;"));
   assert.deepEqual(numbered.diff[0].changedLineNumbers,[2]);
   assert.equal(result.findings[0].evidence[0].quote,"  return user?.active !== false;");
@@ -353,7 +363,7 @@ test("confidence threshold and rule glob applicability suppress noise without tr
   const rulesRequest = model.requests.find((r) => r.task === "review:rules");
   assert.ok(rulesRequest);
   assert.deepEqual(
-    (rulesRequest.input as { rules: { id: string }[] }).rules.map((r) => r.id),
+    (rulesRequest.context as { rules: { id: string }[] }).rules.map((r) => r.id),
     ["auth"],
   );
   const stored = await reviewChange(
@@ -394,7 +404,7 @@ test("runtime evidence is commit-bound, redacted, supplied to specialists and re
   assert.ok(result.metadata.runtimeEvidence?.output.includes("[REDACTED]"));
   assert.ok(!JSON.stringify(model.requests).includes("runtime-secret-value"));
   assert.equal(
-    (model.requests[0].input as { runtimeEvidence: { exitCode: number } })
+    (model.requests[0].context as { runtimeEvidence: { exitCode: number } })
       .runtimeEvidence.exitCode,
     1,
   );

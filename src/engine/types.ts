@@ -122,6 +122,9 @@ export type ModelUsage = {
   latencyMs: number;
   estimatedCost: number;
   cached: boolean;
+  // Subsets of inputTokens served from / written to the provider prompt cache.
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 };
 export type ReviewResult = {
   summary: string;
@@ -148,13 +151,42 @@ export type ModelRequest = {
   task: string;
   system: string;
   input: unknown;
+  // Large shared data sent before `input` as a stable, cacheable prompt prefix
+  // (e.g. the review payload shared by every specialist). Untrusted, like input.
+  context?: unknown;
   signal?: AbortSignal;
+};
+// JSON Schema object describing a tool's input; results are always untrusted data.
+export type ToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };
+export type ToolCall = { id: string; name: string; input: unknown };
+export type ToolMessage =
+  | { role: "user"; content: string }
+  // providerContent is the provider's raw assistant turn, replayed verbatim (thinking blocks must not be edited).
+  | { role: "assistant"; content: string; toolCalls: ToolCall[]; providerContent?: unknown; provider?: string }
+  | { role: "tool"; results: { id: string; content: string; isError?: boolean }[] };
+export type ToolRequest = {
+  task: string;
+  system: string;
+  context?: unknown;
+  messages: ToolMessage[];
+  tools: ToolDefinition[];
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+};
+export type ToolTurn = {
+  content: string;
+  toolCalls: ToolCall[];
+  stopReason: "tool_use" | "end_turn" | "max_tokens" | "refusal" | "other";
+  message: Extract<ToolMessage, { role: "assistant" }>;
+  usage: ModelUsage;
 };
 export interface ModelProvider {
   generate<T>(
     request: ModelRequest,
     schema: z.ZodType<T>,
   ): Promise<{ value: T; usage: ModelUsage }>;
+  // One model turn with native tool calling; callers own the transcript and execute tools.
+  runTools?(request: ToolRequest): Promise<ToolTurn>;
 }
 export const stages = [
   "queued",

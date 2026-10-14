@@ -121,10 +121,10 @@ test("webhook through indexing, cross-file review, persistence, publish, feedbac
       if (request.task.startsWith("review:")) {
         if (fixed)
           expect(
-            (request.input as { historicalFindings: { title: string }[] })
+            (request.context as { historicalFindings: { title: string }[] })
               .historicalFindings,
           ).toHaveLength(1);
-        const context = (request.input as { context: { path: string }[] })
+        const context = (request.context as { context: { path: string }[] })
           .context;
         expect(context.some((c) => c.path === "route.ts")).toBe(true);
         value = {

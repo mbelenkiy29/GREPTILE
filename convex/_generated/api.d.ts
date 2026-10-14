@@ -64,6 +64,7 @@ import type * as repositories from "../repositories.js";
 import type * as repositoryContext from "../repositoryContext.js";
 import type * as repositoryContextJobs from "../repositoryContextJobs.js";
 import type * as repositoryContextTypes from "../repositoryContextTypes.js";
+import type * as repositoryIdentity from "../repositoryIdentity.js";
 import type * as reviewLifecycle from "../reviewLifecycle.js";
 import type * as reviews from "../reviews.js";
 import type * as runtime from "../runtime.js";
@@ -140,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   repositoryContext: typeof repositoryContext;
   repositoryContextJobs: typeof repositoryContextJobs;
   repositoryContextTypes: typeof repositoryContextTypes;
+  repositoryIdentity: typeof repositoryIdentity;
   reviewLifecycle: typeof reviewLifecycle;
   reviews: typeof reviews;
   runtime: typeof runtime;
