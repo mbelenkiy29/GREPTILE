@@ -90,6 +90,8 @@ Review summary: each pull request (or GitLab merge request) has exactly one Open
 
 Test execution, coverage and a visible **Last reviewed commit** link always appear. Gitea, Bitbucket, Perforce and Origin keep posting one summary per run.
 
+Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
+
 Triggers and filters (GitHub, configurable per workspace, team or repository):
 - With **Automatic reviews** off, reviews run only on `@openreview review` or a trigger label.
 - **Trigger labels** start a review on `pull_request.labeled` and keep re-reviewing labelled pull requests.

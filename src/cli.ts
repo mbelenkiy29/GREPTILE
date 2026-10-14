@@ -11,6 +11,7 @@ import { parseDiff } from "./engine/diff";
 import { eligibleFile } from "./engine/indexer";
 import { reviewChange } from "./engine/review";
 import { modelFromEnvironment } from "./engine/model";
+import { applyRepoConfig, loadRepoConfig } from "./repo-config";
 import type { Rule, SourceFile } from "./engine/types";
 import { runtimeEvidenceSchema } from "./engine/types";
 import { validateRuntime } from "../scripts/sandbox";
@@ -172,27 +173,16 @@ async function main() {
       );
     files.push({ ...entry, content });
   }
-  let rules: Rule[] = [];
-  try {
-    const config = JSON.parse(
-      await readFile(path.join(root, ".openreview.json"), "utf8"),
-    );
-    rules = z
-      .array(
-        z.object({
-          id: z.string(),
-          instructions: z.string(),
-          severity: z.enum(["critical", "high", "medium", "low"]),
-          category: z.string(),
-          globs: z.array(z.string()),
-          enabled: z.boolean(),
-        }),
-      )
-      .parse(config.rules ?? []);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
-      throw error;
-  }
+  // Same repository config schema and base-revision semantics as server reviews.
+  const repoConfig = await loadRepoConfig({
+    tree: async (_repository, sha) => (await git("ls-tree", "-r", "--long", sha)).split("\n").filter(Boolean).flatMap((line) => {
+      const match = /^\d+ blob ([0-9a-f]+)\s+(\d+|-)\t(.+)$/.exec(line);
+      return match ? [{ path: match[3], sha: match[1], size: Number(match[2]) || 0 }] : [];
+    }),
+    blob: async (_repository, _path, sha) => ({ content: await git("cat-file", "blob", sha) }),
+  }, root, baseSha);
+  for (const warning of repoConfig.warnings) process.stderr.write(`OpenReview config: ${warning}\n`);
+  const rules: Rule[] = repoConfig.rules;
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
   const result = await reviewChange(
@@ -211,7 +201,12 @@ async function main() {
           )
         : undefined,
       mode: z.enum(["fast", "standard", "deep"]).parse(values.mode),
-      ...(values.security ? { settings: { categories: ["security"] } } : {}),
+      settings: {
+        ...(repoConfig.settings.ignoredPaths ? { ignoredPaths: repoConfig.settings.ignoredPaths } : {}),
+        ...(repoConfig.settings.instructions || repoConfig.directories.length ? { instructions: applyRepoConfig({ instructions: repoConfig.settings.instructions ?? "" }, repoConfig).settings.instructions } : {}),
+        ...(repoConfig.settings.categories ? { categories: repoConfig.settings.categories } : {}),
+        ...(values.security ? { categories: ["security" as const] } : {}),
+      },
     },
     modelFromEnvironment(),
     async (stage) => {

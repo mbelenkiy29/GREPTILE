@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, authorizeRepository,visibleRepositories,audit } from "./auth";
-import { effectiveSettings } from "./scopes";
+import { effectiveSettings, settingsProvenance } from "./scopes";
 export const repository = query({
   args: { token: v.string(), repositoryId: v.id("repositories") },
   handler: async (ctx, args) => {
@@ -12,7 +12,7 @@ export const repository = query({
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
       .collect();
-    return { repo, settings: await effectiveSettings(ctx, repo), preferences };
+    return { repo, settings: await effectiveSettings(ctx, repo), provenance: await settingsProvenance(ctx, repo), preferences };
   },
 });
 export const resetPreference = mutation({

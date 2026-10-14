@@ -35,11 +35,13 @@ export const defaults = {
   maxFiles: 0,
   maxChangedLines: 0,
   strictness: 0,
+  // Keys the repository config file (.openreview.json, base branch) may not override.
+  lockedKeys: [] as string[],
   commentStyle: "concise",
   summarySections:[...summarySections],
 };
-type ScopeReviewSettings = Omit<typeof defaults,"targetBranches"|"ignoredBranches"|"ignoredPaths"|"summarySections"|"triggerLabels"|"excludedAuthors"> & {
-  targetBranches:string[]; ignoredBranches:string[]; ignoredPaths:string[]; summarySections?:string[]; triggerLabels:string[]; excludedAuthors:string[];
+type ScopeReviewSettings = Omit<typeof defaults,"targetBranches"|"ignoredBranches"|"ignoredPaths"|"summarySections"|"triggerLabels"|"excludedAuthors"|"lockedKeys"> & {
+  targetBranches:string[]; ignoredBranches:string[]; ignoredPaths:string[]; summarySections?:string[]; triggerLabels:string[]; excludedAuthors:string[]; lockedKeys:string[];
 };
 /** Only explicitly selected keys participate; dormant saved values never mask a parent. */
 export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<ScopeReviewSettings>;overrideKeys:readonly string[]}[],teamId?:string) {
@@ -52,7 +54,9 @@ export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<S
 export const reviewEngines=["pipeline","agentic"] as const;
 export const validReviewEngine=(value:string|undefined)=>value===undefined||(reviewEngines as readonly string[]).includes(value);
 // Optional trigger/limit settings stay valid when absent (older saved settings).
-export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:string[];maxFiles?:number;maxChangedLines?:number;strictness?:number})=>
+export const lockableKeys=["mode","minimumConfidence","severityThreshold","maxComments","categories","ignoredPaths","instructions","commentStyle","summarySections","strictness","reviewEngine"] as const;
+export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:string[];maxFiles?:number;maxChangedLines?:number;strictness?:number;lockedKeys?:string[]})=>
+ (s.lockedKeys??[]).every(k=>(lockableKeys as readonly string[]).includes(k))&&
  (s.triggerLabels??[]).length<=20&&(s.triggerLabels??[]).every(l=>l.trim().length>0&&l.length<=100)&&
  (s.excludedAuthors??[]).length<=50&&(s.excludedAuthors??[]).every(a=>a.trim().length>0&&a.length<=100)&&
  [s.maxFiles??0,s.maxChangedLines??0].every(n=>Number.isInteger(n)&&n>=0&&n<=1_000_000)&&[0,1,2,3].includes(s.strictness??0);

@@ -19,6 +19,7 @@ import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
 import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
+import { applyRepoConfig, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
 import { checkConclusion, type CheckConclusion } from "../src/github";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
@@ -395,6 +396,13 @@ export const review = internalAction({
       });
       if(await ctx.runMutation(internal.runtime.request,{reviewId:args.reviewId}))return;
       check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha);
+      // Repository config as code, read from the BASE revision so a change cannot weaken its own review.
+      const repoConfig = await loadRepoConfig(github, repo.fullName, pr.base.sha).catch((error): LoadedRepoConfig => ({ settings: {}, rules: [], files: [], directories: [], warnings: ["Repository config could not be read from the base revision: " + redact(error instanceof Error ? error.message : "unavailable").slice(0, 200)] }));
+      const configured = applyRepoConfig(settings, repoConfig);
+      const effective = configured.settings;
+      if (repoConfig.files.length || repoConfig.warnings.length || repo.configFile)
+        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length });
+      const configNotes = [...repoConfig.warnings, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
       // Incremental review when the last reviewed head is an ancestor of this head.
       const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
       const comparison = previousHead && github.compare ? await github.compare(repo.fullName, previousHead, pr.head.sha).catch(() => "unavailable" as const) : undefined;
@@ -538,11 +546,11 @@ export const review = internalAction({
           }
         },
       };
-      const agentic = settings.reviewEngine === "agentic";
+      const agentic = effective.reviewEngine === "agentic";
       const result = {...await reviewChange(
         {
           repository: repo.fullName,
-          coverageLimits:[...(scope.note?[scope.note]:[]),...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
+          coverageLimits:[...(scope.note?[scope.note]:[]),...configNotes,...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
           baseSha: pr.base.sha,
           headSha: pr.head.sha,
           title: pr.title,
@@ -572,31 +580,31 @@ export const review = internalAction({
           ...(scope.incremental ? { fullDiff: pr.diff } : {}),
           skippedFiles: pr.omitted,
           sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
-          mode: z.enum(["fast", "standard", "deep"]).parse(settings.mode),
-          rules: rules.map((r) => ({
-            id: r._id,
+          mode: z.enum(["fast", "standard", "deep"]).parse(effective.mode),
+          rules: [...rules.map((r) => ({
+            id: r._id as string,
             instructions: r.instructions,
             severity: z.enum(severities).parse(r.severity),
             category: r.category,
             globs: r.globs,
             enabled: r.enabled,
-          })),
+          })), ...repoConfig.rules],
           preferences,
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
           settings: {
-            minimumConfidence: effectiveThresholds(settings).minimumConfidence,
+            minimumConfidence: effectiveThresholds(effective).minimumConfidence,
             severityThreshold: z
               .enum(severities)
-              .parse(effectiveThresholds(settings).severityThreshold),
-            maxComments: settings.maxComments,
-            ignoredPaths: settings.ignoredPaths,
+              .parse(effectiveThresholds(effective).severityThreshold),
+            maxComments: effective.maxComments,
+            ignoredPaths: effective.ignoredPaths,
             categories: state.review.category
               ? [z.enum(categories).parse(state.review.category)]
-              : settings.categories.map((c) => z.enum(categories).parse(c)),
-            instructions: settings.instructions,
-            summarySections:settings.summarySections,
+              : effective.categories.map((c) => z.enum(categories).parse(c)),
+            instructions: effective.instructions,
+            summarySections:effective.summarySections,
           },
         },
         model,
@@ -633,9 +641,9 @@ export const review = internalAction({
         pr.number,
         pr.head.sha,
         result.summary,
-        result.findings.slice(0, settings.maxComments),
+        result.findings.slice(0, effective.maxComments),
         args.reviewId,
-        settings.commentStyle,
+        effective.commentStyle,
           state.review.revisionKey,
           result.findings.length+(result.metadata.carriedForward?.length??0),
       );

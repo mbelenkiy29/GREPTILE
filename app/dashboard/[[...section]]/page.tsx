@@ -9,6 +9,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { backend, current } from "../../../src/server";
 import { MermaidDiagram } from "../mermaid";
+import { lockableKeys } from "../../../src/review-settings";
 import { fixPrompt } from "../../../src/fix-prompt";
 import { findingSchema } from "../../../src/engine/types";
 import {
@@ -1145,6 +1146,16 @@ export default async function Dashboard({
               <section>
                 <h2>{repoSettings.repo.fullName}</h2>
                 <p className="muted repository-identity">{repoLabel(repoSettings.repo._id)}</p>
+                <details className="effective-config"><summary>Effective configuration and sources</summary>
+                  {repoSettings.repo.configFile ? <p>Repository config from base revision <code>{repoSettings.repo.configFile.sha.slice(0, 7)}</code>: {repoSettings.repo.configFile.files.map((f) => <code key={f}>{f} </code>)}{repoSettings.repo.configFile.rules ? ` · ${repoSettings.repo.configFile.rules} rules` : ""}</p> : <p className="muted">No <code>.openreview.json</code> or <code>.openreview/</code> configuration was found on a reviewed base branch yet.</p>}
+                  {repoSettings.repo.configFile?.warnings.map((w) => <p key={w} className="warning" role="alert">{w}</p>)}
+                  <table><thead><tr><th>Setting</th><th>Value</th><th>Source</th></tr></thead><tbody>{lockableKeys.map((key) => {
+                    const fromFile = repoSettings.repo.configFile?.applied.includes(key), locked = repoSettings.repo.configFile?.blocked.includes(key);
+                    const fileValues = fromFile ? JSON.parse(repoSettings.repo.configFile!.values) as Record<string, unknown> : {};
+                    const value = fromFile ? fileValues[key] : (repoSettings.settings as Record<string, unknown>)[key];
+                    return <tr key={key}><td>{key}</td><td><code>{JSON.stringify(value ?? null).slice(0, 120)}</code></td><td>{fromFile ? "repository file" : (repoSettings.provenance[key] ?? "default") + ((repoSettings.settings.lockedKeys ?? []).includes(key) ? " · locked" : "") + (locked ? " (file value ignored)" : "")}</td></tr>;
+                  })}</tbody></table>
+                </details>
                 {semantic && <p className="muted" aria-label="Semantic retrieval status">{semantic.configured ? <>Semantic retrieval: <strong>on</strong> · {semantic.model} · {semantic.chunks}{semantic.more ? "+" : ""} chunks across {semantic.files} files{semantic.stale ? ` · ${semantic.stale} chunks from another model are replaced on the next re-index` : ""}{!semantic.chunks ? " · re-index to build chunk embeddings" : ""}</> : <>Semantic retrieval: <strong>off</strong>. Set <code>EMBEDDING_MODEL</code> (an OpenAI-compatible 1,536-dimension endpoint) in the backend environment and re-index; full-text and code-graph retrieval run either way.</>}</p>}
                 <form action={saveSettings}><fieldset className="form-grid" disabled={!isAdmin}><legend>Repository review settings</legend>
                   <input
@@ -1261,6 +1272,13 @@ export default async function Dashboard({
                     Skip automatic reviews above changed lines (0 = no limit)
                     <input name="maxChangedLines" type="number" min={0} defaultValue={repoSettings.settings.maxChangedLines ?? 0} />
                   </label>
+                  <fieldset className="wide">
+                    <legend>Lock against the repository config file</legend>
+                    <input type="hidden" name="lockedConfigured" value="true" />
+                    {lockableKeys.map((key) => (
+                      <label key={key} className="check"><input type="checkbox" name="lockedKeys" value={key} defaultChecked={(repoSettings.settings.lockedKeys ?? []).includes(key)} /> {key}</label>
+                    ))}
+                  </fieldset>
                   <label>
                     GitHub check run
                     <select

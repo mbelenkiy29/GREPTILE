@@ -55,7 +55,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: pure pullRequestTrigger (automatic/label/excluded authors/branch/draft) wired into webhookJobs incl. `labeled`; review.trigger field (automatic/label/mention/manual); size limits cancel automatic reviews; strictness presets → thresholds; style/syntax opt-in categories with conditional prompt; settings across scopes/forms/UI.
   evidence: tested with fakes; tests: tests/triggers.test.ts (7: automatic, mention-only, labels, excluded authors/branches/drafts, size limits, strictness, inheritance), tests/trigger-dispatch.spec.ts (signed webhook → label trigger, labelled synchronize, excluded author, unlabelled synchronize); commands: lint/typecheck/test (272 Node + 170 vitest)/build green; commit: see git log feat(B7)
   notes: "only on @mention" = Automatic reviews off (existing `@openreview review` command) — UI label clarified. GitHub-only wiring; other providers unchanged (documented).
-- [ ] B8 Repo config as code — todo
+- [x] B8 Repo config as code — done
+  plan: shared src/repo-config.ts (strict schema, rules.md, nested scoped overrides, 64 KB cap) loaded at the PR base sha (server) / base commit (CLI); applyRepoConfig with admin lockedKeys; warnings → summary coverage + repository.configFile snapshot; settings page shows effective value + source; lock controls on scopes and repo.
+  evidence: tested with fakes; tests: tests/repo-config.test.ts (4: base-branch sourcing, precedence + locks + scoped instructions, invalid/oversized files, rules.md parsing), tests/repo-config.spec.ts (Convex review job: base config applied, head edits ignored, lock respected, invalid file warning in summary, snapshot + provenance); commands: lint/typecheck/test (276 Node + 171 vitest)/build green; commit: see git log feat(B8)
+- Phase B end: `pnpm build` green; `pnpm test:e2e` still blocked on the Playwright browser install (Needs human #10).
 - [ ] C1 Reaction feedback — todo
 - [ ] C2 Learn from human reviewers — todo
 - [ ] C3 Memory management — todo

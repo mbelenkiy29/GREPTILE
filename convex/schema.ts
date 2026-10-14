@@ -45,6 +45,7 @@ export const settingsValidator = v.object({
   maxFiles:v.optional(v.number()),
   maxChangedLines:v.optional(v.number()),
   strictness:v.optional(v.number()),
+  lockedKeys:v.optional(v.array(v.string())),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -200,6 +201,8 @@ export default defineSchema({
     .index("by_org", ["organizationId"]),
   repositories: defineTable({
     indexScheduledId:v.optional(v.id("_scheduled_functions")),
+    // Latest repository config file read from a pull request base revision (for the dashboard).
+    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number() })),
     branches: v.optional(
       v.array(
         v.object({ name: v.string(), sha: v.string(), protected: v.boolean() }),

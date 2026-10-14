@@ -23,6 +23,13 @@ function resolveSettings(repo:Doc<"repositories">,scopes:Doc<"scopeSettings">[],
  const value=scopeDefaults(scopes,repo.teamId);
  return local&&!local.inherit?{...value,...local.settings}:value;
 }
+// Where each effective dashboard value comes from (before the repository config file applies).
+export async function settingsProvenance(ctx:QueryCtx|MutationCtx,repo:Doc<"repositories">):Promise<Record<string,"default"|"workspace"|"team"|"repository">> {
+ const scopes=await ctx.db.query("scopeSettings").withIndex("by_org",q=>q.eq("organizationId",repo.organizationId)).collect();
+ const local=await ctx.db.query("repositorySettings").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique();
+ const workspace=scopes.find(s=>!s.teamId),team=repo.teamId?scopes.find(s=>s.teamId===repo.teamId):undefined;
+ return Object.fromEntries(keys.map(key=>[key,local&&!local.inherit&&(local.settings as Record<string,unknown>)[key]!==undefined?"repository":team?.overrideKeys.includes(key)?"team":workspace?.overrideKeys.includes(key)?"workspace":"default"]));
+}
 export async function effectiveSettings(ctx:QueryCtx|MutationCtx,repo:Doc<"repositories">) {
  const scopes=await ctx.db.query("scopeSettings").withIndex("by_org",q=>q.eq("organizationId",repo.organizationId)).collect();
  const local=await ctx.db.query("repositorySettings").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique();

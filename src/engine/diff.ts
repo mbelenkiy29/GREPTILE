@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { Candidate, ChangedFile } from "./types";
 
 export { changedLines } from "./patch-lines";
-import { changedLines } from "./patch-lines";
 
 export function parseDiff(diff: string): ChangedFile[] {
   const files: ChangedFile[] = [];

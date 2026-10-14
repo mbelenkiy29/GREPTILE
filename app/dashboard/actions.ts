@@ -226,6 +226,7 @@ export async function saveSettings(form: FormData) {
       maxFiles: form.has("maxFiles") ? Number(text(form, "maxFiles")) : previous.settings.maxFiles ?? 0,
       maxChangedLines: form.has("maxChangedLines") ? Number(text(form, "maxChangedLines")) : previous.settings.maxChangedLines ?? 0,
       strictness: form.has("strictness") ? Number(text(form, "strictness")) : previous.settings.strictness ?? 0,
+      lockedKeys: form.has("lockedConfigured") ? form.getAll("lockedKeys").map(String) : previous.settings.lockedKeys ?? [],
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

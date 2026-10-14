@@ -214,6 +214,10 @@ export const data = internalQuery({
     };
   },
 });
+export const recordConfigFile = internalMutation({args:{repositoryId:v.id("repositories"),sha:v.string(),files:v.array(v.string()),applied:v.array(v.string()),blocked:v.array(v.string()),warnings:v.array(v.string()),values:v.string(),rules:v.number()},handler:async(ctx,a)=>{
+  const repo=await ctx.db.get(a.repositoryId);if(!repo)return;
+  await ctx.db.patch(repo._id,{configFile:a.files.length||a.warnings.length?{sha:a.sha,files:a.files.slice(0,60),applied:a.applied,blocked:a.blocked,warnings:a.warnings.slice(0,20).map(w=>w.slice(0,500)),values:a.values.slice(0,4000),rules:a.rules,checkedAt:Date.now()}:undefined});
+}});
 export const maxRules = 1000, maxPreferences = 1000, fileLookupBatch = 200, filePageSize = 1000;
 const fileRow = (f: Doc<"repositoryFiles">) => ({ path: f.path, sha: f.sha, storageId: f.storageId, graphVersion: f.graphVersion });
 export const filesByPath = internalQuery({args:{repositoryId:v.id("repositories"),paths:v.array(v.string())},handler:async(ctx,a)=>{
