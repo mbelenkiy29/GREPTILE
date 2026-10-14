@@ -12,7 +12,7 @@ export function LineChart({ title, labels, series, format = (v: number) => Strin
       {series.map((s, i) => segments(linePoints(s.values, max, width, height)).map((pts, j) => <polyline key={`${i}-${j}`} points={pts} fill="none" stroke={palette[i % palette.length]} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />))}
     </svg>
     <div className="chart-legend">{series.map((s, i) => <span key={s.label}><i style={{ background: palette[i % palette.length] }} />{s.label}</span>)}<span className="muted">max {format(max)} · {labels[0]} – {labels.at(-1)}</span></div>
-    <table className="sr-only"><caption>{title}</caption><thead><tr><th>Day</th>{series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead><tbody>{labels.map((l, i) => <tr key={l}><td>{l}</td>{series.map((s) => <td key={s.label}>{s.values[i] === null ? "—" : format(s.values[i]!)}</td>)}</tr>)}</tbody></table>
+    <div className="sr-only"><table><caption>{title}</caption><thead><tr><th>Day</th>{series.map((s) => <th key={s.label}>{s.label}</th>)}</tr></thead><tbody>{labels.map((l, i) => <tr key={l}><td>{l}</td>{series.map((s) => <td key={s.label}>{s.values[i] === null ? "—" : format(s.values[i]!)}</td>)}</tr>)}</tbody></table></div>
   </figure>;
 }
 export function BarList({ title, items, format = (v: number) => String(v) }: { title: string; items: { label: string; value: number; detail?: string }[]; format?: (v: number) => string }) {

@@ -8,8 +8,8 @@ This plan closed the feature gaps listed in `.claude/skills/greptile-parity/ITEM
 
 | | Count | Items |
 |---|---|---|
-| Done | 31 | H1–H4, A1–A4, B1–B8, C1–C4, D1–D5, E1–E3, F1–F3 |
-| Needs human | 1 | E4. It is implemented, but its browser acceptance waits for the Playwright install (checklist step 8) |
+| Done | 32 | H1–H4, A1–A4, B1–B8, C1–C4, D1–D5, E1–E4, F1–F3 |
+| Needs human | 0 | |
 | Blocked | 0 | |
 | Remaining | 0 | |
 
@@ -21,6 +21,7 @@ Final gate on the last commit:
 | `pnpm typecheck` | ✓ |
 | `pnpm test` | ✓ 326 Node + 222 vitest tests across 81 `*.test.ts` and 34 `*.spec.ts` files |
 | `pnpm build` | ✓ |
+| `pnpm test:e2e` | ✓ Playwright Chromium against local Convex and a production `next start`: landing, docs, changelog, onboarding, 25 dashboard pages, saved settings and rules, Memory filters, Chat, 390 px mobile and dark theme, with no console errors |
 | `pnpm test:smoke` | ✓ All 23 dashboard routes plus the landing, docs and invite pages server-render against local Convex and a production `next start` |
 | `docker build -t openreview:local .` | ✓ on the second approach (see [Docker](#docker)). The built container served `/docs/quickstart`, `/api/health` and `/robots.txt` with 200 |
 
@@ -349,7 +350,7 @@ Each item lists what shipped, its evidence level, its tests and its known limits
 - Tests: `tests/docs-links.test.ts` (3).
 - Limits: docs use Markdown, not MDX.
 
-**E4 UI polish** (needs human)
+**E4 UI polish** (verified locally end-to-end)
 - Shipped:
   - The dashboard split into one module per section, plus a UI kit.
   - Loading and not-found states.
@@ -357,13 +358,18 @@ Each item lists what shipped, its evidence level, its tests and its known limits
   - Analytics rollups and SVG charts.
   - A diff viewer with inline findings.
   - A browserless smoke test.
-- Evidence: tested with fakes, plus verified locally end-to-end by `pnpm test:smoke`.
+  - A browser acceptance run in Playwright Chromium. It walks every main and secondary navigation page and checks mobile and dark layouts.
+- Evidence: tested with fakes, plus verified locally end-to-end by `pnpm test:smoke` and `pnpm test:e2e`.
 - Tests:
   - `tests/charts.test.ts`.
   - `tests/analytics-trends.spec.ts` (3).
   - `tests/diff-view.test.ts` (2).
   - `tests/review-diff.spec.ts` (2).
-- Limits: the Playwright run (including mobile and dark-mode screenshots) needs Chromium (checklist steps 8 and 12).
+- Fixed during acceptance: the Analytics chart's screen-reader table made the page 2 px wider than a 390 px phone screen. Tables ignore the width that `.sr-only` sets, so the class now sits on a wrapping element.
+- Test changes, both deliberate:
+  - The e2e script's navigation walk had used the dashboard's nav names from before the baseline. It now walks the current navigation.
+  - Screenshots now wait for page content instead of the loading skeleton.
+- Limits: GitHub OAuth sign-in and real indexing aren't exercised in the browser run. They need external credentials.
 
 ### Phase F: Providers and handoff
 
@@ -428,7 +434,7 @@ Steps are grouped by when they're needed. The ledger number for each step is in 
 
 ### Right after deploying
 
-8. **Install Playwright locally, then run the browser acceptance** [#10, #20]. Run `pnpm exec playwright install chromium` (about 150 MB). Start `pnpm backend` and `pnpm dev`, then run `pnpm test:e2e`. Inspect `output/playwright/*.png`. This closes E4.
+8. ~~**Install Playwright locally, then run the browser acceptance**~~ [#10, #20]. **Done on October 14, 2026**, and `pnpm test:e2e` passes. Rerun it after UI changes: start `pnpm backend` and `pnpm dev`, run `pnpm test:e2e`, then inspect `output/playwright/*.png`.
 9. **Backfill identities** [#19]. Run `npx convex run identity:backfillIdentities --prod` once.
 10. **Check the code graph** [#8]. Run `npx convex run graphDiagnostics:status --prod` once to confirm the grammars load. Then re-index repositories.
 

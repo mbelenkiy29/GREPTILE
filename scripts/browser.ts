@@ -1,5 +1,5 @@
 import { loadEnvFile } from "node:process";
-import { chromium } from "playwright";
+import { chromium, type Locator } from "playwright";
 import { ConvexHttpClient } from "convex/browser";
 import { SignJWT } from "jose";
 import assert from "node:assert/strict";
@@ -88,19 +88,47 @@ try {
   await page
     .getByRole("heading", { name: "test-fixture/context-example", exact: true })
     .waitFor();
+  // Walk every page in the main navigation and in each section's secondary navigation.
+  const settled = () =>
+    page.waitForFunction(
+      () =>
+        document.querySelector("h1") &&
+        ![...document.querySelectorAll("h1")].some(
+          (h) => h.textContent === "Loading…",
+        ),
+    );
+  const visit = async (link: Locator) => {
+    const href = (await link.getAttribute("href"))!.split("?")[0];
+    await link.click();
+    await page.waitForURL((u) => u.pathname.startsWith(href));
+    await settled();
+  };
+  let dashboardPages = 0;
   for (const name of [
-    "Overview",
-    "Repositories",
-    "Reviews",
-    "Findings",
-    "Knowledge",
-    "Rules",
-    "Team",
-    "Usage",
+    "Analytics",
+    "Chat",
+    "Memory",
+    "Pull Requests",
     "Settings",
   ]) {
-    await page.getByRole("link", { name, exact: true }).first().click();
-    await page.getByRole("heading", { name, exact: true }).waitFor();
+    await visit(
+      page
+        .getByRole("navigation", { name: "Main navigation" })
+        .getByRole("link", { name, exact: true }),
+    );
+    dashboardPages++;
+    const secondary = page.locator("aside.secondary-nav nav").first();
+    if (!(await secondary.count())) continue;
+    for (const label of await secondary.getByRole("link").allTextContents()) {
+      const link = secondary.getByRole("link", { name: label, exact: true });
+      await visit(link);
+      assert.equal(
+        await link.getAttribute("aria-current"),
+        "page",
+        `${label} is not marked as the current page`,
+      );
+      dashboardPages++;
+    }
   }
   const [repository] = await backend.query(api.repositories.list, {
     token,
@@ -147,7 +175,9 @@ try {
   await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(/convention=suggested/);
   await page.getByText("0 matching conventions", { exact: false }).waitFor();
+  // Screenshots and layout checks wait for the page content, not the streamed loading skeleton.
   await page.goto(`${url}/dashboard`);
+  await settled();
   await page.screenshot({
     path: "output/playwright/dashboard.png",
     fullPage: true,
@@ -167,15 +197,17 @@ try {
   await page.emulateMedia({ colorScheme: "dark" });
   for (const path of ["/dashboard", "/dashboard/chat", "/dashboard/settings/billing", "/docs/quickstart"]) {
     await page.goto(url + path);
+    await settled();
     await page.screenshot({ path: `output/playwright/dark-mobile${path.replaceAll("/", "-")}.png`, fullPage: true });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Dark mobile ${path} overflows horizontally`);
   }
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${url}/dashboard`);
+  await settled();
   await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    "Browser verification passed: landing, docs, changelog, onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.",
+    `Browser verification passed: landing, docs, changelog, onboarding, repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
   );
 } finally {
   await browser.close();
