@@ -5,6 +5,8 @@ import { internal } from "./_generated/api";
 import { agentStateSchema, type AgentHooks, type AgentState, type AgentToolbox } from "../src/engine/agent";
 import type { SourceFile } from "../src/engine/types";
 import { indexedFiles } from "./fileReads";
+import { semanticHits } from "./semanticSearch";
+import { hybridRank } from "../src/engine/hybrid";
 
 type Blob = (repository: string, path: string, sha: string) => Promise<SourceFile>;
 // Binds every agent tool to one repository and one head revision. File reads always resolve to
@@ -14,7 +16,13 @@ export function reviewToolbox(ctx: ActionCtx, repo: Doc<"repositories">, headSha
   const repositoryId = repo._id;
   return {
     revisions: { head: headSha, index: repo.indexedSha },
-    searchCode: (query) => ctx.runQuery(internal.agentTools.search, { repositoryId, query }),
+    async searchCode(query) {
+      const text = await ctx.runQuery(internal.agentTools.search, { repositoryId, query });
+      const vector = await semanticHits(ctx, repositoryId, query, 12).catch(() => []);
+      if (!vector.length) return text;
+      return hybridRank({ vector, text: text.map((hit, rank) => ({ path: hit.path, score: 1 / (1 + rank), startLine: hit.line })) }, 20)
+        .map((hit) => text.find((t) => t.path === hit.path) ?? { path: hit.path, line: hit.startLine ?? 1, snippet: `semantic match, lines ${hit.startLine}–${hit.endLine}` });
+    },
     async readFile(path) {
       const entry = head.get(path);
       if (!entry || (entry.size ?? 0) > 200_000) return null;

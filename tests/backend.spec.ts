@@ -740,7 +740,7 @@ test("unchanged source receives a graph-version upgrade once without knowledge o
  const [repo]=await t.query(api.repositories.list,{token:alice,organizationId});await t.run(ctx=>ctx.db.patch(repo._id,{enabled:true}));
  const version=(await import('../src/engine/index-version')).INDEX_GRAPH_VERSION;
  const files=[{path:"value.ts",sha:"value-blob",content:"export const result=7;"},{path:"value.test.cts",sha:"test-blob",content:"const subject=require('./value.js');"}];
- await t.run(async ctx=>{for(const [i,f] of files.entries()){const storageId=await ctx.storage.store(new Blob([f.content]));await ctx.db.insert("repositoryFiles",{organizationId,repositoryId:repo._id,path:f.path,sha:f.sha,storageId,language:"ts",updatedAt:Date.now(),...(i===0?{graphVersion:version}:{})});if(i===0)await ctx.db.insert("graphModuleReferences",{repositoryId:repo._id,path:f.path,sha:f.sha,graphVersion:version,references:[]});await ctx.db.insert("embeddings",{organizationId,repositoryId:repo._id,path:f.path,sha:f.sha,model:"graph-cache-fixture",scope:repo._id,vector:Array(1536).fill(0),updatedAt:Date.now()});}});
+ await t.run(async ctx=>{for(const [i,f] of files.entries()){const storageId=await ctx.storage.store(new Blob([f.content]));await ctx.db.insert("repositoryFiles",{organizationId,repositoryId:repo._id,path:f.path,sha:f.sha,storageId,language:"ts",updatedAt:Date.now(),...(i===0?{graphVersion:version}:{})});if(i===0)await ctx.db.insert("graphModuleReferences",{repositoryId:repo._id,path:f.path,sha:f.sha,graphVersion:version,references:[]});await ctx.db.insert("chunkEmbeddings",{organizationId,repositoryId:repo._id,path:f.path,sha:f.sha,model:"graph-cache-fixture",scope:repo._id+":graph-cache-fixture",startLine:1,endLine:1,vector:Array(1536).fill(0),updatedAt:Date.now()});}});
  const fetch=vi.spyOn(globalThis,"fetch").mockRejectedValue(new Error("Graph-only upgrade must not call inference"));
  const native=new Github("fixture"),fetchBlob=vi.spyOn(native,"blob").mockImplementation(async(_repo,path,sha)=>{const f=files.find(f=>f.path===path)!;expect(sha).toBe(f.sha);return f;});vi.spyOn(Github,"installation").mockResolvedValue(native);
  const run=async()=>{const jobId=(await t.mutation(internal.repositories.indexing,{repositoryId:repo._id,sha:"pinned-head",total:2,knowledgePaths:[]}))!;await t.run(async ctx=>{const manifestStorageId=await ctx.storage.store(new Blob([JSON.stringify({sha:"pinned-head",gitignore:"",changedPaths:[],entries:files.map(({path,sha})=>({path,sha}))})]));await ctx.db.patch(jobId,{manifestStorageId});});await t.action(internal.jobs.indexBatch,{jobId});return jobId;};
@@ -788,15 +788,16 @@ test("superseded index batches cannot replace files, embeddings, or the current 
  const storageId=await t.run(ctx=>ctx.storage.store(new Blob(["current source"])));
  const file={repositoryId:repo._id,jobId,path:"keep.ts",sha:"current-blob",storageId,chunks:[],symbols:[],relationships:[]};
  await t.mutation(internal.repositories.indexedFile,file);
- await t.mutation(internal.embeddings.save,{repositoryId:repo._id,jobId,path:file.path,sha:file.sha,model:"test",vector:Array(1536).fill(1)});
+ expect(await t.mutation(internal.embeddings.saveChunks,{repositoryId:repo._id,jobId,path:file.path,sha:file.sha,model:"test",chunks:[{startLine:1,endLine:1,vector:Array(1536).fill(1)}]})).toBe(true);
  await t.mutation(internal.repositories.indexedFile,{...file,jobId:oldId,sha:"stale-blob"});
  await t.mutation(internal.repositories.removeIndexedFile,{repositoryId:repo._id,jobId:oldId,path:file.path});
- await t.mutation(internal.embeddings.save,{repositoryId:repo._id,jobId:oldId,path:file.path,sha:"stale-blob",model:"test",vector:Array(1536).fill(0)});
+ expect(await t.mutation(internal.embeddings.saveChunks,{repositoryId:repo._id,jobId:oldId,path:file.path,sha:"stale-blob",model:"test",chunks:[{startLine:1,endLine:1,vector:Array(1536).fill(0)}]})).toBe(false);
  const finish={repositoryId:repo._id,jobId:oldId,sha:"old"};
  expect(await t.mutation(internal.repositories.finishIndex,finish)).toBe(false);
  expect(await t.mutation(internal.repositories.finishIndex,{...finish,error:"Late error"})).toBe(false);
  expect(await t.run(ctx=>ctx.db.query("repositoryFiles").withIndex("by_path",q=>q.eq("repositoryId",repo._id).eq("path",file.path)).unique())).toMatchObject({sha:"current-blob"});
- expect(await t.query(internal.embeddings.existing,{repositoryId:repo._id,path:file.path})).toMatchObject({sha:file.sha,vector:Array(1536).fill(1)});
+ expect(await t.query(internal.embeddings.chunkState,{repositoryId:repo._id,path:file.path})).toEqual({sha:file.sha,model:"test",chunks:1});
+ expect((await t.run(ctx=>ctx.db.query("chunkEmbeddings").withIndex("by_path",q=>q.eq("repositoryId",repo._id).eq("path",file.path)).unique()))?.vector).toEqual(Array(1536).fill(1));
  expect(await t.run(ctx=>ctx.db.get(repo._id))).toMatchObject({indexStatus:"indexing"});
  expect(await t.mutation(internal.repositories.finishIndex,{...finish,jobId,sha:"current",processed:1})).toBe(true);
  expect(await t.mutation(internal.repositories.finishIndex,{...finish,jobId,sha:"current",error:"Late duplicate failure"})).toBe(false);

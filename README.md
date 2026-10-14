@@ -77,7 +77,7 @@ Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMAR
 
 Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++ and Swift use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
 
-Optional semantic retrieval: set `EMBEDDING_MODEL` with an OpenAI-compatible embedding endpoint/key (`EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`) supporting exactly 1,536 dimensions. Set `EMBEDDING_COST_PER_MILLION` for cost reporting and re-index to backfill existing sources. Full-text and graph retrieval work without embeddings.
+Optional semantic retrieval: set `EMBEDDING_MODEL` with an OpenAI-compatible embedding endpoint and key (`EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`) that supports exactly 1,536 dimensions. Indexing embeds definition-level chunks (function, class or method boundaries from the code graph, with line windows as fallback). Reviews and the agentic `search_code` tool rank context with a hybrid of vector similarity, full-text relevance and code-graph proximity. Re-indexing backfills idempotently: unchanged files already embedded with the current model are skipped, and a model change re-embeds them. Embedding tokens and estimated cost are recorded as usage (`EMBEDDING_COST_PER_MILLION`, or the built-in price table). The repository settings page shows whether semantic retrieval is on. Without embeddings, full-text and graph retrieval still run.
 
 ## Environment
 

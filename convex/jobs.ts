@@ -11,6 +11,8 @@ import { z } from "zod";
 import { provider } from "./scm";
 import { fileInventory, indexedFiles } from "./fileReads";
 import { reviewAgentHooks, reviewToolbox } from "./agentToolbox";
+import { semanticHits } from "./semanticSearch";
+import { hybridRank } from "../src/engine/hybrid";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
@@ -20,7 +22,7 @@ import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
 import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
-import { sourceChunks } from "../src/engine/chunks";
+import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
 import { ModelFailure, configuredModel } from "../src/engine/model";
 import {
@@ -146,15 +148,8 @@ export const indexBatch = internalAction({
         const receipt=references.get(entry.path);
         if (previous?.sha === entry.sha && previous.graphVersion === INDEX_GRAPH_VERSION && receipt?.sha===entry.sha && receipt.graphVersion===INDEX_GRAPH_VERSION && moduleReferencesCurrent(entry.path,receipt.references,pathSet)) {
           if (!process.env.EMBEDDING_MODEL) continue;
-          const cachedEmbedding = await ctx.runQuery(
-            internal.embeddings.existing,
-            { repositoryId: data.repo._id, path: entry.path },
-          );
-          if (
-            cachedEmbedding?.sha === entry.sha &&
-            cachedEmbedding.model === process.env.EMBEDDING_MODEL
-          )
-            continue;
+          const embedded = await ctx.runQuery(internal.embeddings.chunkState, { repositoryId: data.repo._id, path: entry.path });
+          if (embedded?.sha === entry.sha && embedded.model === process.env.EMBEDDING_MODEL) continue;
         }
         const expected=inventory?.manifest.find(f=>f.depotFile.slice(2)===entry.path);
         if(inventory&&!expected)throw new Error("P4 index entry outside pinned inventory");
@@ -175,34 +170,16 @@ export const indexBatch = internalAction({
         if (!index.files.length) continue;
         const moduleReferences=[...new Map((index.moduleReferences??[]).filter(r=>r.path===file.path).map(({specifier,resolvedPath})=>[specifier,{specifier,resolvedPath}])).values()];
         if (process.env.EMBEDDING_MODEL) {
-          const embedder = new Embeddings(inferenceBilling(ctx)),
-            started = Date.now();
-          const oldEmbedding = await ctx.runQuery(
-            internal.embeddings.existing,
-            { repositoryId: data.repo._id, path: file.path },
-          );
-          if (
-            oldEmbedding?.sha !== file.sha ||
-            oldEmbedding.model !== embedder.model
-          ) {
-            const embedded = await embedder.embed([
-              file.path + "\n" + index.files[0].content,
-            ]);
-            await ctx.runMutation(internal.embeddings.save, {
-              repositoryId: data.repo._id,
-              jobId:job._id,
-              leaseId,
-              path: file.path,
-              sha: file.sha,
-              model: embedder.model!,
-              vector: embedded.vectors[0],
-            });
-            await ctx.runMutation(internal.embeddings.usage, {
-              repositoryId: data.repo._id,
-              tokens: embedded.tokens,
-              estimatedCost: embedded.estimatedCost,
-              durationMs: Date.now() - started,
-            });
+          // Chunk-level embeddings at definition boundaries; unchanged blobs with the current
+          // model are skipped, so re-index backfills are idempotent.
+          const embedder = new Embeddings(inferenceBilling(ctx)), started = Date.now();
+          const state = await ctx.runQuery(internal.embeddings.chunkState, { repositoryId: data.repo._id, path: file.path });
+          if (state?.sha !== file.sha || state.model !== embedder.model) {
+            // Variable declarations (including locals) are not chunk boundaries.
+            const chunks = semanticChunks(index.files[0].content, index.symbols.filter((symbol) => symbol.path === file.path && symbol.kind !== "VariableDeclaration")).slice(0, 64);
+            const embedded = chunks.length ? await embedder.embed(chunks.map((c) => `${file.path}:${c.startLine}-${c.endLine}${c.symbol ? " " + c.symbol : ""}\n${c.content}`)) : { vectors: [], tokens: 0, estimatedCost: 0 };
+            await ctx.runMutation(internal.embeddings.saveChunks, { repositoryId: data.repo._id, jobId: job._id, leaseId, path: file.path, sha: file.sha, model: embedder.model!, chunks: chunks.map((c, i) => ({ startLine: c.startLine, endLine: c.endLine, ...(c.symbol ? { symbol: c.symbol } : {}), vector: embedded.vectors[i] })) });
+            if (embedded.tokens) await ctx.runMutation(internal.embeddings.usage, { repositoryId: data.repo._id, tokens: embedded.tokens, estimatedCost: embedded.estimatedCost, durationMs: Date.now() - started });
           }
         }
         const storageId = await ctx.storage.store(
@@ -434,36 +411,12 @@ export const review = internalAction({
           status: finding.status,
         }));
       const head = new Map(tree.map((f) => [f.path, f]));
-      const semanticPaths: string[] = [];
-      if (process.env.EMBEDDING_MODEL) {
-        const embedder = new Embeddings(inferenceBilling(ctx));
-        const embedded = await embedder.embed([
-          redact(
-            pr.title +
-              "\n" +
-              pr.diff
-                .map((f) => f.path + "\n" + f.patch.slice(0, 3000))
-                .join("\n"),
-          ),
-        ]);
-        await ctx.runMutation(internal.embeddings.usage, {
-          repositoryId: repo._id,
-          tokens: embedded.tokens,
-          estimatedCost: embedded.estimatedCost,
-          durationMs: 0,
-        });
-        const matches = await ctx.vectorSearch("embeddings", "by_vector", {
-          vector: embedded.vectors[0],
-          limit: 12,
-          filter: (q) => q.eq("scope", `${repo._id}:${embedder.model}`),
-        });
-        semanticPaths.push(
-          ...(await ctx.runQuery(internal.embeddings.paths, {
-            ids: matches.map((m) => m._id),
-            repositoryId: repo._id,
-          })),
-        );
-      }
+      // Hybrid retrieval: chunk vectors (when configured) + full-text identifiers + graph proximity.
+      const identifiers = [...new Set(pr.diff.flatMap((f) => f.patch.match(/^\+.*$/gm)?.join("\n").match(/[A-Za-z_]\w{3,}/g) ?? []))].slice(0, 6);
+      const textHits = (await Promise.all(identifiers.map((identifier) => ctx.runQuery(internal.agentTools.search, { repositoryId: repo._id, query: identifier })))).flatMap((hits) => hits.map((hit, rank) => ({ path: hit.path, score: 1 / (1 + rank), startLine: hit.line })));
+      const vectorHits = await semanticHits(ctx, repo._id, pr.title + "\n" + pr.diff.map((f) => f.path + "\n" + f.patch.slice(0, 3000)).join("\n"), 24);
+      const hybrid = hybridRank({ vector: vectorHits, text: textHits, graph: neighbors.map((n) => ({ path: n.path, score: n.score })) }, 20);
+      const semanticPaths = hybrid.filter((hit) => hit.reason.includes("semantic")).map((hit) => hit.path);
       const paths = [
         ...new Set([
           ...pr.diff.filter((d) => d.status !== "removed").map((f) => f.path),
@@ -471,6 +424,7 @@ export const review = internalAction({
           ...neighbors.map((n) => n.path),
           ...state.findings.flatMap((finding) => [finding.filePath, ...finding.evidence.map((e) => e.filePath)]),
           ...semanticPaths,
+          ...hybrid.map((hit) => hit.path),
           ...historicalFindings.map((finding) => finding.filePath),
           ...(repo.knowledgePaths ?? []).slice(0, 10),
         ]),
@@ -587,10 +541,10 @@ export const review = internalAction({
               reason: "historical finding",
               score: 25,
             })),
-            ...semanticPaths.map((path) => ({
-              path,
-              reason: "semantic embedding match",
-              score: 35,
+            ...hybrid.map((hit) => ({
+              path: hit.path,
+              reason: `hybrid retrieval: ${hit.reason}${hit.startLine ? ` (lines ${hit.startLine}${hit.endLine ? "–" + hit.endLine : ""})` : ""}`,
+              score: Math.round(20 + 30 * hit.score),
             })),
             ...neighbors.map((n) => ({ path: n.path, reason: `code graph ${n.via} (${n.hops} hop${n.hops > 1 ? "s" : ""})`, score: Math.round(40 * Math.min(1, n.score)) })),
           ],

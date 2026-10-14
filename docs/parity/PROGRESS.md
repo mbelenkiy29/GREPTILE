@@ -59,7 +59,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 6. (H4) Raise/reconcile the inference budget per §5 (≈$0.12 unreserved at audit).
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
 8. (A3) After deploying, run `npx convex run graphDiagnostics:status --prod` once to confirm tree-sitter grammars load in the hosted Node runtime; re-index repositories (INDEX_GRAPH_VERSION 4 reparses graph data automatically on the next index job).
-9. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+9. (A4) Optional: set `EMBEDDING_MODEL` (e.g. `text-embedding-3-small`) and `EMBEDDING_API_KEY` in Convex production, then re-index enabled repositories to backfill chunk embeddings; the repository settings page shows the status.
+10. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.

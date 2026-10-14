@@ -75,6 +75,7 @@ import type * as runtime from "../runtime.js";
 import type * as runtimeJobs from "../runtimeJobs.js";
 import type * as scm from "../scm.js";
 import type * as scopes from "../scopes.js";
+import type * as semanticSearch from "../semanticSearch.js";
 import type * as settings from "../settings.js";
 import type * as team from "../team.js";
 import type * as usage from "../usage.js";
@@ -156,6 +157,7 @@ declare const fullApi: ApiFromModules<{
   runtimeJobs: typeof runtimeJobs;
   scm: typeof scm;
   scopes: typeof scopes;
+  semanticSearch: typeof semanticSearch;
   settings: typeof settings;
   team: typeof team;
   usage: typeof usage;

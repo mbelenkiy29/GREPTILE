@@ -137,6 +137,27 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["scope"],
     }),
+  // Chunk-level embeddings (definition-boundary chunks). The file-level `embeddings` table above
+  // is legacy: no longer written, rows are removed as their files are re-indexed or deleted.
+  chunkEmbeddings: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    path: v.string(),
+    sha: v.string(),
+    model: v.string(),
+    scope: v.string(),
+    startLine: v.number(),
+    endLine: v.number(),
+    symbol: v.optional(v.string()),
+    vector: v.array(v.float64()),
+    updatedAt: v.number(),
+  })
+    .index("by_path", ["repositoryId", "path"])
+    .vectorIndex("by_vector", {
+      vectorField: "vector",
+      dimensions: 1536,
+      filterFields: ["scope"],
+    }),
   users: defineTable({
     githubId: v.number(),
     login: v.string(),
