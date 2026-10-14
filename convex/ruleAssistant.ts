@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { audit, authorize } from "./auth";
 import { assertRuleScope } from "./dashboard";
-import { ruleProblem } from "../src/rule-assistant";
+import { duplicatesOf, ruleProblem } from "../src/rule-assistant";
 
 // AI rule assistant (dashboard side). Admins request a run (draft from a description, refine the
 // existing rules, or suggest rules from fixed findings and approved conventions); a node action calls
@@ -29,6 +29,32 @@ export const request = mutation({
     await audit(ctx, a.organizationId, user._id, "rule_assistant." + a.kind, runId);
     await ctx.scheduler.runAfter(0, internal.ruleAssistantJobs.run, { runId });
     return runId;
+  },
+});
+
+// Imported AI rule files (CLI onboarding): each candidate is guarded and stored as an `import`
+// suggestion; nothing becomes a rule until an admin approves it.
+export const importRules = mutation({
+  args: { token: v.string(), organizationId: v.id("organizations"), repositoryId: v.optional(v.id("repositories")), rules: v.array(v.object({ title: v.string(), instructions: v.string(), globs: v.array(v.string()), source: v.object({ path: v.string(), line: v.number() }) })) },
+  handler: async (ctx, a): Promise<{ runId: Id<"ruleAssistantRuns">; suggested: number; rejected: { title: string; reason: string }[] }> => {
+    const { user } = await authorize(ctx, a.token, a.organizationId, true);
+    if (a.rules.length > 50) throw new Error("Import at most 50 rules at a time");
+    await assertRuleScope(ctx, a.organizationId, { repositoryId: a.repositoryId });
+    const recent = await ctx.db.query("ruleAssistantRuns").withIndex("by_org_time", (q) => q.eq("organizationId", a.organizationId).gt("createdAt", Date.now() - 86400000)).take(DAILY_LIMIT + 1);
+    if (recent.length >= DAILY_LIMIT) throw new Error("The rule assistant has reached its daily limit for this workspace");
+    const existing = (await ctx.db.query("customRules").withIndex("by_org", (q) => q.eq("organizationId", a.organizationId)).take(200)).map(ruleRow);
+    const now = Date.now(), rejected: { title: string; reason: string }[] = [], accepted: typeof a.rules = [];
+    for (const r of a.rules) {
+      const rule = { title: r.title.trim().slice(0, 120), instructions: r.instructions.trim(), globs: r.globs };
+      const problem = rule.instructions.length > 2000 || r.source.path.length > 200 ? "too long" : ruleProblem(rule);
+      if (problem) rejected.push({ title: rule.title.slice(0, 120), reason: problem }); else accepted.push({ ...r, ...rule });
+    }
+    const runId = await ctx.db.insert("ruleAssistantRuns", { organizationId: a.organizationId, kind: "import", status: "completed", ...(a.repositoryId ? { repositoryId: a.repositoryId } : {}), suggestions: accepted.length, rejected: rejected.slice(0, 20), requestedBy: user._id, createdAt: now, updatedAt: now });
+    const scope = a.repositoryId ? { repositoryId: a.repositoryId as string } : {};
+    for (const r of accepted)
+      await ctx.db.insert("ruleSuggestions", { organizationId: a.organizationId, runId, kind: "import", status: "suggested", title: r.title, instructions: r.instructions, category: "rules", severity: "medium", globs: r.globs, ...(a.repositoryId ? { repositoryId: a.repositoryId } : {}), rationale: `Imported from ${r.source.path} (line ${r.source.line}).`, issues: duplicatesOf(r, existing, scope), sources: [{ kind: "file", label: r.source.path, ids: [], detail: `line ${r.source.line}` }], createdAt: now, updatedAt: now });
+    await audit(ctx, a.organizationId, user._id, "rule_assistant.import", runId);
+    return { runId, suggested: accepted.length, rejected };
   },
 });
 

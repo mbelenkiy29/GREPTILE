@@ -184,8 +184,8 @@ function RuleScopeFields({ teams, repositories, scope, pattern }: { teams: { _id
   </>;
 }
 
-const assistantKinds: Record<string, string> = { draft: "Drafted rule", refine: "Tighter wording", suggest: "Suggested rule", flag: "Rule overlap" };
-const runKinds: Record<string, string> = { draft: "Draft", refine: "Review of existing rules", suggest: "Suggestions from fixed findings and conventions" };
+const assistantKinds: Record<string, string> = { draft: "Drafted rule", refine: "Tighter wording", suggest: "Suggested rule", flag: "Rule overlap", import: "Imported rule" };
+const runKinds: Record<string, string> = { draft: "Draft", refine: "Review of existing rules", suggest: "Suggestions from fixed findings and conventions", import: "Import from AI rule files" };
 // AI rule assistant: every result is a suggestion an admin approves (optionally after editing) or dismisses.
 function RuleAssistant({ ctx }: { ctx: DashboardContext }) {
   const { ruleAssistant, organization, scopes, data, repoName } = ctx;
@@ -229,7 +229,7 @@ function RuleAssistant({ ctx }: { ctx: DashboardContext }) {
           {s.kind !== "flag" && <p className="muted">{scopeLabel(s)} · {s.category} · {s.severity}{s.globs.length ? " · " + s.globs.join(", ") : ""}</p>}
           <p>{s.rationale}</p>
           {s.issues.length > 0 && <ul>{s.issues.map((i, n) => <li key={n}><span className="badge">{i.kind}</span> {i.detail}</li>)}</ul>}
-          <p className="muted">Based on: {s.sources.map((x, n) => <span key={n}>{n ? "; " : ""}{x.kind === "description" ? "your description" : x.kind === "rule" ? `rule “${x.label}”` : `“${x.label}”`}{x.detail ? ` (${x.detail})` : ""}</span>)}</p>
+          <p className="muted">Based on: {s.sources.map((x, n) => <span key={n}>{n ? "; " : ""}{x.kind === "description" ? "your description" : x.kind === "rule" ? `rule “${x.label}”` : x.kind === "file" ? <code>{x.label}</code> : `“${x.label}”`}{x.detail ? ` (${x.detail})` : ""}</span>)}</p>
           <form action={decideRuleSuggestion} className="form-grid">
             <input type="hidden" name="suggestionId" value={s._id} />
             {s.kind !== "flag" && (
@@ -250,7 +250,7 @@ function RuleAssistant({ ctx }: { ctx: DashboardContext }) {
                 </label>
               </>
             )}
-            <button className="primary" name="decision" value="approved">{s.kind === "flag" ? "Disable the newer rule" : s.kind === "refine" ? "Apply to rule" : "Create rule"}</button>
+            <button className="primary" name="decision" value="approved">{s.kind === "flag" ? "Disable the newer rule" : s.kind === "refine" ? "Apply to rule" : "Approve rule"}</button>
             <button name="decision" value="rejected" formNoValidate>Dismiss</button>
           </form>
         </article>

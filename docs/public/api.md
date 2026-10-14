@@ -18,6 +18,7 @@ The key owner's role still applies.
 | `POST /api/query` | read | Ask a question; returns an answer with exact-quote sources (JSON, or Server-Sent Events with `stream: true`) |
 | `GET /api/query/{messageId}` | read | Fetch a query result later |
 | `POST /api/search` | read | Hybrid full-text and semantic search with ranked snippets |
+| `GET /api/workspace` | read | The key's workspace, your other workspaces, and onboarding links |
 | `GET /api/repositories` | read | Repositories visible to the key |
 | `POST /api/repositories` | write | Enable and index an installed repository |
 | `GET /api/repositories/{id}` | read | Index status |
@@ -25,6 +26,7 @@ The key owner's role still applies.
 | `POST /api/reviews` | write | Request a review of a revision |
 | `POST /api/findings/{id}/feedback` | write | Record feedback on a finding |
 | `GET /api/context` | read | Graph, knowledge, rules and source for coding agents |
+| `POST /api/rules/import` | admin | Import candidate rules as suggestions that need approval |
 
 The full contract is in the [OpenAPI document](/docs/openapi.yaml).
 

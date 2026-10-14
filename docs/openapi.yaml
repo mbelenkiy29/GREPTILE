@@ -228,6 +228,72 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: "A repository is not indexed yet.", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
         "429": { description: "Rate limited.", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/workspace:
+    get:
+      summary: The API key's workspace and onboarding links (scope read)
+      description: |
+        Returns the workspace the key belongs to, the key owner's other workspaces (each one needs its
+        own key), and dashboard links used by `openreview onboard`, including the provider install
+        link. The install link opens in a browser; this endpoint changes nothing.
+      responses:
+        "200":
+          description: Workspace and links.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspace, workspaces, installUrl, dashboardUrl, keysUrl, rulesUrl]
+                properties:
+                  workspace: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string } } }
+                  workspaces: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string }, current: { type: boolean } } } }
+                  installUrl: { type: string, format: uri }
+                  dashboardUrl: { type: string, format: uri }
+                  keysUrl: { type: string, format: uri }
+                  rulesUrl: { type: string, format: uri }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/rules/import:
+    post:
+      summary: Import candidate rules as suggestions that an admin approves (scope admin)
+      description: |
+        Used by `openreview onboard` to import AI rule files (CLAUDE.md, AGENTS.md, Cursor, Windsurf,
+        Copilot and Gemini rules). Each candidate passes the rule safety checks; accepted ones are
+        stored as suggestions on the Custom rules page and never become rules without approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [rules]
+              properties:
+                repositoryId: { $ref: "#/components/schemas/Id" }
+                rules:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [title, instructions, source]
+                    properties:
+                      title: { type: string, minLength: 3, maxLength: 120 }
+                      instructions: { type: string, minLength: 20, maxLength: 2000 }
+                      globs: { type: array, maxItems: 20, items: { type: string, maxLength: 200 } }
+                      source: { type: object, required: [path, line], properties: { path: { type: string }, line: { type: integer, minimum: 1 } } }
+      responses:
+        "201":
+          description: Suggestions stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggested: { type: integer }
+                  rejected: { type: array, items: { type: object, properties: { title: { type: string }, reason: { type: string } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/repositories:
     get:
       summary: List repositories visible to the key owner (scope read)

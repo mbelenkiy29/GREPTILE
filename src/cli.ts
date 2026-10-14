@@ -49,12 +49,17 @@ async function main() {
       url: { type: "string" },
       token: { type: "string" },
       help: { type: "boolean" },
+      yes: { type: "boolean" },
+      workspace: { type: "string" },
+      "create-workspace": { type: "string" },
+      repositories: { type: "string" },
+      "no-rules": { type: "boolean" },
     },
   });
   const command = positionals[0];
   if (values.help || !command) {
     console.log(
-      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview review [--base main] [--json | --agent] [--security] [--mode fast|standard|deep]\nopenreview status\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
+      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview onboard [--url <server> --token <admin-api-key>] [--repositories all|owner/name,...] [--no-rules] [--workspace <name>] [--yes --json]\nopenreview review [--base main] [--json | --agent] [--security] [--mode fast|standard|deep]\nopenreview status\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
     );
     return;
   }
@@ -81,6 +86,32 @@ async function main() {
     console.log(
       "Authenticated. Configuration saved with owner-only permissions.",
     );
+    return;
+  }
+  if (command === "onboard") {
+    // Uses the saved login, or --url/--token (validated and saved like `openreview login`).
+    let config;
+    if (values.url || values.token) {
+      config = cliConfig.parse({ url: values.url, apiKey: values.token });
+      if (!config.url.startsWith("https://") && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(config.url)) throw new Error("API URL must use HTTPS");
+      await mkdir(configDirectory, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(configDirectory, "config.json"), JSON.stringify(config), { mode: 0o600 });
+    } else {
+      try { config = cliConfig.parse(JSON.parse(await readFile(path.join(configDirectory, "config.json"), "utf8"))); }
+      catch { throw new Error("Not logged in. Run openreview onboard --url <server> --token <admin-api-key> (create the key in dashboard Settings → API keys)."); }
+    }
+    const { onboard, httpApi } = await import("./onboard");
+    const root = (await git("rev-parse", "--show-toplevel").catch(() => process.cwd())).trim() || process.cwd();
+    const remote = (await git("-C", root, "remote", "get-url", "origin").catch(() => "")).trim() || undefined;
+    const { readdir } = await import("node:fs/promises");
+    const inside = (relative: string) => { const full = path.resolve(root, relative); if (full !== root && !full.startsWith(root + path.sep)) throw new Error("outside repository"); return full; };
+    const files = { read: (relative: string) => readFile(inside(relative), "utf8").catch(() => null), list: (relative: string) => readdir(inside(relative)).catch(() => [] as string[]) };
+    const readline = values.yes ? undefined : (await import("node:readline/promises")).createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const summary = await onboard(httpApi(config.url, config.apiKey), { ask: (q) => readline ? readline.question(q) : Promise.reject(new Error("No prompts in --yes mode")), print: (line) => console.log(line) }, files, { yes: Boolean(values.yes), json: Boolean(values.json), workspace: values.workspace, createWorkspace: values["create-workspace"], repositories: values.repositories, rules: !values["no-rules"], remote });
+      if (values.json) console.log(JSON.stringify(summary, null, 2));
+      if (summary.stopped || summary.repositories.failed.length) process.exitCode = 1;
+    } finally { readline?.close(); }
     return;
   }
   if (command === "runtime") {
