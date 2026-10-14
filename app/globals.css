@@ -801,3 +801,4 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 .diff-finding td { white-space: normal; background: var(--warning-bg); border-left: 3px solid var(--warning); padding: 8px; }
 .diff-finding p { margin: 4px 0 0; }
 .diff-note { margin: 8px 12px; }
+.agent-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

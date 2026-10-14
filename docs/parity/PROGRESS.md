@@ -126,7 +126,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - [x] F2 Live-verification runbooks — done (the live runs themselves are Needs human #22)
   plan: docs/runbooks/ with an index and exact, evidence-producing runbooks for GitHub Enterprise, GitLab.com, Bitbucket Cloud (Forge registration/deploy/install from forge/bitbucket with BITBUCKET_FORGE_* ARIs), Bitbucket Data Center, Azure DevOps, the Origin fix loop, and every Phase B–D capability (parity-features.md, one section per item); docs/acceptance-matrix.md gains a "Parity features" table (A2–F1) with each item's evidence level and remaining acceptance.
   evidence: documentation; tests/docs-links.test.ts confirms every relative link resolves; commands: lint/typecheck/test/build green; commit: see git log feat(F2)
-- [ ] F3 Fix handoff — todo
+- [x] F3 Fix handoff — done (real-OS verification is Needs human #23)
+  plan: bridge-free handoff: the existing "Copy fix prompt" plus src/agent-links.ts "Open in" links built only from officially documented schemes, each verified in current vendor docs on 2026-10-14 (Cursor cursor://anysphere.cursor-deeplink/prompt?text ≤10,000 encoded chars; Claude Code claude-cli://open?q ≤5,000 chars with &repo=owner/name for GitHub; Codex codex://new?prompt with &originUrl), all pre-fill only, with over-limit prompts falling back to copy; shown on every finding and on the /fix page (which now renders the same portable prompt); src/bridge-install.installProtocol takes an injectable OS environment (platform, home, mkdir/writeFile/chmod/execute) and validates the platform before any change, so the Windows registry and Linux xdg-mime registration paths are tested with fakes.
+  evidence: tested with fakes; tests: tests/agent-links.test.ts (3: prompt rendering, exact link formats/encoding/repo context, limits), tests/bridge-install.test.ts (3: Linux desktop entry + xdg-mime, Windows HKCU registration with PowerShell quoting, macOS app + unknown platform rejected with no OS change); existing tests/bridge.test.ts still covers protocol files and Windows Codex resolution; commands: lint/typecheck/test (326 Node + 222 vitest; bridge flake rerun once)/build green; commit: see git log feat(F3)
 
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
@@ -179,6 +181,14 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
    - parity-features.md.
 
    Record each result and its evidence level in docs/acceptance-matrix.md "Parity features".
+23. (F3) Real-OS verification:
+   - **Windows 11:**
+     1. Run `npm link` and `openreview bridge install` in PowerShell.
+     2. Confirm that HKCU\Software\Classes\openreview exists and that clicking an `openreview://fix?request=…` link opens PowerShell and dispatches.
+   - **Ubuntu desktop:**
+     1. Run `openreview bridge install`.
+     2. Confirm that `xdg-mime query default x-scheme-handler/openreview` returns openreview-fix.desktop and that a link opens a terminal.
+   - **"Open in" links:** on each OS with the agent installed, click Open in Cursor, Claude Code and Codex from a finding, and confirm each opens with the prompt pre-filled and nothing sent.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
@@ -233,6 +243,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — Analytics rollups are recomputed from raw rows per org-day (hourly for the last 2 days, daily for the last 35) instead of incremented by event hooks, so every path that changes a finding's status is reflected without instrumenting each one; dashboards never scan raw tables. Time saved counts addressed findings only (not every finding), to avoid overstating. Charts are in-repo SVG (no chart dependency).
 
 - 2026-10-14 — Azure DevOps diffs are computed locally (Myers, 3-line context, edit bound 4,000 → whole-file fallback) because the iteration-changes API returns object IDs only; the summary thread is created closed so it never blocks comment-resolution branch policies; PR statuses (not commit statuses) carry the outcome because Azure check-like UI is per pull request.
+
+- 2026-10-14 — "Open in agent" links are limited to the three officially documented prompt deep links (verified in Cursor, Claude Code and OpenAI docs on 2026-10-14); Codex documents no prompt length limit, so OpenReview caps it at 8,000 characters and offers copy beyond that. No other schemes are invented.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.
