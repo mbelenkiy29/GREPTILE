@@ -503,7 +503,7 @@ The pilot ran fixture `multi-hop-currency` with OpenAI `gpt-4.1`. The run was ap
 - A cost per fixture of $0.03–0.05 is far below the estimate below. A full three-pass comparison of both engines on all 15 fixtures would probably cost **under $5**.
 
 **Before the full run**, consider two changes:
-- Save the agent's tool transcript in eval reports, so misses can be diagnosed.
+- ~~Save the agent's tool transcript in eval reports, so misses can be diagnosed.~~ **Done.** Each agentic result now includes a `trace` and a `transcript`.
 - Run the agentic engine with the default Claude model as well as gpt-4.1. The engine was designed around Claude's native tool use.
 
 ### Cost estimate

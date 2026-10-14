@@ -3,7 +3,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { fixtures } from "./fixtures";
 import { modelFromEnvironment } from "../src/engine/model";
 import { reviewChange } from "../src/engine/review";
-import {EvaluationUsage} from "../src/evaluation-usage";
+import {EvaluationUsage,transcriptTrace} from "../src/evaluation-usage";
 import {memoryToolbox} from "../src/engine/agent";
 const args=process.argv.slice(2).filter(arg=>arg!=="--");
 if(args.includes("--help")||args.includes("-h")){
@@ -58,6 +58,8 @@ if (process.argv.includes("--validate")) {
   process.exitCode = 2;
 } else {
   const results = [];
+  // Agentic runs keep the agent's tool transcript (tool results clipped) so misses can be diagnosed.
+  const transcriptOf=(tracked:EvaluationUsage)=>{const transcript=tracked.transcript();return transcript.length?{trace:transcriptTrace(transcript),transcript}:{};};
   const only=process.argv.find(a=>a.startsWith("--fixture="))?.slice("--fixture=".length);
   if(only && !fixtures.some(f=>f.id===only))throw new Error("Unknown fixture");
   for (const fixture of fixtures.filter(f=>!only || f.id===only)) {
@@ -94,6 +96,7 @@ if (process.argv.includes("--validate")) {
         ),
         estimatedCost: result.usage.reduce((s, u) => s + u.estimatedCost, 0),
         result,
+        ...transcriptOf(tracked),
         usageComplete:true,
       });
     } catch (error) {
@@ -107,6 +110,7 @@ if (process.argv.includes("--validate")) {
         duplicates: null,
         latencyMs: Date.now() - started,
         ...await tracked.totals(),
+        ...transcriptOf(tracked),
       });
     }
   }
@@ -169,6 +173,7 @@ if (process.argv.includes("--validate")) {
           latencyMs: r.latencyMs,
           tokens: r.tokens,
           estimatedCost: r.estimatedCost,
+          ...("trace" in r ? { trace: r.trace } : {}),
         })),
       },
       null,

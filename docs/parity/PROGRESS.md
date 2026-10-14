@@ -141,6 +141,7 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   - agentic run 2 ($0.011): engine ran but gpt-4.1 ended turn 1 in prose with 0 tool calls, which the loop treated as "completed" → missed. Fixed: one reportReminder user turn when a turn ends in text before anything is reported (src/engine/agent.ts; optional `reminded` in AgentState, backward compatible). Test: tests/agent.test.ts (+1); existing agent tests unchanged.
   - agentic run 3 ($0.052): 9 tool calls / 11 turns, 23k tokens, 17 s, but no finding reported → missed. Transcripts aren't kept in eval reports, so whether it reached payments.ts is unknown.
   - gate after fixes: lint/typecheck/test (328 Node + 222 vitest)/build green.
+  - follow-up (user request): eval reports now capture the agent transcript — EvaluationUsage keeps the latest full tool conversation (each turn resends it); compactTranscript drops provider-native payloads (thinking blocks), names tool results, clips text to 2,000 chars; results gain `trace` (one line per tool call, rejected calls marked) and `transcript`, also on failed results; review metadata stored in Convex is unchanged. Tests: tests/evaluation-usage.test.ts (+2). No inference spent.
 
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
