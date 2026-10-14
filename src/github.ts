@@ -36,6 +36,14 @@ export function findingFingerprint(body:string){
   if(/<!-- openreview:conversation:[^>]+ -->\s*$/.test(body))return undefined;
   return [...body.matchAll(/<!-- openreview-finding:([a-f0-9]+) -->/g)].at(-1)?.[1];
 }
+export type CheckConclusion = "success" | "failure" | "neutral" | "cancelled";
+// Check-run conclusion: neutral unless a failure threshold is configured; then findings at or
+// above that severity fail the check and anything else succeeds.
+export function checkConclusion(findings: Pick<Finding, "severity">[], threshold: string | undefined): CheckConclusion {
+  const order = ["critical", "high", "medium", "low"];
+  if (!threshold || threshold === "off" || !order.includes(threshold)) return "neutral";
+  return findings.some((f) => order.indexOf(f.severity) <= order.indexOf(threshold)) ? "failure" : "success";
+}
 export const summaryMarker = "<!-- openreview:summary -->";
 const treeSchema = z.object({
   truncated: z.boolean(),
@@ -46,7 +54,9 @@ export class GithubApiError extends Error {
 }
 export class Github {
   readonly supportsApproval:boolean = true;
-  constructor(private token: string, private base = "https://api.github.com", private appSlug?:()=>Promise<string>) {}
+  // permissions: granted installation permissions (from the token response), used to enable
+  // optional features such as check runs without changing the required-permission validation.
+  constructor(private token: string, private base = "https://api.github.com", private appSlug?:()=>Promise<string>, readonly permissions?: Record<string, string>) {}
   protected async publisherLogin(){return this.appSlug?(await this.appSlug())+"[bot]":(await this.request("/user",z.object({login:z.string().min(1)}))).login;}
   sourceUrl(repository:string,revision:string,file:string) {
     const origin=githubWebOrigin(this.base);
@@ -86,7 +96,7 @@ export class Github {
       throw new Error(
         "GitHub App requires issues:read and checks:read for follow-ups and CI context",
       );
-    return new Github(token.token, configuration?.base, async()=> (await app.request(`/app/installations/${id}`,z.object({app_slug:z.string().min(1)}))).app_slug);
+    return new Github(token.token, configuration?.base, async()=> (await app.request(`/app/installations/${id}`,z.object({app_slug:z.string().min(1)}))).app_slug, token.permissions);
   }
   async request<T>(
     endpoint: string,
@@ -405,6 +415,16 @@ export class Github {
       resolved++;
     }
     return { resolved, skipped };
+  }
+  // Check runs need checks:write; without it the feature is skipped (returns null), never an error.
+  async startCheckRun(repository: string, sha: string, externalId: string, detailsUrl?: string): Promise<number | null> {
+    if (this.permissions?.checks !== "write") return null;
+    const run = await this.request(`/repos/${repository}/check-runs`, z.object({ id: z.number() }), { method: "POST", body: JSON.stringify({ name: "OpenReview", head_sha: sha, status: "in_progress", started_at: new Date().toISOString(), external_id: externalId, ...(detailsUrl ? { details_url: detailsUrl } : {}), output: { title: "Review in progress", summary: "OpenReview is reviewing this revision." } }) });
+    return run.id;
+  }
+  async completeCheckRun(repository: string, id: number, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+    if (this.permissions?.checks !== "write") return;
+    await this.request(`/repos/${repository}/check-runs/${id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ status: "completed", conclusion: result.conclusion, completed_at: new Date().toISOString(), ...(result.detailsUrl ? { details_url: result.detailsUrl } : {}), output: { title: result.title.slice(0, 255), summary: result.summary.slice(0, 60000) } }) });
   }
   async branches(repository: string) {
     const schema = z.array(

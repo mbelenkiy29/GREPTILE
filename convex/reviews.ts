@@ -388,6 +388,8 @@ export const findingCommentIds = internalQuery({args:{repositoryId:v.id("reposit
       if(c.fingerprint&&wanted.has(c.fingerprint)&&typeof c.githubId==="number"&&!out.some(o=>o.commentId===c.githubId))out.push({commentId:c.githubId,fingerprint:c.fingerprint});
   return out;
 }});
+export const checkRun = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{const r=await ctx.db.get(a.reviewId);return r?.checkRunId?{id:r.checkRunId,head:r.checkRunHead}:null;}});
+export const setCheckRun = internalMutation({args:{reviewId:v.id("reviews"),checkRunId:v.number(),checkRunHead:v.string()},handler:async(ctx,a)=>{const r=await ctx.db.get(a.reviewId);if(r)await ctx.db.patch(r._id,{checkRunId:a.checkRunId,checkRunHead:a.checkRunHead});}});
 export const agentStatus = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
   const review=await ctx.db.get(a.reviewId);
   return review?{status:review.status,headSha:review.headSha,agentStateStorageId:review.agentStateStorageId,agentStateHead:review.agentStateHead}:null;

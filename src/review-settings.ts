@@ -26,6 +26,8 @@ export const defaults = {
   // "agentic" uses the tool-calling investigator; the default stays on the fixed pipeline until
   // an approved live comparison says otherwise.
   reviewEngine: "pipeline",
+  // GitHub check run conclusion: "off" reports neutral; a severity fails the check when findings reach it.
+  checkFailureSeverity: "off",
   commentStyle: "concise",
   summarySections:[...summarySections],
 };
@@ -42,5 +44,7 @@ export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<S
 }
 export const reviewEngines=["pipeline","agentic"] as const;
 export const validReviewEngine=(value:string|undefined)=>value===undefined||(reviewEngines as readonly string[]).includes(value);
+export const checkFailureSeverities=["off","critical","high","medium","low"] as const;
+export const validCheckFailureSeverity=(value:string|undefined)=>value===undefined||(checkFailureSeverities as readonly string[]).includes(value);
 export const runtimeDefaults={enabled:false,image:"",command:"",timeout:120,requiredForApproval:false};
 export const approvalDefaults={enabled:false,maximumRisk:"low" as "low"|"medium"|"high",excludedPaths:[] as string[],excludedAuthors:[] as string[],requiredChecks:[] as {name:string;appId?:number}[]};

@@ -27,6 +27,8 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
   // Optional: commit ancestry/changes for incremental review, and resolving OpenReview-started finding threads.
   compare?(repository:string,base:string,head:string):Promise<{status:"ahead"|"behind"|"diverged"|"identical";commits:number;complete:boolean;files:import("./engine/types").ChangedFile[]}>;
   resolveFindingThreads?(repository:string,number:number,items:{commentId:number;body:string;marker:string}[]):Promise<{resolved:number;skipped:number}>;
+  startCheckRun?(repository:string,sha:string,externalId:string,detailsUrl?:string):Promise<number|null>;
+  completeCheckRun?(repository:string,id:number,result:{conclusion:"success"|"failure"|"neutral"|"cancelled";title:string;summary:string;detailsUrl?:string}):Promise<void>;
 };
 const note=z.object({id:z.number(),body:z.string(),author:z.object({username:z.string()}),position:z.object({new_path:z.string(),new_line:z.number().nullable(),head_sha:z.string().optional()}).nullish()});
 const prSchema=z.object({iid:z.number(),title:z.string(),description:z.string().nullable(),draft:z.boolean(),state:z.string(),web_url:z.string(),author:z.object({id:z.number().int().positive().optional(),username:z.string()}),source_branch:z.string(),target_branch:z.string(),diff_refs:z.object({base_sha:z.string(),head_sha:z.string(),start_sha:z.string()})});

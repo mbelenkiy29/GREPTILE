@@ -18,6 +18,7 @@ import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
+import { checkConclusion, type CheckConclusion } from "../src/github";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
@@ -291,6 +292,7 @@ export const review = internalAction({
       });
       return;
     }
+    let check: { scm: Scm; repository: string; id: number } | null = null;
     try {
       const claimed = await ctx.runMutation(internal.reviews.stage, {
         ...args,
@@ -353,6 +355,8 @@ export const review = internalAction({
           githubReviewId: published.id,
           comments: published.comments,
         });
+        const verified = [...result.findings, ...(result.metadata?.carriedForward ?? [])];
+        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha), { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", detailsUrl: dashboardUrl(args.reviewId) });
         return;
       }
       if (pr.head.sha !== state.review.headSha || pr.state !== "open") {
@@ -384,6 +388,7 @@ export const review = internalAction({
         baseBranch: pr.base.ref,
       });
       if(await ctx.runMutation(internal.runtime.request,{reviewId:args.reviewId}))return;
+      check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha);
       // Incremental review when the last reviewed head is an ancestor of this head.
       const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
       const comparison = previousHead && github.compare ? await github.compare(repo.fullName, previousHead, pr.head.sha).catch(() => "unavailable" as const) : undefined;
@@ -635,12 +640,15 @@ export const review = internalAction({
         comments: published.comments,
       });
       await resolveFixedThreads(ctx, github, repo._id, repo.fullName, pr.number, pr.head.sha, result.metadata.resolvedFingerprints);
+      const verified = [...result.findings, ...(result.metadata.carriedForward ?? [])];
+      await finishCheck(check, { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: [verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", ...(result.metadata.coverageLimits?.length ? ["", "Coverage limits:", ...result.metadata.coverageLimits.map((l) => "- " + l)] : [])].join("\n"), detailsUrl: dashboardUrl(args.reviewId) });
     } catch (error) {
       if (error instanceof AgentSuspended && await ctx.runMutation(internal.reviews.suspendAgent, args)) {
         console.log(JSON.stringify({ event: "review.agent_suspended", reviewId: args.reviewId, toolCalls: error.state.toolCalls, turns: error.state.turns }));
         return;
       }
       const message = error instanceof Error ? error.message : "Review failed";
+      await finishCheck(check, { conclusion: "neutral", title: "Review could not be completed", summary: "OpenReview could not complete this review: " + redact(message).slice(0, 500), detailsUrl: dashboardUrl(args.reviewId) });
       console.error(
         JSON.stringify({
           event: "review.failed",
@@ -682,4 +690,26 @@ async function resolveFixedThreads(ctx: ActionCtx, scm: Scm, repositoryId: Id<"r
   } catch (error) {
     console.error(JSON.stringify({ event: "review.thread_resolution_failed", repositoryId, number, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
   }
+}
+
+const dashboardUrl = (reviewId: Id<"reviews">) => { const app = process.env.APP_URL; return app && /^https:\/\//.test(app) ? new URL(`/dashboard/pulls/${encodeURIComponent(reviewId)}`, app).href : undefined; };
+// GitHub check runs (checks:write only; otherwise the provider returns null and nothing happens).
+async function beginCheck(ctx: ActionCtx, scm: Scm, reviewId: Id<"reviews">, repository: string, sha: string) {
+  if (!scm.startCheckRun) return null;
+  try {
+    const existing = await ctx.runQuery(internal.reviews.checkRun, { reviewId });
+    if (existing && existing.head === sha) return { scm, repository, id: existing.id };
+    const id = await scm.startCheckRun(repository, sha, reviewId, dashboardUrl(reviewId));
+    if (id === null) return null;
+    await ctx.runMutation(internal.reviews.setCheckRun, { reviewId, checkRunId: id, checkRunHead: sha });
+    return { scm, repository, id };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "review.check_run_failed", reviewId, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
+    return null;
+  }
+}
+async function finishCheck(check: { scm: Scm; repository: string; id: number } | null, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+  if (!check?.scm.completeCheckRun) return;
+  try { await check.scm.completeCheckRun(check.repository, check.id, result); }
+  catch (error) { console.error(JSON.stringify({ event: "review.check_run_failed", error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }
 }

@@ -13,5 +13,6 @@ export function scopeSettingsFromForm(form:FormData){
   summarySections:form.has('summaryConfigured')?form.getAll('summarySections').map(String):defaults.summarySections,
   commentStyle:value('commentStyle')||defaults.commentStyle,
   reviewEngine:value('reviewEngine')||defaults.reviewEngine,
+  checkFailureSeverity:value('checkFailureSeverity')||defaults.checkFailureSeverity,
  };
 }

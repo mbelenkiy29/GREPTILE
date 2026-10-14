@@ -48,7 +48,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: Scm.compare + incrementalDiff (ahead → new commits ∩ PR files; diverged/behind/incomplete → full) + fullDiff anchoring; Scm.resolveFindingThreads via GraphQL reviewThreads + REST reply (marker) + resolveReviewThread for bot-started threads; reviews.previousHead / findingCommentIds queries.
   evidence: tested with fakes; tests: tests/incremental.test.ts (4: scope decisions, fullDiff anchoring + summary uses full PR, compare parsing/completeness, thread hygiene bot-only + idempotent), tests/review-history.spec.ts (previous head + scoped comment ids); commands: lint/typecheck/test (262 Node + 169 vitest) green; commit: see git log feat(B5)
   notes: GitLab/Gitea/Bitbucket keep full re-reviews and leave threads open (no compare capability wired); documented in README.
-- [ ] B6 Check runs — todo
+- [x] B6 Check runs — done
+  plan: capture granted permissions from the installation token; start/complete check run only with checks:write; checkFailureSeverity setting (off → neutral; threshold → failure/success); store check id per review; complete on success, resumed publication and failure.
+  evidence: tested with fakes; tests: tests/check-runs.test.ts (3: conclusion mapping, write vs read permission behaviour, installation validation unchanged + permissions exposed); commands: lint/typecheck/test (265 Node + 169 vitest)/build green; commit: see git log feat(B6)
 - [ ] B7 Triggers and comment types — todo
 - [ ] B8 Repo config as code — todo
 - [ ] C1 Reaction feedback — todo
@@ -79,7 +81,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 8. (A3) After deploying, run `npx convex run graphDiagnostics:status --prod` once to confirm tree-sitter grammars load in the hosted Node runtime; re-index repositories (INDEX_GRAPH_VERSION 4 reparses graph data automatically on the next index job).
 9. (A4) Optional: set `EMBEDDING_MODEL` (e.g. `text-embedding-3-small`) and `EMBEDDING_API_KEY` in Convex production, then re-index enabled repositories to backfill chunk embeddings; the repository settings page shows the status.
 10. (Phase A) Approve installing the Playwright browser so `pnpm test:e2e` can run locally: `pnpm exec playwright install chromium` (downloads Chromium, ~150 MB, from the Playwright CDN into ~/Library/Caches/ms-playwright).
-11. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+11. (B6) GitHub App settings → Permissions → Repository permissions → **Checks: Read and write** → Save; each installation owner must accept the updated permissions (GitHub emails them / Settings → Applications → Configure). Until accepted, check runs are skipped silently.
+12. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.

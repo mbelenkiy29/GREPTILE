@@ -1237,6 +1237,18 @@ export default async function Dashboard({
                     </select>
                   </label>
                   <label>
+                    GitHub check run
+                    <select
+                      name="checkFailureSeverity"
+                      defaultValue={repoSettings.settings.checkFailureSeverity ?? "off"}
+                    >
+                      <option value="off">neutral (never fails)</option>
+                      {["critical", "high", "medium", "low"].map((s) => (
+                        <option key={s} value={s}>fail at {s} or above</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
                     Model override
                     <input
                       name="model"

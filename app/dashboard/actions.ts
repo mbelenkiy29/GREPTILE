@@ -220,6 +220,7 @@ export async function saveSettings(form: FormData) {
       instructions: text(form, "instructions"),
       commentStyle: text(form, "commentStyle"),
       reviewEngine: text(form, "reviewEngine") || previous.settings.reviewEngine || "pipeline",
+      checkFailureSeverity: text(form, "checkFailureSeverity") || previous.settings.checkFailureSeverity || "off",
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
