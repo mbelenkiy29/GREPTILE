@@ -274,6 +274,7 @@ export async function saveSettings(form: FormData) {
       fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
       threadReplies: form.has("threadRepliesConfigured") ? form.has("threadReplies") : previous.settings.threadReplies ?? true,
       securityScan: form.has("securityScanConfigured") ? form.has("securityScan") : previous.settings.securityScan ?? true,
+      aiAuthoredModel: form.has("aiAuthoredModel") ? text(form, "aiAuthoredModel").trim() : previous.settings.aiAuthoredModel ?? "",
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

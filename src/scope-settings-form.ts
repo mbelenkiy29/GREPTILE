@@ -21,5 +21,6 @@ export function scopeSettingsFromForm(form:FormData){
   fixPullRequests:form.has('fixPullRequests'),
   threadReplies:form.has('threadRepliesConfigured')?form.has('threadReplies'):defaults.threadReplies,
   securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
+  aiAuthoredModel:value('aiAuthoredModel').trim(),
  };
 }

@@ -173,6 +173,11 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
                   </fieldset>
                   <fieldset className="wide">
+                    <legend>Agent-authored pull requests (experimental)</legend>
+                    <label>Review model for agent-authored pull requests<input name="aiAuthoredModel" maxLength={200} defaultValue={repoSettings.settings.aiAuthoredModel ?? ""} placeholder="Leave empty to use the usual model" /></label>
+                    <p className="muted">Detection uses explicit signals only: a known agent bot author, a Co-Authored-By trailer naming a coding agent, an agent branch prefix (claude/, copilot/, cursor/, codex/, devin/, jules/) or a marker the agent adds to the description. The reason is shown on the review.</p>
+                  </fieldset>
+                  <fieldset className="wide">
                     <legend>Security checks</legend>
                     <input type="hidden" name="securityScanConfigured" value="true" />
                     <label className="check"><input type="checkbox" name="securityScan" defaultChecked={repoSettings.settings.securityScan ?? true} /> Run deterministic security checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic code evaluation, shell commands, unsafe deserialization) and look up changed dependency versions in OSV.dev (outbound requests can be turned off for the whole install with OSV_ENABLED=false)</label>

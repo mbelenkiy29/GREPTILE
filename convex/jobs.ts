@@ -34,6 +34,7 @@ import { inlineFindings, reviewFooter } from "../src/review-summary";
 import { osvClient, osvEnabled } from "../src/osv";
 import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
 import { knowledgeTokenBudgets, selectKnowledge } from "../src/knowledge-context";
+import { detectAiAuthored, reviewModelFor } from "../src/ai-authored";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
@@ -525,7 +526,10 @@ export const review = internalAction({
         agent: f.agent,
         commitSha: f.commitSha,
       }));
-      const modelProvider = budgetModel(ctx,settings.model, {
+      // Agent-authored pull requests (explicit signals only) may be routed to a dedicated model.
+      const aiAuthored = detectAiAuthored({ author: pr.user.login, branch: pr.head.ref, body: pr.body, commits: pr.commits });
+      const routed = reviewModelFor({ model: settings.model, aiAuthoredModel: effective.aiAuthoredModel }, aiAuthored);
+      const modelProvider = budgetModel(ctx,routed.model, {
         get: (key) =>
           ctx.runQuery(internal.cache.get, {
             organizationId: repo.organizationId,
@@ -669,6 +673,7 @@ export const review = internalAction({
         reviewScore: result.metadata.reviewScore,
         verdict: result.metadata.verdict,
         requirementsNotMet: result.metadata.requirementsNotMet,
+        aiAuthored: aiAuthored ? { ...aiAuthored, ...(routed.routed ? { model: routed.model } : {}) } : undefined,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,

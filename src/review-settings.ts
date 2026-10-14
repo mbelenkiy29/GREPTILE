@@ -48,6 +48,8 @@ export const defaults = {
   threadReplies: true,
   // Deterministic security checks on added lines and OSV advisories for changed dependencies.
   securityScan: true,
+  // Model for pull requests detected as written by a coding agent ("" = use the usual model).
+  aiAuthoredModel: "",
   commentStyle: "concise",
   summarySections:[...defaultSummarySections] as string[],
 };

@@ -50,6 +50,7 @@ export const settingsValidator = v.object({
   fixPullRequests:v.optional(v.boolean()),
   threadReplies:v.optional(v.boolean()),
   securityScan:v.optional(v.boolean()),
+  aiAuthoredModel:v.optional(v.string()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean(),generatedTests:v.optional(v.boolean()),testCommand:v.optional(v.string())});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -425,6 +426,7 @@ export default defineSchema({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
     verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     requirementsNotMet: v.optional(v.number()),
+    aiAuthored: v.optional(v.object({ agent: v.string(), kind: v.string(), detail: v.string(), model: v.optional(v.string()) })),
     // Ordinal among this pull request's published reviews, fixed at first publication.
     reviewNumber: v.optional(v.number()),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
