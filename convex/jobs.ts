@@ -1,7 +1,7 @@
 "use node";
 import {budgetModel,inferenceBilling} from "./budgetModel";
 import {executionExplanation} from "../src/execution-claims";
-import { action,internalAction } from "./_generated/server";
+import { action,internalAction,type ActionCtx } from "./_generated/server";
 import { api,internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -17,6 +17,7 @@ import { Gitlab } from "../src/gitlab";
 import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
+import { incrementalDiff } from "../src/incremental";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
@@ -383,6 +384,10 @@ export const review = internalAction({
         baseBranch: pr.base.ref,
       });
       if(await ctx.runMutation(internal.runtime.request,{reviewId:args.reviewId}))return;
+      // Incremental review when the last reviewed head is an ancestor of this head.
+      const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
+      const comparison = previousHead && github.compare ? await github.compare(repo.fullName, previousHead, pr.head.sha).catch(() => "unavailable" as const) : undefined;
+      const scope = incrementalDiff(pr.diff, github.compare ? previousHead ?? undefined : undefined, comparison);
       const graph = await ctx.runQuery(internal.context.related, {
         repositoryId: repo._id,
         paths: pr.diff.map((f) => f.path),
@@ -526,7 +531,7 @@ export const review = internalAction({
       const result = {...await reviewChange(
         {
           repository: repo.fullName,
-          coverageLimits:[...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
+          coverageLimits:[...(scope.note?[scope.note]:[]),...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
           baseSha: pr.base.sha,
           headSha: pr.head.sha,
           title: pr.title,
@@ -552,7 +557,8 @@ export const review = internalAction({
             })),
             ...neighbors.map((n) => ({ path: n.path, reason: `code graph ${n.via} (${n.hops} hop${n.hops > 1 ? "s" : ""})`, score: Math.round(40 * Math.min(1, n.score)) })),
           ],
-          diff: pr.diff,
+          diff: scope.diff,
+          ...(scope.incremental ? { fullDiff: pr.diff } : {}),
           skippedFiles: pr.omitted,
           sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
           mode: z.enum(["fast", "standard", "deep"]).parse(settings.mode),
@@ -628,6 +634,7 @@ export const review = internalAction({
         githubReviewId: published.id,
         comments: published.comments,
       });
+      await resolveFixedThreads(ctx, github, repo._id, repo.fullName, pr.number, pr.head.sha, result.metadata.resolvedFingerprints);
     } catch (error) {
       if (error instanceof AgentSuspended && await ctx.runMutation(internal.reviews.suspendAgent, args)) {
         console.log(JSON.stringify({ event: "review.agent_suspended", reviewId: args.reviewId, toolCalls: error.state.toolCalls, turns: error.state.turns }));
@@ -662,4 +669,17 @@ export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")
 function summaryLink(scm: Scm, repository: string, sha: string) {
   const anchor = scm instanceof Github ? (start: number, end: number) => `#L${start}${end > start ? "-L" + end : ""}` : scm instanceof Gitlab ? (start: number, end: number) => `#L${start}${end > start ? "-" + end : ""}` : undefined;
   return anchor ? (path: string, start: number, end: number) => { try { return scm.sourceUrl(repository, sha, path) + anchor(start, end); } catch { return undefined; } } : undefined;
+}
+
+// Thread hygiene: reply to and resolve OpenReview's own threads for findings verified fixed.
+// Failures are logged and never fail an already published review.
+async function resolveFixedThreads(ctx: ActionCtx, scm: Scm, repositoryId: Id<"repositories">, repository: string, number: number, sha: string, fingerprints: string[]) {
+  if (!scm.resolveFindingThreads || !fingerprints.length) return;
+  try {
+    const comments = await ctx.runQuery(internal.reviews.findingCommentIds, { repositoryId, prNumber: number, fingerprints });
+    const result = await scm.resolveFindingThreads(repository, number, comments.map((c) => ({ commentId: c.commentId, marker: `resolved:${c.fingerprint}:${sha}`, body: `Resolved: OpenReview verified this finding is fixed in \`${sha.slice(0, 7)}\`.` })));
+    console.log(JSON.stringify({ event: "review.threads_resolved", repositoryId, number, ...result }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "review.thread_resolution_failed", repositoryId, number, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
+  }
 }

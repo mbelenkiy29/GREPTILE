@@ -355,6 +355,57 @@ export class Github {
       checks: checks.check_runs,
     };
   }
+  // Ancestry and changes between two commits; "ahead" means base is an ancestor of head.
+  async compare(repository: string, base: string, head: string) {
+    const result = await this.request(
+      `/repos/${repository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+      z.object({
+        status: z.enum(["ahead", "behind", "diverged", "identical"]),
+        total_commits: z.number().int().nonnegative().optional(),
+        files: z.array(z.object({ filename: z.string(), previous_filename: z.string().optional(), status: z.string(), patch: z.string().optional(), changes: z.number() })).optional(),
+      }),
+    );
+    const files = result.files ?? [];
+    // The compare API lists at most 300 files and omits large patches; incremental review then falls back.
+    const complete = files.length < 300 && files.every((f) => f.patch !== undefined || f.changes === 0 || /\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename));
+    return { status: result.status, commits: result.total_commits ?? 0, complete, files: files.map((f): ChangedFile => ({ path: f.filename, previousPath: f.previous_filename, patch: f.patch ?? "", status: f.status })) };
+  }
+  private graphqlUrl() { return /\/api\/v3\/?$/.test(this.base) ? this.base.replace(/\/api\/v3\/?$/, "/api/graphql") : this.base.replace(/\/$/, "") + "/graphql"; }
+  async graphql<T>(query: string, variables: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
+    const response = await fetch(this.graphqlUrl(), { method: "POST", redirect: "error", headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json", "user-agent": "OpenReview" }, body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new GithubApiError(`GitHub GraphQL: HTTP ${response.status}`, response.status);
+    const body = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() }).parse(await response.json());
+    if (body.errors?.length) throw new Error("GitHub GraphQL error: " + body.errors.map((e) => e.message).join("; ").slice(0, 300));
+    return schema.parse(body.data);
+  }
+  // Replies to and resolves review threads that OpenReview itself started for findings now fixed.
+  // Threads started by anyone else are never touched; already-resolved threads are skipped.
+  async resolveFindingThreads(repository: string, number: number, items: { commentId: number; body: string; marker: string }[]) {
+    if (!items.length) return { resolved: 0, skipped: 0 };
+    const [owner, name] = repository.split("/");
+    const publisher = await this.publisherLogin();
+    const threadSchema = z.object({ repository: z.object({ pullRequest: z.object({ reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(z.object({ id: z.string(), isResolved: z.boolean(), comments: z.object({ nodes: z.array(z.object({ databaseId: z.number().nullable(), author: z.object({ login: z.string() }).nullable() })) }) })) }) }).nullable() }).nullable() });
+    const threads: { id: string; isResolved: boolean; first?: { databaseId: number | null; author: { login: string } | null } }[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const data: z.infer<typeof threadSchema> = await this.graphql(`query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved comments(first:1){nodes{databaseId author{login}}}}}}}}`, { owner, name, number, cursor }, threadSchema);
+      const connection = data.repository?.pullRequest?.reviewThreads;
+      if (!connection) break;
+      threads.push(...connection.nodes.map((n) => ({ id: n.id, isResolved: n.isResolved, first: n.comments.nodes[0] })));
+      if (!connection.pageInfo.hasNextPage) break;
+      cursor = connection.pageInfo.endCursor;
+    }
+    const isPublisher = (login?: string) => !!login && (login === publisher || login + "[bot]" === publisher);
+    let resolved = 0, skipped = 0;
+    for (const item of items) {
+      const thread = threads.find((t) => t.first?.databaseId === item.commentId);
+      if (!thread || thread.isResolved || !isPublisher(thread.first?.author?.login)) { skipped++; continue; }
+      await this.reply(repository, number, item.body, item.commentId, item.marker);
+      await this.graphql(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}`, { id: thread.id }, z.object({ resolveReviewThread: z.object({ thread: z.object({ id: z.string(), isResolved: z.boolean() }) }) }));
+      resolved++;
+    }
+    return { resolved, skipped };
+  }
   async branches(repository: string) {
     const schema = z.array(
       z.object({

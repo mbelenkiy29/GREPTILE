@@ -372,6 +372,22 @@ export const backfillFindings=internalMutation({args:{reviewId:v.id("reviews"),s
  }
  await ctx.db.patch(review._id,{findingsRecorded:true});
 }});
+// Head of the most recent completed review of the same pull request (before this one).
+export const previousHead = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  if(!review)return null;
+  const prior=(await ctx.db.query("reviews").withIndex("by_pr",q=>q.eq("repositoryId",review.repositoryId).eq("prNumber",review.prNumber)).order("desc").take(50))
+    .find(r=>r._id!==review._id&&r.status==="completed"&&r.createdAt<review.createdAt&&r.headSha!==review.headSha&&!r.nativeP4);
+  return prior?.headSha??null;
+}});
+// Published inline comment IDs for findings on this pull request (for thread resolution).
+export const findingCommentIds = internalQuery({args:{repositoryId:v.id("repositories"),prNumber:v.number(),fingerprints:v.array(v.string())},handler:async(ctx,a)=>{
+  const wanted=new Set(a.fingerprints.slice(0,100)),out:{commentId:number;fingerprint:string}[]=[];
+  for(const review of await ctx.db.query("reviews").withIndex("by_pr",q=>q.eq("repositoryId",a.repositoryId).eq("prNumber",a.prNumber)).order("desc").take(50))
+    for(const c of await ctx.db.query("reviewComments").withIndex("by_review",q=>q.eq("reviewId",review._id)).take(200))
+      if(c.fingerprint&&wanted.has(c.fingerprint)&&typeof c.githubId==="number"&&!out.some(o=>o.commentId===c.githubId))out.push({commentId:c.githubId,fingerprint:c.fingerprint});
+  return out;
+}});
 export const agentStatus = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
   const review=await ctx.db.get(a.reviewId);
   return review?{status:review.status,headSha:review.headSha,agentStateStorageId:review.agentStateStorageId,agentStateHead:review.agentStateHead}:null;

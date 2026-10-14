@@ -44,7 +44,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - [x] B4 Sequence diagrams — done
   plan: eligibility (≥2 components or graph-related context); structured diagram schema with exact-quote evidence; OpenReview renders restricted Mermaid + validator; "diagram" summary key (default on); dashboard renders via lazily loaded mermaid@11.17.2 (strict) with source fallback; stub removed.
   evidence: tested with fakes; tests: tests/diagrams.test.ts (4: grounded schema accept/reject, sanitization + validator rejects injected directives, eligibility, engine generation/omission/null/toggle); updated engine FixtureModel (answers diagram:null), section-count assertions; commands: lint/typecheck/test (258 Node + 168 vitest)/build green; commit: see git log feat(B4)
-- [ ] B5 Incremental review and thread hygiene — todo
+- [x] B5 Incremental review and thread hygiene — done
+  plan: Scm.compare + incrementalDiff (ahead → new commits ∩ PR files; diverged/behind/incomplete → full) + fullDiff anchoring; Scm.resolveFindingThreads via GraphQL reviewThreads + REST reply (marker) + resolveReviewThread for bot-started threads; reviews.previousHead / findingCommentIds queries.
+  evidence: tested with fakes; tests: tests/incremental.test.ts (4: scope decisions, fullDiff anchoring + summary uses full PR, compare parsing/completeness, thread hygiene bot-only + idempotent), tests/review-history.spec.ts (previous head + scoped comment ids); commands: lint/typecheck/test (262 Node + 169 vitest) green; commit: see git log feat(B5)
+  notes: GitLab/Gitea/Bitbucket keep full re-reviews and leave threads open (no compare capability wired); documented in README.
 - [ ] B6 Check runs — todo
 - [ ] B7 Triggers and comment types — todo
 - [ ] B8 Repo config as code — todo

@@ -58,6 +58,9 @@ export const reviewFileLimits = { fast: 200, standard: 350, deep: 500 } as const
 export const payloadByteLimit = 300000;
 export function grounded(finding: Candidate, input: ReviewInput): boolean {
   if(!citesFetchedRequirements([finding.title,finding.description,finding.impact,finding.suggestedFix].join("\n"),input.files.flatMap(f=>f.provenance?[f.provenance.sourceUrl]:[])))return false;
+  // Incremental reviews: the anchor must also be a line the complete pull request changes.
+  const full = input.fullDiff?.find((d) => d.path === finding.filePath);
+  if (input.fullDiff && (!full || !changedLines(full.patch).has(finding.startLine))) return false;
   const changed = input.diff.find((d) => d.path === finding.filePath);
   if (
     !changed ||
@@ -362,7 +365,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram},input.settings?.summarySections),
     findings,
     diagrams: diagram ? [diagram] : [],
     metadata: {

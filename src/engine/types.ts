@@ -97,6 +97,9 @@ export type ReviewInput = {
   coverageLimits?: string[];
   // Changed files the provider could not supply (e.g. omitted diffs); reported, never reviewed.
   skippedFiles?: SkippedFile[];
+  // Complete pull-request diff when `diff` holds only new commits (incremental review): findings
+  // must also anchor on lines the PR changes, and the summary lists every PR file.
+  fullDiff?: ChangedFile[];
   // Provider link to file lines at the reviewed revision (summary issue table); optional.
   sourceLink?: (path: string, startLine: number, endLine: number) => string | undefined;
   runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
