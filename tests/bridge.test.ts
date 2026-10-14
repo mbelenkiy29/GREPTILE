@@ -89,8 +89,10 @@ test("dispatch records agent exit failures and signals without treating launch a
   await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
   const address=server.address();assert.ok(address&&typeof address!=="string");
   await writeFile(path.join(home,"config.json"),JSON.stringify({url:`http://127.0.0.1:${address.port}`,token:"obr_"+"a".repeat(64),repositories:{"github.com/alice/example":repo}}),{mode:0o600});
-  // Fake agents that only exit or signal are POSIX shell scripts: a bare Node startup occasionally
-  // crashed (SIGSEGV) under the parallel test load, which looked like an agent failure.
+  // Fake agents are POSIX shell scripts, not Node scripts. With system CAs enabled
+  // (NODE_USE_SYSTEM_CA=1 or --use-system-ca), Node 24 before 24.9 loads certificates on a thread at
+  // startup, and a process.exit() that races it intermittently dies with SIGSEGV/SIGBUS
+  // (nodejs/node#59856), which the dispatcher would then correctly report as the agent's status.
   for(const [index,script] of ["exit 0","exit 7","kill -TERM $$",null].entries()){
    reports.length=0;
    if(script===null)await rm(path.join(bin,"codex"));else await writeFile(path.join(bin,"codex"),`#!/bin/sh\n${script}\n`,{mode:0o700});
