@@ -28,11 +28,18 @@ export const defaults = {
   reviewEngine: "pipeline",
   // GitHub check run conclusion: "off" reports neutral; a severity fails the check when findings reach it.
   checkFailureSeverity: "off",
+  // Triggers and filters (GitHub webhooks): labels that start a review, excluded author globs,
+  // size limits for automatic reviews (0 = none) and a strictness preset (0 = custom thresholds).
+  triggerLabels: [] as string[],
+  excludedAuthors: [] as string[],
+  maxFiles: 0,
+  maxChangedLines: 0,
+  strictness: 0,
   commentStyle: "concise",
   summarySections:[...summarySections],
 };
-type ScopeReviewSettings = Omit<typeof defaults,"targetBranches"|"ignoredBranches"|"ignoredPaths"|"summarySections"> & {
-  targetBranches:string[]; ignoredBranches:string[]; ignoredPaths:string[]; summarySections?:string[];
+type ScopeReviewSettings = Omit<typeof defaults,"targetBranches"|"ignoredBranches"|"ignoredPaths"|"summarySections"|"triggerLabels"|"excludedAuthors"> & {
+  targetBranches:string[]; ignoredBranches:string[]; ignoredPaths:string[]; summarySections?:string[]; triggerLabels:string[]; excludedAuthors:string[];
 };
 /** Only explicitly selected keys participate; dormant saved values never mask a parent. */
 export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<ScopeReviewSettings>;overrideKeys:readonly string[]}[],teamId?:string) {
@@ -44,6 +51,11 @@ export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<S
 }
 export const reviewEngines=["pipeline","agentic"] as const;
 export const validReviewEngine=(value:string|undefined)=>value===undefined||(reviewEngines as readonly string[]).includes(value);
+// Optional trigger/limit settings stay valid when absent (older saved settings).
+export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:string[];maxFiles?:number;maxChangedLines?:number;strictness?:number})=>
+ (s.triggerLabels??[]).length<=20&&(s.triggerLabels??[]).every(l=>l.trim().length>0&&l.length<=100)&&
+ (s.excludedAuthors??[]).length<=50&&(s.excludedAuthors??[]).every(a=>a.trim().length>0&&a.length<=100)&&
+ [s.maxFiles??0,s.maxChangedLines??0].every(n=>Number.isInteger(n)&&n>=0&&n<=1_000_000)&&[0,1,2,3].includes(s.strictness??0);
 export const checkFailureSeverities=["off","critical","high","medium","low"] as const;
 export const validCheckFailureSeverity=(value:string|undefined)=>value===undefined||(checkFailureSeverities as readonly string[]).includes(value);
 export const runtimeDefaults={enabled:false,image:"",command:"",timeout:120,requiredForApproval:false};

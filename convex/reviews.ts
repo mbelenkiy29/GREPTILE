@@ -44,6 +44,8 @@ export const enqueue = internalMutation({
     force: v.optional(v.boolean()),
     category: v.optional(v.string()),
     runtimeEvidence: v.optional(runtimeEvidenceValidator),
+    // How the review was requested: automatic/label reviews honour size limits; mention bypasses them.
+    trigger: v.optional(v.union(v.literal("automatic"), v.literal("label"), v.literal("mention"), v.literal("manual"))),
   },
   handler: async (ctx, args) => {
     if (args.runtimeEvidence) {
@@ -97,6 +99,7 @@ export const enqueue = internalMutation({
       mode: config.mode,
       category: args.category,
       runtimeEvidence: args.runtimeEvidence,
+      ...(args.trigger ? { trigger: args.trigger } : {}),
       attempts: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -130,6 +133,7 @@ export const request = mutation({
       prNumber: args.prNumber,
       headSha: args.headSha,
       force: true,
+      trigger: "manual",
     });
   },
 });

@@ -1161,7 +1161,7 @@ export default async function Dashboard({
                           defaultChecked={repoSettings.settings[key]}
                         />{" "}
                         {key === "automatic"
-                          ? "Automatic reviews"
+                          ? "Automatic reviews (off: only on @openreview review or a trigger label)"
                           : key === "drafts"
                             ? "Review draft PRs"
                             : "Re-review new commits"}
@@ -1237,6 +1237,31 @@ export default async function Dashboard({
                     </select>
                   </label>
                   <label>
+                    Strictness
+                    <select name="strictness" defaultValue={String(repoSettings.settings.strictness ?? 0)}>
+                      <option value="0">custom thresholds</option>
+                      <option value="1">1 · fewest, highest-confidence comments</option>
+                      <option value="2">2 · balanced</option>
+                      <option value="3">3 · most thorough</option>
+                    </select>
+                  </label>
+                  <label>
+                    Trigger labels
+                    <input name="triggerLabels" placeholder="openreview, needs-review" defaultValue={(repoSettings.settings.triggerLabels ?? []).join(", ")} />
+                  </label>
+                  <label>
+                    Excluded authors (globs)
+                    <input name="excludedAuthors" placeholder="dependabot[bot], *-bot" defaultValue={(repoSettings.settings.excludedAuthors ?? []).join(", ")} />
+                  </label>
+                  <label>
+                    Skip automatic reviews above changed files (0 = no limit)
+                    <input name="maxFiles" type="number" min={0} defaultValue={repoSettings.settings.maxFiles ?? 0} />
+                  </label>
+                  <label>
+                    Skip automatic reviews above changed lines (0 = no limit)
+                    <input name="maxChangedLines" type="number" min={0} defaultValue={repoSettings.settings.maxChangedLines ?? 0} />
+                  </label>
+                  <label>
                     GitHub check run
                     <select
                       name="checkFailureSeverity"
@@ -1266,6 +1291,8 @@ export default async function Dashboard({
                       "testing",
                       "performance",
                       "rules",
+                      "style",
+                      "syntax",
                     ].map((c) => (
                       <label key={c}>
                         <span>

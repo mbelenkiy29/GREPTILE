@@ -14,7 +14,8 @@ import {indexWriteAllowed,indexBatchMatches} from "./indexAuthority";
 import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
-import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity } from "../src/review-settings";
+import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings } from "../src/review-settings";
+import { categories } from "../src/engine/types";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
 import type {QueryCtx,MutationCtx} from "./_generated/server";
@@ -81,7 +82,8 @@ export const configure = mutation({
         !validSummarySections(s.summarySections) ||
         !validReviewEngine(s.reviewEngine) ||
         !validCheckFailureSeverity(s.checkFailureSeverity) ||
-        s.categories.some((c) => !defaults.categories.includes(c))
+        !validTriggerSettings(s) ||
+        s.categories.some((c) => !(categories as readonly string[]).includes(c))
       )
         throw new Error("Invalid review settings");
       const existing = await ctx.db

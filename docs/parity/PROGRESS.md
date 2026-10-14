@@ -51,7 +51,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - [x] B6 Check runs — done
   plan: capture granted permissions from the installation token; start/complete check run only with checks:write; checkFailureSeverity setting (off → neutral; threshold → failure/success); store check id per review; complete on success, resumed publication and failure.
   evidence: tested with fakes; tests: tests/check-runs.test.ts (3: conclusion mapping, write vs read permission behaviour, installation validation unchanged + permissions exposed); commands: lint/typecheck/test (265 Node + 169 vitest)/build green; commit: see git log feat(B6)
-- [ ] B7 Triggers and comment types — todo
+- [x] B7 Triggers and comment types — done
+  plan: pure pullRequestTrigger (automatic/label/excluded authors/branch/draft) wired into webhookJobs incl. `labeled`; review.trigger field (automatic/label/mention/manual); size limits cancel automatic reviews; strictness presets → thresholds; style/syntax opt-in categories with conditional prompt; settings across scopes/forms/UI.
+  evidence: tested with fakes; tests: tests/triggers.test.ts (7: automatic, mention-only, labels, excluded authors/branches/drafts, size limits, strictness, inheritance), tests/trigger-dispatch.spec.ts (signed webhook → label trigger, labelled synchronize, excluded author, unlabelled synchronize); commands: lint/typecheck/test (272 Node + 170 vitest)/build green; commit: see git log feat(B7)
+  notes: "only on @mention" = Automatic reviews off (existing `@openreview review` command) — UI label clarified. GitHub-only wiring; other providers unchanged (documented).
 - [ ] B8 Repo config as code — todo
 - [ ] C1 Reaction feedback — todo
 - [ ] C2 Learn from human reviewers — todo

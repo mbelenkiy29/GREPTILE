@@ -18,6 +18,7 @@ import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
+import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
 import { checkConclusion, type CheckConclusion } from "../src/github";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
@@ -367,6 +368,11 @@ export const review = internalAction({
         });
         return;
       }
+      const limit = state.review.trigger === "mention" || state.review.trigger === "manual" ? undefined : sizeLimitIssue(pr.diff, settings);
+      if (limit) {
+        await ctx.runMutation(internal.reviews.stage, { ...args, status: "cancelled", detail: limit });
+        return;
+      }
       if (pr.draft && !settings.drafts) {
         await ctx.runMutation(internal.reviews.stage, {
           ...args,
@@ -580,10 +586,10 @@ export const review = internalAction({
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
           settings: {
-            minimumConfidence: settings.minimumConfidence,
+            minimumConfidence: effectiveThresholds(settings).minimumConfidence,
             severityThreshold: z
               .enum(severities)
-              .parse(settings.severityThreshold),
+              .parse(effectiveThresholds(settings).severityThreshold),
             maxComments: settings.maxComments,
             ignoredPaths: settings.ignoredPaths,
             categories: state.review.category

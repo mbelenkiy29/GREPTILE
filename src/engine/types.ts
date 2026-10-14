@@ -9,7 +9,12 @@ export const categories = [
   "testing",
   "performance",
   "rules",
+  // Opt-in (not in the default category set): convention-backed style and syntax checks.
+  "style",
+  "syntax",
 ] as const;
+export const optInCategories = ["style", "syntax"] as const;
+export const defaultCategories = categories.filter((c) => !(optInCategories as readonly string[]).includes(c));
 export const severities = ["critical", "high", "medium", "low"] as const;
 export const reviewScoreSchema = z.object({
   value: z.number().int().min(0).max(5),

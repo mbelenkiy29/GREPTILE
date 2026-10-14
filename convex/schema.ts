@@ -40,6 +40,11 @@ export const settingsValidator = v.object({
   summarySections:v.optional(v.array(v.string())),
   reviewEngine:v.optional(v.string()),
   checkFailureSeverity:v.optional(v.string()),
+  triggerLabels:v.optional(v.array(v.string())),
+  excludedAuthors:v.optional(v.array(v.string())),
+  maxFiles:v.optional(v.number()),
+  maxChangedLines:v.optional(v.number()),
+  strictness:v.optional(v.number()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -379,6 +384,7 @@ export default defineSchema({
     agentStateHead: v.optional(v.string()),
     // GitHub check run created for this review's head (checks:write only).
     checkRunId: v.optional(v.number()),
+    trigger: v.optional(v.string()),
     checkRunHead: v.optional(v.string()),
     repositoryContext:v.optional(repositoryContextValidator),
     nativeP4: v.optional(v.object({requestedBy:v.id("users"),connectionId:v.id("providerConnections"),credentialDigest:v.string(),baselineJobId:v.id("indexJobs"),inputStorageId:v.id("_storage"),polling:v.optional(p4PollingReference),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()}))})),

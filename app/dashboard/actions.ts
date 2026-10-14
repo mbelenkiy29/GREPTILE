@@ -221,6 +221,11 @@ export async function saveSettings(form: FormData) {
       commentStyle: text(form, "commentStyle"),
       reviewEngine: text(form, "reviewEngine") || previous.settings.reviewEngine || "pipeline",
       checkFailureSeverity: text(form, "checkFailureSeverity") || previous.settings.checkFailureSeverity || "off",
+      triggerLabels: form.has("triggerLabels") ? list("triggerLabels") : previous.settings.triggerLabels ?? [],
+      excludedAuthors: form.has("excludedAuthors") ? list("excludedAuthors") : previous.settings.excludedAuthors ?? [],
+      maxFiles: form.has("maxFiles") ? Number(text(form, "maxFiles")) : previous.settings.maxFiles ?? 0,
+      maxChangedLines: form.has("maxChangedLines") ? Number(text(form, "maxChangedLines")) : previous.settings.maxChangedLines ?? 0,
+      strictness: form.has("strictness") ? Number(text(form, "strictness")) : previous.settings.strictness ?? 0,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

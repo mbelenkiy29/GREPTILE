@@ -90,6 +90,16 @@ Review summary: each pull request (or GitLab merge request) has exactly one Open
 
 Test execution, coverage and a visible **Last reviewed commit** link always appear. Gitea, Bitbucket, Perforce and Origin keep posting one summary per run.
 
+Triggers and filters (GitHub, configurable per workspace, team or repository):
+- With **Automatic reviews** off, reviews run only on `@openreview review` or a trigger label.
+- **Trigger labels** start a review on `pull_request.labeled` and keep re-reviewing labelled pull requests.
+- **Excluded authors** are globs such as `dependabot[bot]` or `*-bot`.
+- Changed-file and changed-line limits skip oversized automatic reviews, with a visible reason; an explicit `@openreview review` overrides the limits.
+- Optional `style` and `syntax` categories are off by default.
+- **Strictness** presets 1–3 set the confidence and severity thresholds: 1 = 0.95/high, 2 = 0.85/medium, 3 = 0.75/low.
+
+Other providers keep their existing automatic-review filters.
+
 Incremental review and thread hygiene (GitHub and GitHub Enterprise): when a push builds on the last reviewed commit (checked with the compare API), only the new commits' changes are reviewed. The full pull request stays available as context, and findings must still anchor on lines the pull request changes. Force-pushes, rebases and comparisons too large to complete fall back to a full review, and the summary's Coverage section says which mode ran. When a later review verifies that an earlier finding is fixed, OpenReview replies in its own thread and resolves it with the GraphQL `resolveReviewThread` mutation. Threads started by people are never resolved, and retries never reply twice.
 
 Committable suggestions: a finding can carry a small exact replacement for its own line range. OpenReview publishes it only if the range lies inside the changed lines and the original text still matches the reviewed head revision; otherwise the suggestion is dropped (recorded in diagnostics) and the finding is kept. On GitHub and GitHub Enterprise, findings whose range lies inside one diff hunk are posted as multi-line comments (`start_line`…`line`); any other range falls back to its first line. GitHub and GitHub Enterprise render a ```` ```suggestion ```` block when the comment covers the whole suggestion range, and GitLab renders ```` ```suggestion:-N+M ````. Gitea, Bitbucket, Perforce and Origin show the finding and Fix handoff without a suggestion block, because they have no native apply-suggestion support.

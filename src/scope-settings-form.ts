@@ -14,5 +14,7 @@ export function scopeSettingsFromForm(form:FormData){
   commentStyle:value('commentStyle')||defaults.commentStyle,
   reviewEngine:value('reviewEngine')||defaults.reviewEngine,
   checkFailureSeverity:value('checkFailureSeverity')||defaults.checkFailureSeverity,
+  triggerLabels:list('triggerLabels'),excludedAuthors:list('excludedAuthors'),
+  maxFiles:Number(value('maxFiles')||0),maxChangedLines:Number(value('maxChangedLines')||0),strictness:Number(value('strictness')||0),
  };
 }
