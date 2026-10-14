@@ -207,13 +207,23 @@ The key owner's role still applies, and keys created before scopes keep full acc
 * `GET /api/context?repositoryId=...&query=...`
 * `GET /api/context?repositoryId=...&path=...`
 
-For MCP clients:
+Remote MCP (Streamable HTTP, no local install): point your client at `https://review.example.com/api/mcp` with the header `Authorization: Bearer or_...`. The endpoint is stateless and returns JSON responses. It rejects requests without a valid key (401 with `WWW-Authenticate: Bearer`). Each tool call runs through the public API, so the key's scope and workspace apply.
+
+```json
+{"mcpServers":{"openreview":{"type":"http","url":"https://review.example.com/api/mcp","headers":{"Authorization":"Bearer or_..."}}}}
+```
+
+Local stdio MCP:
 
 ```json
 {"mcpServers":{"openreview":{"command":"pnpm","args":["--dir","/absolute/path/to/openreview","--silent","mcp"],"env":{"OPENREVIEW_URL":"https://review.example.com","OPENREVIEW_API_KEY":"or_..."}}}}
 ```
 
-The stdio server exposes review/finding/context/search/rule tools and a mark-resolved tool. Keep keys in your client's secret configuration. Portable fix prompts support Codex, Claude Code, Cursor, and Fix All; they contain evidence and commit coordinates rather than relying on unverified application deep links.
+Both servers expose the same tools:
+- **Reviews and findings:** `get_review`, `get_findings`, `get_finding`.
+- **Repository context:** `get_repository_context`, `search_codebase` (paths and symbols), `get_related_files`, `get_custom_rules`, `list_repositories`.
+- **Codebase questions and search:** `ask_codebase` (cited answers, as in `POST /api/query`) and `search_code` (hybrid semantic search, as in `POST /api/search`).
+- **Feedback:** `mark_finding_resolved` (needs a write-scoped key). Keep keys in your client's secret configuration. Portable fix prompts support Codex, Claude Code, Cursor, and Fix All; they contain evidence and commit coordinates rather than relying on unverified application deep links.
 
 ## Self-hosting
 
