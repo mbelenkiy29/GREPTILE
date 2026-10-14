@@ -25,6 +25,7 @@ export const docPages: DocPage[] = [
   { slug: "notion", title: "Notion", description: "Requirements context from Notion pages.", section: "Use", file: "notion.md" },
   { slug: "api", title: "Public API", description: "API keys, scopes and endpoints.", section: "Developers", file: "public/api.md" },
   { slug: "mcp", title: "MCP", description: "Remote and local Model Context Protocol servers.", section: "Developers", file: "public/mcp.md" },
+  { slug: "agent-plugins", title: "Agent plugins", description: "Claude Code and Codex plugins and the resolve loop.", section: "Developers", file: "public/agent-plugins.md" },
   { slug: "cli", title: "CLI", description: "Local reviews and the coding-agent bridge.", section: "Developers", file: "public/cli.md" },
   { slug: "self-hosting", title: "Self-hosting", description: "Run OpenReview on your own infrastructure.", section: "Operate", file: "public/self-hosting.md" },
   { slug: "deployment", title: "Deployment guide", description: "Docker Compose, backups and upgrades.", section: "Operate", file: "deployment.md" },

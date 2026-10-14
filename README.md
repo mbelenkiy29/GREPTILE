@@ -34,6 +34,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Strictness presets and opt-in comment categories.
 - Optional auto-enable for newly installed repositories, per workspace or team, and suggested cross-repository clusters from package references, shared dependencies and repository names. Suggestions wait for an admin's approval.
 - Custom rules scoped to the workspace, a team, repositories matching a name pattern (such as `acme/*-service`) or one repository; the most specific same-titled rule wins.
+- Claude Code and Codex plugins (`plugins/openreview`) with the OpenReview MCP server and a resolve loop that fixes findings, commits locally, asks before pushing (never force-pushes) and re-reviews until clean; `openreview resolve` runs the same loop from the terminal. Install in Claude Code with `/plugin install openreview --marketplace <owner>/<repo>`; see [agent plugins](docs/public/agent-plugins.md).
 - A rule assistant that drafts rules from a description, tightens vague rules, flags conflicting or duplicate rules, and suggests rules from findings fixed on several pull requests and from approved conventions. Every suggestion cites its sources and waits for an admin's approval.
 - Configuration as code in `.openreview.json` and cascading `.openreview/` folders (per-directory categories, strictness, thresholds and ignore/include globs; the highest tier among touched directories), read from the base branch, with admin locks that a pull request cannot override.
 
@@ -269,6 +270,12 @@ API keys are hashed at rest, scoped to one workspace, and revocable. Use `Author
 - **admin:** adds administrator endpoints.
 
 The key owner's role still applies, and keys created before scopes keep full access. The full reference is [docs/openapi.yaml](docs/openapi.yaml).
+
+The Claude Code plugin bundles the remote MCP server with OAuth sign-in and the resolve-loop skills. Install it from the repository that holds this marketplace (Codex steps are in [agent plugins](docs/public/agent-plugins.md)):
+
+```text
+/plugin install openreview --marketplace <owner>/<repo>
+```
 
 * `POST /api/query` with `{question,repositoryIds,threadId?,stream?}`: a codebase answer with sources that exactly match lines at the indexed revision. Returns JSON, or Server-Sent Events when `stream` is true. `GET /api/query/:messageId` fetches a result later.
 * `POST /api/search` with `{query,repositoryIds?,limit?}`: hybrid full-text and semantic search, returning ranked snippets.
