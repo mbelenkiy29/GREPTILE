@@ -112,7 +112,7 @@ Each item lists what shipped, its evidence level, its tests and its known limits
   - `tests/agent.test.ts` (7).
   - `tests/agent-tools.spec.ts`.
   - `tests/agent-toolbox.test.ts`.
-- Limits: in the one-fixture live pilot, the agentic engine investigated but missed a bug that the pipeline caught (see [Pilot results](#pilot-results-october-14-2026)). The pilot also exposed two bugs, both since fixed:
+- Limits: in the one-fixture live pilot, the agentic engine caught the bug in one of its two valid runs. The pipeline caught it in its only run (see [Pilot results](#pilot-results-october-14-2026)). The pilot also exposed two bugs, both since fixed:
   - The evaluation script silently ran the pipeline when the agentic engine was requested.
   - The agent ended its review when the model replied in text without calling any tools.
 
@@ -488,18 +488,19 @@ The exact sub-steps for each item are in the ledger's "Needs human" section.
 
 ### Pilot results (October 14, 2026)
 
-The pilot ran fixture `multi-hop-currency` with OpenAI `gpt-4.1`. The run was approved, and four runs cost **$0.125** in total. The reports are `reports/eval-*-multi-hop-currency.json`.
+The pilot ran fixture `multi-hop-currency` with OpenAI `gpt-4.1`. The runs were approved, and five runs cost **$0.172** in total. The reports are `reports/eval-*-multi-hop-currency.json`.
 
 | Run | Engine actually used | Result | Cost |
 |---|---|---|---|
 | Pipeline | pipeline | **Caught.** High severity at `src/change.ts:1`, explaining the cents-to-dollars change and naming the `cart.ts` caller. Checked by hand: a genuine catch. Cost 10.4k tokens and 18 s | $0.031 |
 | Agentic, run 1 | pipeline (silent fallback) | Not a real agentic result. The evaluation wrapper didn't pass tool calling through, so the review fell back to the pipeline. **Fixed**, and the eval script now marks a fallback as a failed result | $0.032 |
 | Agentic, run 2 | agentic | **Missed.** gpt-4.1 replied in prose on its first turn, and the loop treated that as the end of the review. **Fixed:** the loop now sends one reminder that only `report_finding` records findings | $0.011 |
-| Agentic, run 3 | agentic | **Missed.** It made 9 tool calls in 11 turns (23k tokens, 17 s) but reported nothing | $0.052 |
+| Agentic, run 3 | agentic | **Missed.** It made 9 tool calls in 11 turns (23k tokens, 17 s) but reported nothing. This run predates transcript capture, so the reason is unknown | $0.052 |
+| Agentic, run 4 (with transcript) | agentic | **Caught.** Critical severity at `src/change.ts:1`. Its evidence quotes `cart.ts:2` and the `payments.ts` comment saying the provider requires integer cents, and it suggests a fix. Checked by hand: a genuine catch. Turn 1 was prose again, so the reminder fired. It then found all references to `checkoutAmount`, which reached `payments.ts` in a single hop. It made 7 tool calls in 8 turns, 2 of them repeat reads. Cost 19.4k tokens and 25 s. Report: `reports/eval-agentic-transcript-multi-hop-currency.json` | $0.047 |
 
 **What this shows**
-- On this fixture with gpt-4.1, the pipeline caught the bug and the agentic engine did not. That's one fixture and one run per engine, so it isn't a quality conclusion.
-- Eval reports don't save the agent's tool transcript, so it's unknown whether the agent reached `payments.ts`.
+- On this fixture with gpt-4.1, the pipeline caught the bug in 1 of 1 runs. The agentic engine caught it in 1 of 2 runs, counting only runs after both fixes. The agentic finding is stronger: it cites the `payments.ts` comment that proves the bug, which the pipeline can't see. The two agentic runs used the same code and got different results, so run-to-run variance is real. That's why the full eval does three passes. One fixture is still not a quality conclusion.
+- gpt-4.1 opened both valid runs with prose instead of tool calls, so the one-time reminder is what starts the investigation with this model.
 - A cost per fixture of $0.03–0.05 is far below the estimate below. A full three-pass comparison of both engines on all 15 fixtures would probably cost **under $5**.
 
 **Before the full run**, consider two changes:
@@ -526,7 +527,7 @@ Each step needs approval before it runs.
    - Checklist step 2 (rotated key).
    - Set `LLM_PROVIDER`, `LLM_MODEL` and `LLM_API_KEY` in `.env.local`. Use the same model for both engines.
    - Commit or stash your work. `reports/evaluation.json` is tracked, and a live run overwrites it.
-2. **Pilot (about $1). Done October 14, 2026, for $0.125; see [Pilot results](#pilot-results-october-14-2026).** It ran:
+2. **Pilot (about $1). Done October 14, 2026, for $0.172 across five runs; see [Pilot results](#pilot-results-october-14-2026).** It ran:
    - `pnpm eval --fixture=multi-hop-currency`
    - `pnpm eval --fixture=multi-hop-currency --engine=agentic`
 
