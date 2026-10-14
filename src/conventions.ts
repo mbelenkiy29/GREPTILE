@@ -65,3 +65,11 @@ export function clusterConventions(candidates: { text: string; category: string;
 export function usableComments(comments: HumanComment[], limit = 100) {
   return comments.filter((c) => c.body.trim().length >= 20 && !/^\s*(lgtm|thanks|thank you|nice|\+1|looks good)\b/i.test(c.body) && !/@openreview\b|<!-- openreview/i.test(c.body)).slice(0, limit).map((c) => ({ ...c, body: c.body.slice(0, 800) }));
 }
+
+// Admin-edited preferences may narrow what gets reported (that is their purpose), but never for
+// security, and never with injection, approval, permission, budget or code content.
+export function preferenceProblem(text: string, category: string): string | null {
+  const problem = conventionProblem(text);
+  if (problem !== "suppresses findings") return problem;
+  return category === "security" || /secur|vulnerab|auth|inject|secret|xss|csrf|permission/i.test(text) ? "suppresses security findings" : null;
+}

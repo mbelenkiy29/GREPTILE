@@ -67,7 +67,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: Github.mergedReviewComments (incremental cursor, ≤10 merged PRs/run, humans only); usableComments filter; model extraction with evidence indexes (fake-model tested); clusterConventions + similarity merge; conventionProblem guardrails; learnedRules (suggested/approved/rejected/disabled) with evidence + frequency; decide mutation (admin, audited); autoApproveConventions setting; approved conventions → review preferences; daily sweep.
   evidence: tested with fakes; tests: tests/conventions.test.ts (3: guardrails, clustering/similarity, input filtering + evidence validation), tests/conventions.spec.ts (2: ingestion → guarded suggestion with evidence/frequency + cursor + usage + merge on next batch; approval flow with viewer denial, audit, rejected stays rejected, auto-approve); commands: lint/typecheck/test (280 Node + 177 vitest)/build green; commit: see git log feat(C2)
   notes: extraction makes a real model call per batch in production (not run here). GitHub only; other providers lack mergedReviewComments.
-- [ ] C3 Memory management — todo
+- [x] C3 Memory management — done
+  plan: scope (repo/team/workspace) + teamId + by_org_scope on learnedPreferences and learnedRules; convex/memory.ts editPreference / editLearnedRule / deleteLearnedRule (workspace admin, audited, guardrailed) + rules query (visible repos, search, status filter); scope application in repositories.data (shared workspace/team preferences) and conventions.approvedForRepo; Memory page lists preferences + conventions with provenance, filters, edit/scope/enable/disable/approve/reject/delete forms for admins only; resetPreference wired.
+  evidence: tested with fakes; tests: tests/memory.spec.ts (4: viewer read-only + no audit writes, admin edits/approve/delete with one audit event per change + guardrails incl. security-suppression rejection + team scope requires team, scope inheritance for preferences and conventions across team/workspace/disable, no cross-organization leakage); scripts/browser.ts Memory page filter check (runs once Needs human #10 is done); commands: lint/typecheck/test (280 Node + 181 vitest)/build green; commit: see git log feat(C3)
+  notes: admin-edited preferences may narrow reporting (their purpose) but never for security (preferenceProblem); conventions may only add guidance (conventionProblem). Team scope uses the source repository's team at edit time.
 - [ ] C4 `@openreview fix this` — todo
 - [ ] D1 Codebase chat (web) — todo
 - [ ] D2 Public query API — todo
@@ -116,6 +119,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — Display cost now falls back to the built-in price table when LLM_*_COST_PER_MILLION is 0 (previously reported 0).
 - 2026-10-14 — Default output limit is 16000 for Claude/reasoning models because thinking tokens count toward max_tokens; 6000 otherwise (unchanged).
 - 2026-10-14 — The baseline commit includes `.claude/skills/greptile-parity/` — the plan must travel with the repo so any agent can resume.
+
+- 2026-10-14 — Memory scope is stored on the record (scope + teamId snapshot at edit time) and applied at read time through an (organizationId, scope) index — no copying of preferences into other repositories, so disable/delete takes effect everywhere at once.
+- 2026-10-14 — Edited preferences reuse the convention guardrails but allow "do not flag X" wording outside security, because narrowing noise is what a preference is for; security-related suppression stays rejected.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

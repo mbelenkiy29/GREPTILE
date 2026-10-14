@@ -128,6 +128,13 @@ try {
     .getByRole("heading", { name: /Browser check membership/ })
     .last()
     .waitFor();
+  await page.goto(`${url}/dashboard/memory/preferences`);
+  await page.getByRole("heading", { name: "Learned team conventions" }).waitFor();
+  await page.getByLabel("Convention status").selectOption("suggested");
+  await page.getByLabel("Search memory").fill("pagination");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await page.waitForURL(/convention=suggested/);
+  await page.getByText("0 matching conventions", { exact: false }).waitFor();
   await page.goto(`${url}/dashboard`);
   await page.screenshot({
     path: "output/playwright/dashboard.png",
@@ -146,7 +153,7 @@ try {
   );
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    "Browser verification passed: onboarding, repository selection, nine dashboard pages, persisted settings/rules, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
+    "Browser verification passed: onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
   );
 } finally {
   await browser.close();

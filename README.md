@@ -99,6 +99,8 @@ Learned team conventions:
 - **Use:** approved conventions reach reviews only as review guidance.
 - **Guardrails:** text that would suppress findings, approve changes, touch permissions, secrets or budgets, or looks like prompt injection is rejected.
 
+Memory management (Dashboard → Memory → Preferences): every learned preference and convention is listed with its provenance (source review, finding, feedback, developer request, or supporting comments), plus search and status filters. Workspace admins can edit the text, set the scope (this repository, its team, or the whole workspace), enable or disable, approve or reject suggestions, and delete. Every change is audit-logged. Viewers have read-only access. A team- or workspace-scoped entry applies to reviews in every repository in that scope, and disabling it takes effect everywhere at once. The guardrails apply to edits too, and a preference can never suppress security findings.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

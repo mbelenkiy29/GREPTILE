@@ -201,11 +201,17 @@ export const data = internalQuery({
     ).filter(
       (r) => r.enabled && (!r.repositoryId || r.repositoryId === repo._id),
     );
-    const preferences = await ctx.db
+    const own = await ctx.db
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
       .order("desc")
       .take(maxPreferences);
+    // Workspace- and team-scoped preferences learned in other repositories apply here too.
+    const shared = [
+      ...(await ctx.db.query("learnedPreferences").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "workspace")).take(500)),
+      ...(repo.teamId ? (await ctx.db.query("learnedPreferences").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "team")).take(500)).filter((p) => p.teamId === repo.teamId) : []),
+    ].filter((p) => p.repositoryId !== repo._id);
+    const preferences = [...own, ...shared];
     return {
       repo,
       settings: await effectiveSettings(ctx, repo),

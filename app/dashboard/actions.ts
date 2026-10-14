@@ -233,6 +233,23 @@ export async function saveSettings(form: FormData) {
   });
   revalidatePath("/dashboard", "layout");
 }
+export async function editPreference(form: FormData) {
+  const { token } = await current();
+  const scope = text(form, "scope");
+  await backend().mutation(api.memory.editPreference, { token, preferenceId: text(form, "preferenceId") as Id<"learnedPreferences">, ...(form.has("instruction") ? { instruction: text(form, "instruction") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}) });
+  revalidatePath("/dashboard", "layout");
+}
+export async function editLearnedRule(form: FormData) {
+  const { token } = await current();
+  const scope = text(form, "scope"), status = text(form, "status");
+  await backend().mutation(api.memory.editLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, ...(form.has("text") ? { text: text(form, "text") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}), ...(status ? { status: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(status) } : {}) });
+  revalidatePath("/dashboard", "layout");
+}
+export async function deleteLearnedRule(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.memory.deleteLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules"> });
+  revalidatePath("/dashboard", "layout");
+}
 export async function decideConvention(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.conventions.decide, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, decision: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(text(form, "decision")) });

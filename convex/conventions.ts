@@ -40,9 +40,16 @@ export const record = internalMutation({
   },
 });
 // Approved conventions applied to reviews of this repository (as review guidance).
-export const approvedForRepo = internalQuery({ args: { repositoryId: v.id("repositories") }, handler: async (ctx, a) =>
-  (await ctx.db.query("learnedRules").withIndex("by_repo_status", (q) => q.eq("repositoryId", a.repositoryId).eq("status", "approved")).take(200)).map((r) => ({ category: r.category, instruction: `Team convention learned from ${r.frequency} human review comment${r.frequency === 1 ? "" : "s"}: ${r.text}` })),
-});
+export const approvedForRepo = internalQuery({ args: { repositoryId: v.id("repositories") }, handler: async (ctx, a) => {
+  const repo = await ctx.db.get(a.repositoryId);
+  if (!repo) return [];
+  const own = (await ctx.db.query("learnedRules").withIndex("by_repo_status", (q) => q.eq("repositoryId", repo._id).eq("status", "approved")).take(200)).filter((r) => !r.scope || r.scope === "repo" || r.scope === "workspace" || (r.scope === "team" && r.teamId === repo.teamId));
+  const shared = [
+    ...(await ctx.db.query("learnedRules").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "workspace")).take(200)),
+    ...(repo.teamId ? (await ctx.db.query("learnedRules").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "team")).take(200)).filter((r) => r.teamId === repo.teamId) : []),
+  ].filter((r) => r.status === "approved" && r.repositoryId !== repo._id);
+  return [...own, ...shared].map((r) => ({ category: r.category, instruction: `Team convention learned from ${r.frequency} human review comment${r.frequency === 1 ? "" : "s"}: ${r.text}` }));
+} });
 export const list = query({ args: { token: v.string(), repositoryId: v.id("repositories") }, handler: async (ctx, a) => {
   const { repo } = await authorizeRepository(ctx, a.token, a.repositoryId);
   return (await ctx.db.query("learnedRules").withIndex("by_repo_status", (q) => q.eq("repositoryId", repo._id)).take(500)).sort((x, y) => (x.status === "suggested" ? -1 : 0) - (y.status === "suggested" ? -1 : 0) || y.frequency - x.frequency);

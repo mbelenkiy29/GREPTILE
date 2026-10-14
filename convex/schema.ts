@@ -447,7 +447,8 @@ export default defineSchema({
     text: v.string(),
     category: v.string(),
     status: v.string(), // suggested | approved | rejected | disabled
-    scope: v.optional(v.string()), // repo (default) | team | workspace (C3)
+    scope: v.optional(v.string()), // repo (default) | team | workspace
+    teamId: v.optional(v.id("teams")),
     frequency: v.number(),
     evidence: v.array(v.object({ url: v.string(), author: v.string(), excerpt: v.string() })),
     decidedBy: v.optional(v.id("users")),
@@ -455,7 +456,8 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_repo_status", ["repositoryId", "status"])
-    .index("by_org", ["organizationId"]),
+    .index("by_org", ["organizationId"])
+    .index("by_org_scope", ["organizationId", "scope"]),
   // 👍/👎 reactions on OpenReview's own finding comments, mirrored from the provider
   // (GitHub: polled; GitLab: emoji webhooks). Bots never count.
   commentReactions: defineTable({
@@ -494,11 +496,15 @@ export default defineSchema({
     feedbackId:v.optional(v.id("findingFeedback")),
     sourceReviewId:v.optional(review),
     updatedAt:v.optional(v.number()),
+    // Scope beyond the source repository: "team" (its team) or "workspace" (every repository).
+    scope:v.optional(v.string()),
+    teamId:v.optional(v.id("teams")),
     enabled: v.boolean(),
     createdAt: v.number(),
   })
     .index("by_repo", ["repositoryId"])
-    .index("by_source", ["repositoryId", "source"]),
+    .index("by_source", ["repositoryId", "source"])
+    .index("by_org_scope", ["organizationId", "scope"]),
   customRules: defineTable({
     organizationId: org,
     repositoryId: v.optional(repo),
