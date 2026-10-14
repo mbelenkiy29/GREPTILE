@@ -54,8 +54,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 4. (H4) Set `APP_URL` identically in Vercel and Convex; set GitHub App callback/setup/webhook URLs per §2; redeploy; confirm a 2xx webhook delivery.
 5. (H4) Confirm Vercel/Convex env var names per §3 (dashboard; `convex env list --prod` prints values — private terminal only).
 6. (H4) Raise/reconcile the inference budget per §5 (≈$0.12 unreserved at audit).
-8. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
+8. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Agentic resume uses a `waiting_agent` review status + per-review state blob (saved every turn) and a soft step deadline (AGENT_STEP_SECONDS=420) instead of a separate job table — reuses the existing review lifecycle, recovery sweep and retry semantics; resumes capped at 6.
