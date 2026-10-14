@@ -248,6 +248,8 @@ export default defineSchema({
     sourcePath: v.string(),
     to: v.string(),
     kind: v.string(),
+    symbol: v.optional(v.string()),
+    resolved: v.optional(v.boolean()),
   })
     .index("by_repo", ["repositoryId"])
     .index("by_source", ["repositoryId", "sourcePath"])

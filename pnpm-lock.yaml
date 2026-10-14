@@ -41,12 +41,18 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      tree-sitter-wasms:
+        specifier: 0.1.13
+        version: 0.1.13
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      web-tree-sitter:
+        specifier: 0.22.6
+        version: 0.22.6
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -2733,6 +2739,9 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
+  tree-sitter-wasms@0.1.13:
+    resolution: {integrity: sha512-wT+cR6DwaIz80/vho3AvSF0N4txuNx/5bcRKoXouOfClpxh/qqrF4URNLQXbbt8MaAxeksZcZd1j8gcGjc+QxQ==}
+
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
 
@@ -2913,6 +2922,9 @@ packages:
         optional: true
       jsdom:
         optional: true
+
+  web-tree-sitter@0.22.6:
+    resolution: {integrity: sha512-hS87TH71Zd6mGAmYCvlgxeGDjqd9GTeqXNqTT+u0Gs51uIozNIaaq/kUAbV/Zf56jb2ZOyG8BxZs2GG9wbLi6Q==}
 
   which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
@@ -5876,6 +5888,8 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
+  tree-sitter-wasms@0.1.13: {}
+
   trim-lines@3.0.1: {}
 
   trough@2.2.0: {}
@@ -6063,6 +6077,8 @@ snapshots:
       '@types/node': 22.20.4
     transitivePeerDependencies:
       - msw
+
+  web-tree-sitter@0.22.6: {}
 
   which-boxed-primitive@1.1.1:
     dependencies:

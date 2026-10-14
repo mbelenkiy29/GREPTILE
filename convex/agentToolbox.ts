@@ -29,7 +29,7 @@ export function reviewToolbox(ctx: ActionCtx, repo: Doc<"repositories">, headSha
     findDefinition: (symbol) => ctx.runQuery(internal.agentTools.definitions, { repositoryId, symbol }),
     findReferences: (symbol) => ctx.runQuery(internal.agentTools.references, { repositoryId, symbol }),
     listDirectory: (path) => ctx.runQuery(internal.agentTools.directory, { repositoryId, path }),
-    relatedFiles: (path) => ctx.runQuery(internal.agentTools.related, { repositoryId, path }),
+    relatedFiles: async (path) => (await ctx.runQuery(internal.context.neighborhood, { repositoryId, paths: [path], hops: 2, limit: 40 })).map((n) => ({ path: n.path, reason: `${n.via}, ${n.hops} hop${n.hops > 1 ? "s" : ""}` })),
     pastFindings: (path) => ctx.runQuery(internal.agentTools.pastFindings, { repositoryId, path }),
   };
 }

@@ -4,6 +4,8 @@ import ts from "typescript";
 import ignore from "ignore";
 import path from "node:path";
 import type { SourceFile } from "./types";
+import { extractTreeSitter } from "./graph-extract";
+import { grammarFor, parserFor } from "./treesitter";
 
 export type SymbolNode = {
   name: string;
@@ -26,6 +28,10 @@ export type Relationship = {
     | "depends-on"
     | "route-to-handler"
     | "schema-to-consumer";
+  // Resolved edges point at repository paths (or "dir/" packages); symbol is the called or
+  // imported name. Unresolved call edges keep the raw callee text with resolved=false.
+  symbol?: string;
+  resolved?: boolean;
 };
 export type CodeIndex = {
   files: SourceFile[];
@@ -69,6 +75,8 @@ export function indexRepository(
   const symbols: SymbolNode[] = [],
     relationships: Relationship[] = [];
   const paths = new Set([...knownPaths, ...files.map((f) => f.path)]);
+  // Reuse the caller's path list (cached path index) when it already covers these files.
+  const pathList: readonly string[] = files.every((f) => knownPaths.includes(f.path)) && knownPaths.length ? knownPaths : [...paths];
   const moduleReferences:NonNullable<CodeIndex["moduleReferences"]>=[];
   const resolveModule = (filePath: string, spec: string) => {
     const resolvedPath=resolveModuleReference(filePath,spec,paths);
@@ -83,6 +91,25 @@ export function indexRepository(
         ts.ScriptTarget.Latest,
         true,
       );
+      // Import bindings (local name → resolved module) let calls resolve to repository files.
+      const bindings = new Map<string, string>(), defined = new Set<string>();
+      for (const statement of tree.statements) {
+        if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) && statement.importClause) {
+          const target = resolveModuleReference(file.path, statement.moduleSpecifier.text, paths);
+          if (!paths.has(target)) continue;
+          const clause = statement.importClause;
+          if (clause.name) bindings.set(clause.name.text, target);
+          if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) bindings.set(clause.namedBindings.name.text, target);
+          if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) for (const element of clause.namedBindings.elements) bindings.set(element.name.text, target);
+        }
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) defined.add(statement.name.text);
+        if (ts.isVariableStatement(statement)) for (const d of statement.declarationList.declarations) if (ts.isIdentifier(d.name)) defined.add(d.name.text);
+      }
+      const resolveCall = (expression: ts.Expression): { to: string; symbol: string } | undefined => {
+        if (ts.isIdentifier(expression)) { const to = bindings.get(expression.text) ?? (defined.has(expression.text) ? file.path : undefined); return to ? { to, symbol: expression.text } : undefined; }
+        if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression) && bindings.has(expression.expression.text)) return { to: bindings.get(expression.expression.text)!, symbol: expression.name.text };
+        return undefined;
+      };
       const visit = (node: ts.Node) => {
         const named =
           ts.isFunctionDeclaration(node) ||
@@ -144,12 +171,17 @@ export function indexRepository(
             to: node.name.text,
             kind: "route-to-handler",
           });
-        if (ts.isCallExpression(node))
-          relationships.push({
-            from: file.path,
-            to: node.expression.getText(tree),
-            kind: "calls",
-          });
+        if (ts.isCallExpression(node)) {
+          const resolved = resolveCall(node.expression);
+          if (resolved && resolved.to !== file.path) relationships.push({ from: file.path, to: resolved.to, kind: "calls", symbol: resolved.symbol, resolved: true });
+          else if (!resolved)
+            relationships.push({
+              from: file.path,
+              to: node.expression.getText(tree),
+              kind: "calls",
+              resolved: false,
+            });
+        }
         if (ts.isHeritageClause(node))
           for (const item of node.types)
             relationships.push({
@@ -163,6 +195,15 @@ export function indexRepository(
         ts.forEachChild(node, visit);
       };
       visit(tree);
+    } else if (parserFor(file.path)) {
+      const tree = parserFor(file.path)!.parse(file.content);
+      try {
+        const extracted = extractTreeSitter(tree.rootNode, grammarFor(file.path)!, file.path, pathList);
+        symbols.push(...extracted.symbols);
+        relationships.push(...extracted.relationships);
+      } finally {
+        tree.delete();
+      }
     } else {
       for (const [i, line] of file.content.split("\n").entries()) {
         const match =

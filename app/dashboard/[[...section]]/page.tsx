@@ -8,7 +8,7 @@ import { notFound, redirect } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { backend, current } from "../../../src/server";
-import { fixPrompt } from "../../../src/engine/review";
+import { fixPrompt } from "../../../src/fix-prompt";
 import { findingSchema } from "../../../src/engine/types";
 import {
   cancelReview,

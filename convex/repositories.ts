@@ -376,7 +376,7 @@ export const indexedFile = internalMutation({
       }),
     ),
     relationships: v.array(
-      v.object({ from: v.string(), to: v.string(), kind: v.string() }),
+      v.object({ from: v.string(), to: v.string(), kind: v.string(), symbol: v.optional(v.string()), resolved: v.optional(v.boolean()) }),
     ),
   },
   handler: async (ctx, args) => {

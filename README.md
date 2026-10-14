@@ -75,6 +75,8 @@ The OpenAI and Anthropic adapters request native JSON-schema output (`LLM_STRUCT
 
 Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMARY`, `LLM_MODEL_KNOWLEDGE`, and `LLM_MODEL_CONVERSATION`. Review depth adjusts context budgets: Fast 8k, Standard 16k, Deep 40k estimated tokens. Two simultaneous specialist calls bound inference concurrency. Provider rate limits and transient failures receive bounded backoff. Review cancellation stops between persisted stages; an already-running HTTP model call may finish.
 
+Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++ and Swift use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
+
 Optional semantic retrieval: set `EMBEDDING_MODEL` with an OpenAI-compatible embedding endpoint/key (`EMBEDDING_BASE_URL`, `EMBEDDING_API_KEY`) supporting exactly 1,536 dimensions. Set `EMBEDDING_COST_PER_MILLION` for cost reporting and re-index to backfill existing sources. Full-text and graph retrieval work without embeddings.
 
 ## Environment

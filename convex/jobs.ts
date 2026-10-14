@@ -17,6 +17,7 @@ import {P4CodeReview,p4Credential} from "../src/perforce";
 import {decryptCredential} from "../src/credentials";
 import { eligibleFile, exclusionReason, indexRepository, moduleReferencesCurrent, redact } from "../src/engine/indexer";
 import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
+import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
 import { sourceChunks } from "../src/engine/chunks";
@@ -169,6 +170,7 @@ export const indexBatch = internalAction({
           });
           continue;
         }
+        await loadGrammars([file.path]);
         const index = indexRepository([file], allPaths);
         if (!index.files.length) continue;
         const moduleReferences=[...new Map((index.moduleReferences??[]).filter(r=>r.path===file.path).map(({specifier,resolvedPath})=>[specifier,{specifier,resolvedPath}])).values()];
@@ -226,8 +228,10 @@ export const indexBatch = internalAction({
           })),
           relationships: index.relationships.map((r) => ({
             from: r.from,
-            to: r.to,
+            to: r.to.slice(0, 500),
             kind: r.kind,
+            ...(r.symbol ? { symbol: r.symbol.slice(0, 200) } : {}),
+            ...(r.resolved !== undefined ? { resolved: r.resolved } : {}),
           })),
         });
       }
@@ -407,6 +411,8 @@ export const review = internalAction({
           ),
         ].slice(0, 100),
       });
+      // Multi-hop graph neighbours (callers/callees up to two hops) widen retrieval beyond one hop.
+      const neighbors = await ctx.runQuery(internal.context.neighborhood, { repositoryId: repo._id, paths: pr.diff.map((f) => f.path), hops: 2, limit: 30 });
       const tree = await github.tree(repo.fullName, pr.head.sha);
       const history = await ctx.runQuery(internal.reviews.history, {
         repositoryId: repo._id,
@@ -462,6 +468,7 @@ export const review = internalAction({
         ...new Set([
           ...pr.diff.filter((d) => d.status !== "removed").map((f) => f.path),
           ...graph.paths,
+          ...neighbors.map((n) => n.path),
           ...state.findings.flatMap((finding) => [finding.filePath, ...finding.evidence.map((e) => e.filePath)]),
           ...semanticPaths,
           ...historicalFindings.map((finding) => finding.filePath),
@@ -585,6 +592,7 @@ export const review = internalAction({
               reason: "semantic embedding match",
               score: 35,
             })),
+            ...neighbors.map((n) => ({ path: n.path, reason: `code graph ${n.via} (${n.hops} hop${n.hops > 1 ? "s" : ""})`, score: Math.round(40 * Math.min(1, n.score)) })),
           ],
           diff: pr.diff,
           skippedFiles: pr.omitted,

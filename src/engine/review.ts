@@ -24,6 +24,7 @@ import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
 import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
+import { loadGrammars } from "./treesitter";
 
 export type ReviewOptions = {
   // "agentic" runs the tool-calling investigator instead of fixed specialists when the
@@ -91,6 +92,7 @@ export async function reviewChange(
   if (runtimeEvidence) runtimeEvidence.output = redact(runtimeEvidence.output);
   await progress("retrieving_context");
   signal?.throwIfAborted();
+  await loadGrammars(input.files.map((f) => f.path));
   const index = indexRepository(input.files);
   const ignored = picomatch(input.settings?.ignoredPaths ?? []);
   const skippedFiles: SkippedFile[] = [...(input.skippedFiles ?? [])];

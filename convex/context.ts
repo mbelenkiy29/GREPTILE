@@ -1,6 +1,7 @@
 import { internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
 import { authorizeRepository } from "./auth";
+import { rankNeighborhood, traversable, directoryOf } from "../src/engine/graph";
 
 export const related = internalQuery({
   args: {
@@ -97,5 +98,25 @@ export const search = query({
         content: m.content,
       })),
     };
+  },
+});
+
+// Bounded 1–3 hop ranked traversal over resolved graph edges (both directions). Directory
+// targets (packages) expand to their files; at most ~4 index ranges per visited node.
+export const neighborhood = internalQuery({
+  args: { repositoryId: v.id("repositories"), paths: v.array(v.string()), hops: v.optional(v.number()), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const repositoryId = args.repositoryId;
+    const filesIn = async (dir: string) => (await ctx.db.query("repositoryFiles").withIndex("by_path", (q) => q.eq("repositoryId", repositoryId).gte("path", dir).lt("path", dir + "\uffff")).take(40)).map((f) => f.path).filter((p) => !p.slice(dir.length).includes("/")).slice(0, 20);
+    return rankNeighborhood(args.paths.slice(0, 50), async (path) => {
+      const out: { path: string; kind: string; incoming: boolean }[] = [];
+      for (const e of await ctx.db.query("relationships").withIndex("by_from", (q) => q.eq("repositoryId", repositoryId).eq("from", path)).take(80))
+        if (traversable(e)) for (const target of e.to.endsWith("/") ? await filesIn(e.to) : [e.to]) out.push({ path: target, kind: e.kind, incoming: false });
+      const dir = directoryOf(path);
+      for (const to of dir ? [path, dir] : [path])
+        for (const e of await ctx.db.query("relationships").withIndex("by_to", (q) => q.eq("repositoryId", repositoryId).eq("to", to)).take(60))
+          if (traversable(e)) out.push({ path: e.from, kind: e.kind, incoming: true });
+      return out;
+    }, { hops: args.hops ?? 2, limit: args.limit ?? 40 });
   },
 });

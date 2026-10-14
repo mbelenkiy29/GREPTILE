@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { indexRepository, redact } from "./indexer";
+import { memoryNeighbors, rankNeighborhood } from "./graph";
 import { executionClaimIssues } from "../execution-claims";
 import {
   categories,
@@ -261,7 +262,7 @@ export function memoryToolbox(files: SourceFile[], head: string, history: { titl
     async findDefinition(symbol) { return index.symbols.filter((s) => s.name === symbol).map((s) => ({ path: s.path, line: s.line, kind: s.kind })); },
     async findReferences(symbol) { return grep(new RegExp(`\\b${escape(symbol)}\\b`)).slice(0, 30); },
     async listDirectory(path) { const prefix = path ? path.replace(/\/$/, "") + "/" : ""; return [...new Set(files.filter((f) => f.path.startsWith(prefix)).map((f) => prefix + f.path.slice(prefix.length).split("/")[0]))]; },
-    async relatedFiles(path) { return index.relationships.filter((r) => r.from === path || r.to === path).map((r) => ({ path: r.from === path ? r.to : r.from, reason: r.kind })); },
+    async relatedFiles(path) { return (await rankNeighborhood([path], memoryNeighbors(index.relationships, files.map((f) => f.path)), { hops: 2, limit: 40 })).map((n) => ({ path: n.path, reason: `${n.via}, ${n.hops} hop${n.hops > 1 ? "s" : ""}` })); },
     async pastFindings(path) { return history.filter((h) => h.filePath === path); },
   };
 }

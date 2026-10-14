@@ -30,6 +30,7 @@ import type * as dashboard from "../dashboard.js";
 import type * as embeddings from "../embeddings.js";
 import type * as fileReads from "../fileReads.js";
 import type * as findings from "../findings.js";
+import type * as graphDiagnostics from "../graphDiagnostics.js";
 import type * as http from "../http.js";
 import type * as indexAuthority from "../indexAuthority.js";
 import type * as inferenceBudget from "../inferenceBudget.js";
@@ -110,6 +111,7 @@ declare const fullApi: ApiFromModules<{
   embeddings: typeof embeddings;
   fileReads: typeof fileReads;
   findings: typeof findings;
+  graphDiagnostics: typeof graphDiagnostics;
   http: typeof http;
   indexAuthority: typeof indexAuthority;
   inferenceBudget: typeof inferenceBudget;
