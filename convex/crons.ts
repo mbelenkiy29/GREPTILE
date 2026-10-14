@@ -15,4 +15,6 @@ crons.interval(
   internal.recovery.sweep,
   {},
 );
+crons.interval("Apply workspace retention settings",{hours:24},internal.dataControls.retentionSweep,{});
+crons.interval("Prune processed webhook payloads older than 14 days",{hours:6},internal.dataControls.pruneWebhookPayloads,{});
 export default crons;

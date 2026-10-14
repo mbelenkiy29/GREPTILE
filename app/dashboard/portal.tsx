@@ -14,7 +14,7 @@ import { setMinutesPerFinding } from "./actions";
 const settingsGroups = [
   { label: "Repositories", links: [["repositories", "Add/Remove Repos"], ["providers", "Code Providers"]] },
   { label: "Agent Config", links: [["review", "Code Review"], ["agents", "Personal agents"], ["automation", "Runtime & Approval"]] },
-  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"]] },
+  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"], ["data", "Data & deletion"]] },
   { label: "Developer", links: [["keys", "API Keys"], ["audit", "Audit Log"]] },
   { label: "Personal", links: [["account", "Account & sessions"]] },
 ];

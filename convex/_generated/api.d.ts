@@ -35,6 +35,7 @@ import type * as conversationJobs from "../conversationJobs.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as dataControls from "../dataControls.js";
 import type * as embeddings from "../embeddings.js";
 import type * as featureTips from "../featureTips.js";
 import type * as feedbackCore from "../feedbackCore.js";
@@ -147,6 +148,7 @@ declare const fullApi: ApiFromModules<{
   conversations: typeof conversations;
   crons: typeof crons;
   dashboard: typeof dashboard;
+  dataControls: typeof dataControls;
   embeddings: typeof embeddings;
   featureTips: typeof featureTips;
   feedbackCore: typeof feedbackCore;

@@ -524,6 +524,26 @@ export async function setSsoEnforcement(form: FormData) {
   catch (e) { await notify(backendMessage(e, "Could not change the SSO requirement."), "error"); }
   revalidatePath("/dashboard/settings/people");
 }
+// Data controls: sharing, retention and owner-only workspace deletion (with a grace period).
+export async function saveDataSettings(form: FormData) {
+  const { token } = await current();
+  const days = (key: string) => text(form, key).trim() ? Number(text(form, key)) : null;
+  try { await backend().mutation(api.dataControls.saveSettings, { token, organizationId: text(form, "organizationId") as Id<"organizations">, dataSharing: z.enum(["private", "aggregate"]).parse(text(form, "dataSharing")), reviewRetentionDays: days("reviewRetentionDays"), transcriptRetentionDays: days("transcriptRetentionDays") }); await notify("Data settings saved."); }
+  catch (e) { await notify(backendMessage(e, "Could not save data settings."), "error"); }
+  revalidatePath("/dashboard/settings/data");
+}
+export async function requestWorkspaceDeletion(form: FormData) {
+  const { token } = await current();
+  try { const { scheduledFor } = await backend().mutation(api.dataControls.requestDeletion, { token, organizationId: text(form, "organizationId") as Id<"organizations">, confirmName: text(form, "confirmName") }); await notify(`Deletion scheduled for ${new Date(scheduledFor).toUTCString()}. You can cancel until then.`); }
+  catch (e) { await notify(backendMessage(e, "Could not schedule deletion."), "error"); }
+  revalidatePath("/dashboard/settings/data");
+}
+export async function cancelWorkspaceDeletion(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.dataControls.cancelDeletion, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); await notify("Deletion cancelled."); }
+  catch (e) { await notify(backendMessage(e, "Could not cancel deletion."), "error"); }
+  revalidatePath("/dashboard/settings/data");
+}
 export async function updateMember(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.team.update, {

@@ -32,6 +32,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Automatic reviews, label-only reviews, or reviews on `@openreview` mention.
   - Excluded authors and branches, draft handling and size limits.
   - Strictness presets and opt-in comment categories.
+- Data controls: workspaces are private by default (opt-in aggregate counts only), configurable retention for reviews and transcripts, and owner-only workspace deletion with a grace period and a complete, resumable purge. See [docs/data-controls.md](docs/data-controls.md).
 - Per-workspace single sign-on with SAML 2.0 or OpenID Connect: DNS-verified domains, optional just-in-time membership and an optional SSO requirement (owners keep a way in). See [docs/sso.md](docs/sso.md).
 - Optional auto-enable for newly installed repositories, per workspace or team, and suggested cross-repository clusters from package references, shared dependencies and repository names. Suggestions wait for an admin's approval.
 - Custom rules scoped to the workspace, a team, repositories matching a name pattern (such as `acme/*-service`) or one repository; the most specific same-titled rule wins.
