@@ -12,7 +12,7 @@ import {P4CodeReview,p4Credential} from "../src/perforce";
 import {reviewChange} from "../src/engine/review";
 import {findingSchema,categories,severities,type ReviewInput,type ReviewResult,type ModelProvider} from "../src/engine/types";
 import {ModelFailure} from "../src/engine/model";
-import {reviewLinks,inlineFindings} from "../src/review-summary";
+import {reviewLinks,inlineFindings,reviewFooter} from "../src/review-summary";
 import {redact} from "../src/redact";
 import {z} from "zod";
 import {randomUUID} from "node:crypto";
@@ -77,7 +77,7 @@ export const run=internalAction({args:{reviewId:v.id("reviews")},handler:async(c
   await ctx.runQuery(internal.integrations.validate,{repositoryId:state.repo._id,scopes:result.integrationScopes??[]});
   const latest=await current();
   if(result.repositoryContext){if(result.repositoryContext.repositoryId!==state.repo._id||latest.review.author!==result.repositoryContext.actor)throw new Error("P4 context author changed");await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});}
-  const published=await client.publish(latest,result.summary+reviewLinks(a.reviewId,result.findings.length),inlineFindings(result.findings).slice(0,config.settings.maxComments).map(f=>({...f,filePath:"//"+f.filePath})),prepared.baseRevisions,a.reviewId,config.settings.commentStyle,async()=>{const latest=await current();if(result.repositoryContext){if(result.repositoryContext.repositoryId!==state.repo._id||latest.review.author!==result.repositoryContext.actor)throw new Error("P4 context author changed");await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});}await ctx.runQuery(internal.integrations.validate,{repositoryId:state.repo._id,scopes:result.integrationScopes??[]});});
+  const published=await client.publish(latest,result.summary+reviewFooter(await ctx.runMutation(internal.reviews.assignNumber,{reviewId:a.reviewId}),"perforce")+reviewLinks(a.reviewId,result.findings.length),inlineFindings(result.findings).slice(0,config.settings.maxComments).map(f=>({...f,filePath:"//"+f.filePath})),prepared.baseRevisions,a.reviewId,config.settings.commentStyle,async()=>{const latest=await current();if(result.repositoryContext){if(result.repositoryContext.repositoryId!==state.repo._id||latest.review.author!==result.repositoryContext.actor)throw new Error("P4 context author changed");await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});}await ctx.runQuery(internal.integrations.validate,{repositoryId:state.repo._id,scopes:result.integrationScopes??[]});});
   await ctx.runMutation(internal.p4Reviews.finish,{...a,leaseId,githubReviewId:published.id,comments:published.comments});
  }catch(error){await ctx.runMutation(internal.p4Reviews.finish,{...a,leaseId,error:redact(error instanceof Error?error.message:"P4 review failed").slice(0,4000)});}
 }});

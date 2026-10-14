@@ -94,6 +94,17 @@ export function findingComment(f: Finding, style: string = "detailed", suggestio
   return `**${priorityBadge(f.severity)} · ${f.title}**${tagBadges(f).map((t) => " · " + t).join("")} (${f.severity}, ${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}${f.question ? `\n\n**Question for the author:** ${f.question.replace(/[\r\n]+/g, " ").replace(/@(?=[\w-])/g, "@\u200b")}` : ""}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
 }
 
+// Footer line: which review this is on the pull request, and the comment that re-runs it where the
+// provider's dispatch supports one (Azure DevOps service hooks take no commands; Perforce needs the
+// whole-comment native form).
+export type FooterProvider="azure-devops"|"perforce"|"other";
+export const rerunCommand=(provider:FooterProvider)=>provider==="azure-devops"?undefined:provider==="perforce"?"@openreview review again":"@openreview review";
+export function reviewFooter(reviewNumber:number|undefined,provider:FooterProvider){
+ if(reviewNumber!==undefined&&(!Number.isSafeInteger(reviewNumber)||reviewNumber<1))throw new Error("Invalid review number");
+ const command=rerunCommand(provider);
+ const parts=[reviewNumber?"Review "+reviewNumber+" on this pull request":"",command?"Comment `"+command+"` to re-run it":"Re-run it from the dashboard"].filter(Boolean);
+ return "\n\n"+parts.join(" · ")+".";
+}
 export function reviewLinks(reviewId:string,unresolvedCount:number){
  if(!process.env.APP_URL)return "";
  const origin=new URL(process.env.APP_URL);

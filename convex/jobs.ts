@@ -30,7 +30,8 @@ import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
 import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
-import { inlineFindings } from "../src/review-summary";
+import { inlineFindings, reviewFooter } from "../src/review-summary";
+import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
 import { ModelFailure, configuredModel } from "../src/engine/model";
@@ -346,7 +347,7 @@ export const review = internalAction({
           repo.fullName,
           pr.number,
           state.review.headSha,
-          result.summary,
+          result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other"),
           inlineFindings(result.findings).slice(0, settings.maxComments),
           args.reviewId,
           settings.commentStyle,
@@ -643,7 +644,7 @@ export const review = internalAction({
         repo.fullName,
         pr.number,
         pr.head.sha,
-        result.summary,
+        result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other"),
         inlineFindings(result.findings).slice(0, effective.maxComments),
         args.reviewId,
         effective.commentStyle,

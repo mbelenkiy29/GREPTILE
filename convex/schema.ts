@@ -419,6 +419,8 @@ export default defineSchema({
   reviews: defineTable({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
     verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
+    // Ordinal among this pull request's published reviews, fixed at first publication.
+    reviewNumber: v.optional(v.number()),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     title: v.optional(v.string()),

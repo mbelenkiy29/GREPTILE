@@ -424,6 +424,20 @@ export const suspendAgent = internalMutation({args:{reviewId:v.id("reviews")},ha
   await ctx.scheduler.runAfter(0,internal.jobs.review,{reviewId:review._id});
   return true;
 }});
+// "Review N on this pull request": assigned once, before the first publication attempt, so
+// retries and resumed publications reuse it and concurrent reviews never share a number.
+export const assignNumber = internalMutation({
+  args: { reviewId: v.id("reviews") },
+  handler: async (ctx, a) => {
+    const review = await ctx.db.get(a.reviewId);
+    if (!review) throw new Error("Review not found");
+    if (review.reviewNumber) return review.reviewNumber;
+    const siblings = await ctx.db.query("reviews").withIndex("by_pr", (q) => q.eq("repositoryId", review.repositoryId).eq("prNumber", review.prNumber)).take(5000);
+    const reviewNumber = Math.max(0, ...siblings.map((r) => r.reviewNumber ?? 0)) + 1;
+    await ctx.db.patch(review._id, { reviewNumber });
+    return reviewNumber;
+  },
+});
 export const finished = internalMutation({
   args: {
     reviewId: v.id("reviews"),
