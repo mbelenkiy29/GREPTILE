@@ -29,8 +29,14 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   evidence: tested with fakes; tests: tests/hybrid.test.ts (3: chunk boundaries/coverage/windowing, hybrid ranking with fake cosine embeddings, embeddings-disabled ranking), tests/semantic.spec.ts (3: backfill once per blob+model with cost recorded, re-index makes no provider calls, model change re-embeds, file removal deletes vectors, embeddings-off indexing makes no calls + status off, chunk hits tenant filter); commands: lint/typecheck/test (244 Node + 168 vitest)/build green; commit: 97e1f8c
   notes: deliberately migrated tests/backend.spec.ts embedding assertions to the chunk API (same superseded-job and graph-only-upgrade properties). Legacy file-level `embeddings` rows are never written again and are deleted when their file is re-embedded or removed.
 - Phase A end: `pnpm build` green; `pnpm test:e2e` not run — Playwright Chromium is not installed and downloading it needs approval (Needs human).
-- [ ] B1 Committable suggestions — todo
-- [ ] B2 Multi-line comments — todo
+- [x] B1 Committable suggestions — done
+  plan: optional finding.suggestion; validate range=finding range, inside changed lines, original==head; render GitHub/GitLab syntax; drop+note on failure.
+  evidence: tested with fakes; tests: tests/suggestions.test.ts (4: validation incl. stale range, GitHub/GitLab rendering, engine keeps finding/drops stale suggestion, GitHub publish body); commit: ec1c95d
+  notes: Gitea/Bitbucket/Perforce/Origin render no suggestion block (no native apply support). `changedLines` moved to src/engine/patch-lines.ts (pure) so default-runtime Convex modules stay Node-free.
+- [x] B2 Multi-line comments — done
+  plan: commentRange within one hunk's RIGHT side → start_line/start_side, else single line; mapping accepts start_line.
+  evidence: tested with fakes; tests: tests/multiline.test.ts (2: hunk range rules incl. context lines/cross-hunk/out-of-hunk; GitHub publish with multi-line + fallback + suggestion rendering + mapping); commands: lint/typecheck/test (250 Node + 168 vitest) green; commit: see git log feat(B2)
+  notes: GitLab keeps single-line positions (its suggestion syntax already spans lines relative to the commented line).
 - [ ] B3 Summary redesign, edited in place — todo
 - [ ] B4 Sequence diagrams — todo
 - [ ] B5 Incremental review and thread hygiene — todo
