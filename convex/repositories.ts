@@ -15,6 +15,7 @@ import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
 import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings } from "../src/review-settings";
+import { applicableRules } from "../src/rule-scopes";
 import { categories } from "../src/engine/types";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
@@ -204,9 +205,9 @@ export const data = internalQuery({
         .query("customRules")
         .withIndex("by_org", (q) => q.eq("organizationId", repo.organizationId))
         .take(maxRules)
-    ).filter(
-      (r) => r.enabled && (!r.repositoryId || r.repositoryId === repo._id),
     );
+    // Workspace, team, pattern and repository rules that apply here; the most specific same-titled rule wins.
+    const scopedRules = applicableRules(rules.filter((r) => r.enabled), repo);
     const own = await ctx.db
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
@@ -221,7 +222,7 @@ export const data = internalQuery({
     return {
       repo,
       settings: await effectiveSettings(ctx, repo),
-      rules,
+      rules: scopedRules,
       preferences: preferences.filter((p) => p.enabled),
     };
   },

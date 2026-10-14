@@ -112,6 +112,14 @@ export async function reindex(form: FormData) {
   await notify("Re-index queued.");
   revalidatePath("/dashboard", "layout");
 }
+// Rule scope from the form: "repo:<id>", "team:<id>", "pattern" (with repositoryPattern) or "" (workspace);
+// older forms send repositoryId only.
+function ruleScopeArgs(scope: string, repositoryId: string, pattern: string) {
+  if (scope.startsWith("repo:")) return { repositoryId: scope.slice(5) as Id<"repositories"> };
+  if (scope.startsWith("team:")) return { teamId: scope.slice(5) as Id<"teams"> };
+  if (scope === "pattern") return { repositoryPattern: pattern.trim() };
+  return repositoryId && !scope ? { repositoryId: repositoryId as Id<"repositories"> } : {};
+}
 export async function saveRule(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.dashboard.rules, {
@@ -128,9 +136,7 @@ export async function saveRule(form: FormData) {
       .map((s) => s.trim())
       .filter(Boolean),
     enabled: text(form, "enabled") !== "false",
-    ...(text(form, "repositoryId")
-      ? { repositoryId: text(form, "repositoryId") as Id<"repositories"> }
-      : {}),
+    ...ruleScopeArgs(text(form, "scope"), text(form, "repositoryId"), text(form, "repositoryPattern")),
   });
   await notify("Rule saved.");
   revalidatePath("/dashboard", "layout");

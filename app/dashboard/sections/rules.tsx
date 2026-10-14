@@ -5,7 +5,7 @@ import { status, Empty } from "./shared";
 import type { DashboardContext } from "../load";
 
 export function RulesSection({ ctx }: { ctx: DashboardContext }) {
-  const { data, filters, isAdmin, organization, repoName, requestedRepository, rulesPage, selectedTeam, visibleRules } = ctx;
+  const { data, filters, isAdmin, organization, repoName, requestedRepository, rulesPage, scopes, selectedTeam, visibleRules } = ctx;
   return (
 (
           <>
@@ -30,17 +30,7 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
                     Title
                     <input name="title" required />
                   </label>
-                  <label>
-                    Repository scope
-                    <select name="repositoryId" defaultValue={requestedRepository??""}>
-                      <option value="">Entire workspace</option>
-                      {data.repositories.map((r) => (
-                        <option key={r._id} value={r._id}>
-                          {repositoryDisplay(r)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <RuleScopeFields teams={scopes.teams} repositories={data.repositories} scope={requestedRepository ? "repo:" + requestedRepository : ""} />
                   <label className="wide">
                     Instructions
                     <textarea name="instructions" rows={3} required />
@@ -75,9 +65,9 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
                 </h2>
                 <p>{r.instructions}</p>
                 <p className="muted">
-                  {r.repositoryId ? repoName(r.repositoryId) : "Workspace"} ·{" "}
+                  {r.repositoryId ? repoName(r.repositoryId) : r.repositoryPattern ? <>Repositories matching <code>{r.repositoryPattern}</code></> : r.teamId ? `Team: ${scopes.teams.find((t) => t._id === r.teamId)?.name ?? "team"}` : "Workspace"} ·{" "}
                   {r.severity}
-                  {!r.repositoryId&&<span className="badge">{requestedRepository?"Inherited from workspace":"Workspace default"}</span>}
+                  {!r.repositoryId&&<span className="badge">{requestedRepository?(r.repositoryPattern||r.teamId?"Inherited from a shared scope":"Inherited from workspace"):(r.repositoryPattern?"Repository pattern":r.teamId?"Team rule":"Workspace default")}</span>}
                 </p>
                 {isAdmin && (
                   <details>
@@ -98,20 +88,7 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
                         Title
                         <input name="title" required defaultValue={r.title} />
                       </label>
-                      <label>
-                        Repository scope
-                        <select
-                          name="repositoryId"
-                          defaultValue={r.repositoryId ?? ""}
-                        >
-                          <option value="">Workspace</option>
-                          {data.repositories.map((repo) => (
-                            <option key={repo._id} value={repo._id}>
-                              {repositoryDisplay(repo)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <RuleScopeFields teams={scopes.teams} repositories={data.repositories} scope={scopeValue(r)} pattern={r.repositoryPattern} />
                       <label className="wide">
                         Instructions
                         <textarea
@@ -152,11 +129,8 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
                       value={r.instructions}
                     />
                     <input type="hidden" name="severity" value={r.severity} />
-                    <input
-                      type="hidden"
-                      name="repositoryId"
-                      value={r.repositoryId ?? ""}
-                    />
+                    <input type="hidden" name="scope" value={scopeValue(r)} />
+                    <input type="hidden" name="repositoryPattern" value={r.repositoryPattern ?? ""} />
                     <input
                       type="hidden"
                       name="globs"
@@ -186,4 +160,25 @@ export function RulesSection({ ctx }: { ctx: DashboardContext }) {
           </>
         )
   );
+}
+
+const scopeValue = (r: { repositoryId?: string; teamId?: string; repositoryPattern?: string }) => r.repositoryId ? "repo:" + r.repositoryId : r.teamId ? "team:" + r.teamId : r.repositoryPattern ? "pattern" : "";
+// Scope picker: workspace, a team, a repository-name pattern or one repository. A more specific rule
+// with the same title replaces a broader one for the repositories it covers.
+function RuleScopeFields({ teams, repositories, scope, pattern }: { teams: { _id: string; name: string }[]; repositories: (NonNullable<Parameters<typeof repositoryDisplay>[0]> & { _id: string })[]; scope: string; pattern?: string }) {
+  return <>
+    <label>
+      Scope
+      <select name="scope" defaultValue={scope}>
+        <option value="">Entire workspace</option>
+        {teams.map((t) => <option key={t._id} value={"team:" + t._id}>Team: {t.name}</option>)}
+        <option value="pattern">Repositories matching a pattern</option>
+        {repositories.map((r) => <option key={r._id} value={"repo:" + r._id}>{repositoryDisplay(r)}</option>)}
+      </select>
+    </label>
+    <label>
+      Repository pattern (for pattern scope)
+      <input name="repositoryPattern" defaultValue={pattern ?? ""} placeholder="acme/*-service" maxLength={200} />
+    </label>
+  </>;
 }

@@ -680,7 +680,11 @@ export default defineSchema({
     .index("by_org_scope", ["organizationId", "scope"]),
   customRules: defineTable({
     organizationId: org,
+    // Scope (K4): none = workspace, repositoryId = one repository, teamId = the team's repositories,
+    // repositoryPattern = repositories whose full name matches the glob.
     repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
     title: v.string(),
     instructions: v.string(),
     category: v.string(),
