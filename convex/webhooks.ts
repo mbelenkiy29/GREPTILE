@@ -110,6 +110,8 @@ export const lifecycle = internalMutation({
       });
     if (["deleted", "archived", "transferred"].includes(args.action))
       await disableRepository(ctx,repo);
+    if (args.prNumber && (args.state === "closed" || args.state === "merged"))
+      await ctx.scheduler.runAfter(0, internal.reactionJobs.sync, { repositoryId: repo._id, prNumber: args.prNumber });
     if (args.prNumber && (args.state === "closed" || args.state === "merged")) {
       const pr = await ctx.db
         .query("pullRequests")

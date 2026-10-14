@@ -320,6 +320,12 @@ export const event=internalAction({args:{id:v.id("providerEvents")},handler:asyn
      }else await ctx.scheduler.runAfter(0,internal.conversationJobs.reply,{repositoryId:repo._id,prNumber:number,commentId:n.id,author:p.user.username,question:n.note,inline:true,parentCommentId});
     }
    }
+   if(payload.object_kind==="emoji"){
+    // Award-emoji webhook: 👍/👎 on an OpenReview finding note becomes reaction feedback.
+    const e=z.object({event_type:z.enum(["award","revoke"]),user:z.object({username:z.string()}),object_attributes:z.object({name:z.string(),awardable_type:z.string(),awardable_id:z.number().int().positive()}),merge_request:z.object({iid:z.number().int().positive()}).optional()}).passthrough().parse(JSON.parse(event.body));
+    const reaction=e.object_attributes.name==="thumbsup"?"+1" as const:e.object_attributes.name==="thumbsdown"?"-1" as const:undefined;
+    if(reaction&&e.object_attributes.awardable_type==="Note"&&e.merge_request)await ctx.runMutation(internal.reactions.emoji,{repositoryId:repo._id,prNumber:e.merge_request.iid,noteId:String(e.object_attributes.awardable_id),user:e.user.username,reaction,award:e.event_type==="award"});
+   }
    if(payload.object_kind==="merge_request"&&payload.object_attributes?.iid){
     const attributes=z.object({action:z.string(),oldrev:z.string().nullish()}).parse(payload.object_attributes);
     await ctx.runMutation(internal.approvals.forChange,{repositoryId:repo._id,prNumber:payload.object_attributes.iid});

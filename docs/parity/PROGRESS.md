@@ -59,7 +59,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: shared src/repo-config.ts (strict schema, rules.md, nested scoped overrides, 64 KB cap) loaded at the PR base sha (server) / base commit (CLI); applyRepoConfig with admin lockedKeys; warnings → summary coverage + repository.configFile snapshot; settings page shows effective value + source; lock controls on scopes and repo.
   evidence: tested with fakes; tests: tests/repo-config.test.ts (4: base-branch sourcing, precedence + locks + scoped instructions, invalid/oversized files, rules.md parsing), tests/repo-config.spec.ts (Convex review job: base config applied, head edits ignored, lock respected, invalid file warning in summary, snapshot + provenance); commands: lint/typecheck/test (276 Node + 171 vitest)/build green; commit: see git log feat(B8)
 - Phase B end: `pnpm build` green; `pnpm test:e2e` still blocked on the Playwright browser install (Needs human #10).
-- [ ] C1 Reaction feedback — todo
+- [x] C1 Reaction feedback — done
+  plan: commentReactions mirror; Github.reactions polling (on close/merge + hourly bounded sweep with reactionsSyncedAt); GitLab emoji webhook; shared recordFindingFeedback (dashboard + reactions) → learned preferences; analytics counts.
+  evidence: tested with fakes; tests: tests/reactions.test.ts (GitHub pagination/bot/emoji filtering), tests/reactions.spec.ts (4: mirror + dedup + once-per-user feedback + removal, sync/sweep selection, GitLab award/revoke, analytics aggregation); commands: lint/typecheck/test (277 Node + 175 vitest)/build green; commit: see git log feat(C1)
+  notes: summary-comment reactions are not polled (finding comments only). GitLab needs "Emoji events" enabled on the project webhook (Needs human).
 - [ ] C2 Learn from human reviewers — todo
 - [ ] C3 Memory management — todo
 - [ ] C4 `@openreview fix this` — todo
@@ -88,7 +91,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 9. (A4) Optional: set `EMBEDDING_MODEL` (e.g. `text-embedding-3-small`) and `EMBEDDING_API_KEY` in Convex production, then re-index enabled repositories to backfill chunk embeddings; the repository settings page shows the status.
 10. (Phase A) Approve installing the Playwright browser so `pnpm test:e2e` can run locally: `pnpm exec playwright install chromium` (downloads Chromium, ~150 MB, from the Playwright CDN into ~/Library/Caches/ms-playwright).
 11. (B6) GitHub App settings → Permissions → Repository permissions → **Checks: Read and write** → Save; each installation owner must accept the updated permissions (GitHub emails them / Settings → Applications → Configure). Until accepted, check runs are skipped silently.
-12. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+12. (C1) GitLab connections: in each project's Settings → Webhooks, enable **Emoji events** on the OpenReview hook so 👍/👎 reactions arrive (GitHub reactions are polled automatically).
+13. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.

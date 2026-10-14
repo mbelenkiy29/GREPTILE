@@ -90,6 +90,8 @@ Review summary: each pull request (or GitLab merge request) has exactly one Open
 
 Test execution, coverage and a visible **Last reviewed commit** link always appear. Gitea, Bitbucket, Perforce and Origin keep posting one summary per run.
 
+Reaction feedback: 👍 and 👎 on OpenReview finding comments count as feedback. A person who only gives 👍 marks the finding useful, and one who only gives 👎 marks it not useful. Each person's vote is recorded once and feeds the learned-preference system that dashboard feedback already uses. Bots never count. GitHub has no reaction webhooks, so reactions are polled when a pull request closes or merges and hourly for recently reviewed open pull requests. GitLab reactions arrive through award-emoji webhooks (enable "Emoji events" on the project hook). Analytics shows reaction counts per period.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

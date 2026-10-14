@@ -331,6 +331,7 @@ export default defineSchema({
     scheduledId:v.optional(v.id("_scheduled_functions")),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()})),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_repo",["repositoryId"]).index("by_status",["status"]),
   pullRequests: defineTable({
+    reactionsSyncedAt: v.optional(v.number()),
     organizationId: org,
     repositoryId: repo,
     number: v.number(),
@@ -434,6 +435,22 @@ export default defineSchema({
     .index("by_repo_path", ["repositoryId", "filePath"])
     .index("by_pr", ["repositoryId", "prNumber"])
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
+    .index("by_org_time", ["organizationId", "createdAt"]),
+  // 👍/👎 reactions on OpenReview's own finding comments, mirrored from the provider
+  // (GitHub: polled; GitLab: emoji webhooks). Bots never count.
+  commentReactions: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    prNumber: v.number(),
+    provider: v.string(),
+    commentId: v.string(),
+    findingId: v.optional(v.id("findings")),
+    user: v.string(),
+    reaction: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_comment", ["repositoryId", "commentId"])
+    .index("by_finding", ["findingId"])
     .index("by_org_time", ["organizationId", "createdAt"]),
   findingFeedback: defineTable({
     organizationId: org,

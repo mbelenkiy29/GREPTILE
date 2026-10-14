@@ -426,6 +426,15 @@ export class Github {
     if (this.permissions?.checks !== "write") return;
     await this.request(`/repos/${repository}/check-runs/${id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ status: "completed", conclusion: result.conclusion, completed_at: new Date().toISOString(), ...(result.detailsUrl ? { details_url: result.detailsUrl } : {}), output: { title: result.title.slice(0, 255), summary: result.summary.slice(0, 60000) } }) });
   }
+  // 👍/👎 reactions on review comments (GitHub sends no reaction webhooks, so callers poll).
+  async reactions(repository: string, commentIds: number[]) {
+    const out: { commentId: string; user: string; reaction: "+1" | "-1"; createdAt: number }[] = [];
+    for (const id of commentIds.slice(0, 200)) {
+      const rows = await this.paginate(`/repos/${repository}/pulls/comments/${id}/reactions`, z.object({ content: z.string(), created_at: z.string(), user: z.object({ login: z.string(), type: z.string() }).nullable() }));
+      for (const r of rows) if ((r.content === "+1" || r.content === "-1") && r.user && r.user.type !== "Bot") out.push({ commentId: String(id), user: r.user.login, reaction: r.content, createdAt: Date.parse(r.created_at) || Date.now() });
+    }
+    return out;
+  }
   async branches(repository: string) {
     const schema = z.array(
       z.object({
