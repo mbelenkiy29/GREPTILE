@@ -4,6 +4,8 @@ OpenReview is an open-source, self-hostable, repository-aware AI pull request re
 
 **Status:** implemented with passing local unit/integration, production browser, web build, and self-hosted Docker checks. Live GitHub installation and model quality require credentials and separate verification. This project makes no Greptile parity claims.
 
+Documentation is published at `/docs` (Markdown in `docs/public/` plus selected guides), and the changelog at `/changelog`. Internal QA and acceptance logs live in `docs/internal/`.
+
 ## Architecture
 
 ```

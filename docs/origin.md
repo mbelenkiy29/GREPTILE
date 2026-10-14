@@ -26,7 +26,7 @@ The verified identity link lasts 24 hours and is revocable. It stores an encrypt
 
 The installation admin must approve `namespace:user_tokens:write` (reconnect an existing installation to add it). Origin's scope permits minting for active namespace members; OpenReview uses it only after personal signed confirmation. Before linking and before context/cache/model/publication validation, OpenReview freshly mints a read-only token scoped to the primary repository's immutable ID and metadata/contents/PR read, then verifies the native repository and namespace. Tokens are opaque, never persisted, never given write scopes, and expire no later than the five-minute App JWT. Membership removal, missing delegation scope, revoked installation, inaccessible repository, changed connection and disconnected personal link fail closed. Disconnect deletes the saved assertion and invalidates context receipts.
 
-See the official [Origin user confirmation and delegated-token flow](https://prod.cursor.com/docs/api/origin/acting-as-users). Automated checks cover the signed/native response contracts and shared authorization path. The App installation is live on the selected acceptance repository; personal signed confirmation is now persisted and current exact-repository delegated reads pass. See [personal acceptance](origin-personal-acceptance.md) for live evidence and remaining authorization boundaries.
+See the official [Origin user confirmation and delegated-token flow](https://prod.cursor.com/docs/api/origin/acting-as-users). Automated checks cover the signed/native response contracts and shared authorization path. The App installation is live on the selected acceptance repository; personal signed confirmation is now persisted and current exact-repository delegated reads pass. See [personal acceptance](internal/origin-personal-acceptance.md) for live evidence and remaining authorization boundaries.
 
 ## Exact-revision runtime source
 
@@ -36,7 +36,7 @@ Origin streams the first archive for a commit, then responds with a short-lived 
 
 Responses are streamed with a 20 MB compressed limit, strict declared-size validation, gzip header checking and cancelled readers on failures. Native empty/missing revisions, denied responses, malformed URLs, unapproved hosts, changed repository/commit identities, missing bodies and size/format mismatches fail visibly. The current API documents one top-level archive directory, matching the sandbox worker's single-component extraction. Origin's earlier beta changelog described root entries; native layout/compatibility must be verified for the installed version before accepting runtime execution. Bytes are retained as a leased source snapshot and extracted only inside the separate, bounded, no-network Docker worker. Download success does not mean any command ran. Runtime remains disabled by default.
 
-Node/native-response and durable Convex worker-source contracts pass. Actual first/cached archives and wrapper layout now have native readback, and the exact archive reproduces the seeded integer-cent failure in the existing Docker sandbox. The observed CDN host is artifacts.origin.cursor.com; see [native runtime evidence](origin-native-runtime-acceptance.md). A hosted durable job, corrected pushed revision and full recovery remain unverified.
+Node/native-response and durable Convex worker-source contracts pass. Actual first/cached archives and wrapper layout now have native readback, and the exact archive reproduces the seeded integer-cent failure in the existing Docker sandbox. The observed CDN host is artifacts.origin.cursor.com; see [native runtime evidence](internal/origin-native-runtime-acceptance.md). A hosted durable job, corrected pushed revision and full recovery remain unverified.
 
 
 ## Opt-in native approval
@@ -70,14 +70,14 @@ A fresh actual installation token read the selected repository and PR successful
 
 ## Current personal confirmation state — October 4, 2026
 
-The earlier pending status above is superseded: the hosted identity is linked through October 5 at 16:01:01 UTC, and a fresh scoped native repository read succeeds. No delegated access token is persisted. This does not establish successful follow-up write authorization or full cross-repository review acceptance. See [personal acceptance](origin-personal-acceptance.md).
+The earlier pending status above is superseded: the hosted identity is linked through October 5 at 16:01:01 UTC, and a fresh scoped native repository read succeeds. No delegated access token is persisted. This does not establish successful follow-up write authorization or full cross-repository review acceptance. See [personal acceptance](internal/origin-personal-acceptance.md).
 
 
 ## Personal authority during context retrieval
 
-Origin primary authors and every selected Origin source now require fresh exact-repository delegated read checks before and after App source retrieval and before publication. A missing source link produces a coverage omission; legacy receipts without personal source authority fail validation. Actual bidirectional GitHub/Origin retrieval and publication-guard validation passed without inference. See [context authorization acceptance](origin-context-authorization-acceptance.md). Follow-up write permission and native revocation through Cursor UI remain separate acceptance requirements.
+Origin primary authors and every selected Origin source now require fresh exact-repository delegated read checks before and after App source retrieval and before publication. A missing source link produces a coverage omission; legacy receipts without personal source authority fail validation. Actual bidirectional GitHub/Origin retrieval and publication-guard validation passed without inference. See [context authorization acceptance](internal/origin-context-authorization-acceptance.md). Follow-up write permission and native revocation through Cursor UI remain separate acceptance requirements.
 
 
 ## Confirmed-author follow-up recovery
 
-App-token collaborator 404 now invokes an exact-repository confirmed-identity fallback. A short-lived read-only delegated token checks the same immutable author’s native write/admin grants, then current local authority is rechecked. Other App errors, missing/expired/revoked links, mismatched IDs and read/custom roles remain denied. Actual native authorization and question readback pass without inference; a newly published answer and event retry still need acceptance. The App remains the publisher. See [follow-up personal acceptance](origin-followup-personal-acceptance.md).
+App-token collaborator 404 now invokes an exact-repository confirmed-identity fallback. A short-lived read-only delegated token checks the same immutable author’s native write/admin grants, then current local authority is rechecked. Other App errors, missing/expired/revoked links, mismatched IDs and read/custom roles remain denied. Actual native authorization and question readback pass without inference; a newly published answer and event retry still need acceptance. The App remains the publisher. See [follow-up personal acceptance](internal/origin-followup-personal-acceptance.md).

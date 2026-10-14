@@ -1,0 +1,25 @@
+# Changelog
+
+## Unreleased — October 2026
+
+### Reviews
+- Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.
+- Tree-sitter code graph with resolved cross-file edges, plus optional chunk-level semantic retrieval.
+- Summary comment edited in place: overview, files changed, issues, confidence score and an optional sequence diagram.
+- Committable suggestions, multi-line comments, incremental re-reviews that resolve fixed threads, and optional GitHub check runs.
+- Review triggers (labels, authors, size limits), strictness presets, and repository configuration as code read from the base branch.
+
+### Learning and memory
+- 👍/👎 reactions become feedback. Team conventions are learned from human review comments behind guardrails.
+- A Memory page to edit, scope (repository, team or workspace), enable, disable or delete what OpenReview has learned.
+- `@openreview fix this`: validated suggestions, with optional fix pull requests on a new branch.
+
+### Product surfaces
+- Codebase chat with cited answers, a public query/search API with scoped API keys, and a remote MCP endpoint.
+- Slack app (notifications, Q&A and `/openreview status`) and verified email notifications.
+- Notion requirements context, and a finished Confluence/Jira resource picker.
+
+### Running it as a product
+- Optional Stripe billing for hosted deployments (trial, per-seat quotas, past-due grace).
+- Sign in with GitHub, GitLab, Google or an email link. Server-side sessions with sign-out everywhere, and email invitations.
+- Public documentation at /docs, this changelog and a new landing page.

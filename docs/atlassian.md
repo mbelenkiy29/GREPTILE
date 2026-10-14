@@ -30,6 +30,6 @@ Evidence: output/setup/atlassian-resource-discovery-live.png.
 
 ## Automatic expiry acceptance and prepared Confluence setup
 
-The actual October 4 expired connection recovered through normal resource discovery/requirements retrieval, preserving generation 2 and the selected Jira project/GitHub repository. KAN-1 was fetched with its native revision and source; an unselected Origin repository received no context. No manual refresh or consent was used. Native 401-triggered recovery and remote-grant revocation remain distinct open cases. [Current evidence](atlassian-auto-refresh-acceptance.md).
+The actual October 4 expired connection recovered through normal resource discovery/requirements retrieval, preserving generation 2 and the selected Jira project/GitHub repository. KAN-1 was fetched with its native revision and source; an unselected Origin repository received no context. No manual refresh or consent was used. Native 401-triggered recovery and remote-grant revocation remain distinct open cases. [Current evidence](internal/atlassian-auto-refresh-acceptance.md).
 
 Confluence Free signup is prepared for the existing site and requires the pending action-time confirmation for provisioning/terms. No app/space/page is provisioned yet. The earlier missing-product inspection does not establish that Confluence cannot be provisioned.

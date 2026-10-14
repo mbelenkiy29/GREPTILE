@@ -38,7 +38,14 @@ await mkdir("output/playwright", { recursive: true });
 try {
   await page.goto(url);
   await page.getByRole("link", { name: "Sign in with GitHub" }).waitFor();
+  await page.getByRole("heading", { name: "How it works" }).waitFor();
   await page.screenshot({ path: "output/playwright/home.png", fullPage: true });
+  for (const [path, heading] of [["/docs/quickstart", "Quickstart"], ["/docs/api", "Public API"], ["/docs/configuration", "Repository configuration as code"], ["/changelog", "Changelog"]]) {
+    await page.goto(url + path);
+    await page.getByRole("heading", { name: heading, level: 1 }).first().waitFor();
+  }
+  assert.equal((await page.request.get(`${url}/docs/openapi.yaml`)).status(), 200);
+  assert.equal((await page.request.get(`${url}/docs/not-a-page`)).status(), 404);
   await context.addCookies([
     {
       name: "openreview_session",
@@ -158,7 +165,7 @@ try {
   );
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    "Browser verification passed: onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
+    "Browser verification passed: landing, docs, changelog, onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
   );
 } finally {
   await browser.close();
