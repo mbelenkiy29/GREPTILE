@@ -1,5 +1,7 @@
 # Current state (audited 2026-10-13)
 
+> **Round 2 note (2026-10-14).** This file describes the code *before* round 1. Round 1 (H1–F3) has since shipped: for example `ModelProvider.runTools`, the agentic engine (`src/engine/agent.ts`), the tree-sitter graph, sequence diagrams, the split dashboard sections, Azure DevOps and the remote MCP. So several statements below are out of date. For what exists now, read `docs/parity/REPORT.md` and each round-2 item's **Today** line in `ITEMS.md`, and trust the code over this file. The commands and env-handling notes below still apply.
+
 Treat this as a starting map, not gospel. Verify file and line references before relying on them, and if something has changed, trust the code.
 
 ## Stack and architecture

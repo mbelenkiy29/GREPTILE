@@ -1,5 +1,5 @@
 # Parity ledger
-Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
+Updated: 2026-10-14 · Branch: parity · Baseline: c62023e · Round 2 starts at 09adf93
 
 ## Items
 - [x] H1 Baseline — done
@@ -144,6 +144,40 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   - follow-up (user request): eval reports now capture the agent transcript — EvaluationUsage keeps the latest full tool conversation (each turn resends it); compactTranscript drops provider-native payloads (thinking blocks), names tool results, clips text to 2,000 chars; results gain `trace` (one line per tool call, rejected calls marked) and `transcript`, also on failed results; review metadata stored in Convex is unchanged. Tests: tests/evaluation-usage.test.ts (+2). No inference spent.
   - agentic run 4, with transcript (user-approved rerun, $0.047): caught. Critical severity at src/change.ts:1, confidence 1, verified; evidence cites cart.ts:2 and the payments.ts "requires integer cents" comment; a suggested fix is included. Hand-adjudicated: genuine catch. 7 tool calls / 8 turns, 19.4k tokens, 25 s. Trace: turn 1 prose → reminder → find_references(checkoutAmount), which returned payments.ts → read payments.ts + cart.ts → repeat read of payments.ts → read change.ts → repeat read of cart.ts → report_finding → done. Diagnosis: the run 3 miss came from variance, not a structural block; the same code caught the bug here. gpt-4.1 opens with prose in both valid runs, so the reminder is load-bearing. Repeat reads waste roughly 2 turns. No code change made. Report: reports/eval-agentic-transcript-multi-hop-currency.json.
   - follow-up (user request): agent prompt changes from the run-4 transcript. The system prompt now says to investigate through tool calls, not prose (a reply without tool calls ends the review). It also says to reuse files and line ranges already read instead of re-reading them. The opening user turn says "Start now with tool calls … do not reply with a plan first", replacing "Begin by deciding which callers…", which invited a prose plan. The reminder stays as the safety net. Test: tests/agent.test.ts (+1). Gate green: lint (0 errors), typecheck, 331 Node + 222 vitest, build. Not yet measured live: no inference spent.
+
+### Round 2 (added 2026-10-14 from the Greptile feature audit; specs at the end of ITEMS.md; order G → J → K → L → M → V)
+- [ ] G1 Verdict first, and findings outside the changed lines — todo
+- [ ] G2 Priority badges — todo
+- [ ] G3 Clarifying questions and replies without a mention — todo
+- [ ] G4 Review footer — todo
+- [ ] G5 Feature tips — todo
+- [ ] J1 Hypothesis agents — todo
+- [ ] J2 Security agent — todo
+- [ ] J3 Generated tests in the sandbox — todo
+- [ ] J4 Knowledge base in reviews — todo
+- [ ] J5 Requirements check against linked tickets — todo
+- [ ] J6 Routing for AI-authored pull requests — todo
+- [ ] J7 Third-party API guidance packs — todo
+- [ ] J8 Elixir in the code graph — todo
+- [ ] K1 Real cascading directory config — todo
+- [ ] K2 Per-PR effort overrides — todo
+- [ ] K3 Configurable agent budgets — todo
+- [ ] K4 Wildcard and team rule scopes — todo
+- [ ] K5 AI rule assistant — todo
+- [ ] K6 Learning from commits — todo
+- [ ] K7 Repository onboarding automation — todo
+- [ ] L1 CLI onboarding — todo
+- [ ] L2 CLI review: resume and inline output — todo
+- [ ] L3 MCP: OAuth and more tools — todo
+- [ ] L4 Claude Code and Codex plugins, and a resolve loop — todo
+- [ ] L5 More fix-handoff targets — todo
+- [ ] M1 Free tier, credits and spending caps — todo
+- [ ] M2 SSO (SAML and OIDC) — todo
+- [ ] M3 Data controls and workspace deletion — todo
+- [ ] M4 Self-hosting kit — todo
+- [ ] M5 Self-managed GitLab behind proxies — todo
+- [ ] V1 Runbooks, matrix and fixtures — todo
+- Finish (round 2): pending. Run SKILL.md's Finish procedure once every G1–V1 item is done, needs-human or blocked. This is not an item and is not counted in PARITY STATUS.
 
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
