@@ -194,7 +194,7 @@ export class Gitlab implements Scm {
    const diff=diffs.find(d=>d.new_path===f.filePath);if(!diff||diff.too_large||diff.collapsed||!changedLines(diff.diff).has(f.startLine))throw new Error("Finding line not in complete current diff");
    const prior=notes.find(n=>n.author.username===me.username&&n.body.includes(findingMarker)&&n.position?.head_sha===sha&&n.position.new_path===f.filePath&&n.position.new_line===f.startLine);if(prior){comments.push({id:prior.id,fingerprint:f.fingerprint});continue;}
    await current();
-   const result=await this.request(prefix+"/discussions",z.object({notes:z.array(note).min(1)}),{body:findingComment(f,style)+"\n\n"+findingMarker+(process.env.APP_URL?"\n\n[Fix with your agent]("+process.env.APP_URL+"/fix/"+marker+"?finding="+f.fingerprint+")":""),position:{position_type:"text",base_sha:pr.diff_refs.base_sha,head_sha:sha,start_sha:pr.diff_refs.start_sha,new_path:diff.new_path,old_path:diff.old_path,new_line:f.startLine}});
+   const result=await this.request(prefix+"/discussions",z.object({notes:z.array(note).min(1)}),{body:findingComment(f,style,{syntax:"gitlab",start:f.startLine,end:f.startLine})+"\n\n"+findingMarker+(process.env.APP_URL?"\n\n[Fix with your agent]("+process.env.APP_URL+"/fix/"+marker+"?finding="+f.fingerprint+")":""),position:{position_type:"text",base_sha:pr.diff_refs.base_sha,head_sha:sha,start_sha:pr.diff_refs.start_sha,new_path:diff.new_path,old_path:diff.old_path,new_line:f.startLine}});
    if(result.notes[0].author.username!==me.username||result.notes[0].position?.head_sha!==sha)throw new Error("GitLab returned another publication identity or revision");
    comments.push({id:result.notes[0].id,fingerprint:f.fingerprint});
   }

@@ -67,6 +67,7 @@ export const findingValidator = v.object({
     agent: v.string(),
     symbol: v.string(),
     ruleId: v.optional(v.string()),
+    suggestion: v.optional(v.object({ startLine: v.number(), endLine: v.number(), original: v.string(), replacement: v.string() })),
     fingerprint: v.string(),
 });
 export default defineSchema({

@@ -1,5 +1,6 @@
 import {summarySections,summaryLabels,validSummarySections} from "./review-settings";
 import type {Finding,ReviewInput,ReviewResult,SourceFile} from "./engine/types";
+import {suggestionBlock,type SuggestionSyntax} from "./suggestions";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -46,7 +47,7 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   `### Coverage\n${data.files.length} changed files; ${data.contextCount} retrieved context files. ${data.candidates} candidates; ${data.findings.length} verified findings; ${data.suppressed} suppressed.`+(data.coverageLimits.length?"\n\n"+data.coverageLimits.map(l=>"- "+l).join("\n"):"")+skippedList(data.skippedFiles)+fetchedContextLinks(data.requirementsContext)].join("\n\n");
 }
 
-export function findingComment(f: Finding, style: string = "detailed"): string {
+export function findingComment(f: Finding, style: string = "detailed", suggestion?: { syntax: SuggestionSyntax; start: number; end: number }): string {
   const evidence = f.evidence
     .map((e) =>
       style === "concise"
@@ -54,7 +55,8 @@ export function findingComment(f: Finding, style: string = "detailed"): string {
         : `Evidence: \`${e.filePath}:${e.startLine}\`\n\n\`\`\`\n${e.quote.replace(/```/g, "` ` `")}\n\`\`\``,
     )
     .join("\n\n") + f.evidence.filter(e => e.sourceUrl).map(e => "\n\n[Source: "+e.repository+" @ "+e.revision+"]("+e.sourceUrl+")").join("");
-  return `**${f.severity.toUpperCase()}: ${f.title}** (${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
+  const fix = f.suggestion && suggestion ? suggestionBlock(f.suggestion, suggestion.syntax, suggestion) : "";
+  return `**${f.severity.toUpperCase()}: ${f.title}** (${Math.round(f.confidence * 100)}% confidence)\n\n${f.description}\n\n**Impact:** ${f.impact}\n\n**Fix:** ${f.suggestedFix}${fix}\n\n${evidence}\n\n<!-- openreview-finding:${f.fingerprint} -->`;
 }
 
 export function reviewLinks(reviewId:string,unresolvedCount:number){

@@ -25,6 +25,7 @@ import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
 import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
 import { loadGrammars } from "./treesitter";
+import { suggestionProblem } from "../suggestions";
 
 export type ReviewOptions = {
   // "agentic" runs the tool-calling investigator instead of fixed specialists when the
@@ -48,7 +49,7 @@ const specialties = {
   rules:
     "Check only applicable custom rules. Include ruleId for rule findings.",
 };
-const specialistSystem = `You are one of OpenReview's specialist reviewers. The final input block assigns your category (assignment.category) and its focus (assignment.focus); review only for that category. Report only bugs introduced or materially affected by this change. Zero findings is valid. Anchor filePath and startLine on an added or modified line in the supplied diff, not the function declaration unless that declaration changed. endLine must be at least startLine. Context content prefixes each source line with its absolute line number followed by a colon. Use that number for evidence.startLine; omit the number and colon from evidence.quote. Use changedLineNumbers for finding anchors. Evidence quotes must exactly match complete source lines at their stated 1-based positions, including indentation and blank lines. Respond as {"findings": [...]} with each finding: title,description,severity (critical/high/medium/low),confidence (0..1),category (must equal assignment.category; allowed categories are ${categories.join(", ")}),filePath,startLine,endLine (at least startLine),evidence:[{filePath,startLine,quote}],impact,suggestedFix,symbol,optional ruleId. Test source supplies assertions, not recorded execution. Do not claim test outcomes or test-verified behavior without supplied runtime evidence. No style advice or speculation.`;
+const specialistSystem = `You are one of OpenReview's specialist reviewers. The final input block assigns your category (assignment.category) and its focus (assignment.focus); review only for that category. Report only bugs introduced or materially affected by this change. Zero findings is valid. Anchor filePath and startLine on an added or modified line in the supplied diff, not the function declaration unless that declaration changed. endLine must be at least startLine. Context content prefixes each source line with its absolute line number followed by a colon. Use that number for evidence.startLine; omit the number and colon from evidence.quote. Use changedLineNumbers for finding anchors. Evidence quotes must exactly match complete source lines at their stated 1-based positions, including indentation and blank lines. Respond as {"findings": [...]} with each finding: title,description,severity (critical/high/medium/low),confidence (0..1),category (must equal assignment.category; allowed categories are ${categories.join(", ")}),filePath,startLine,endLine (at least startLine),evidence:[{filePath,startLine,quote}],impact,suggestedFix,symbol,optional ruleId, optional suggestion:{startLine,endLine,original,replacement} only when a small exact fix replaces lines startLine..endLine (equal to the finding's own range) — original copies those head lines exactly without line-number prefixes and replacement is the corrected code. Test source supplies assertions, not recorded execution. Do not claim test outcomes or test-verified behavior without supplied runtime evidence. No style advice or speculation.`;
 // Changed-file budgets per mode; larger changes are risk-ranked and the rest reported as skipped.
 export const reviewFileLimits = { fast: 200, standard: 350, deep: 500 } as const;
 export const payloadByteLimit = 300000;
@@ -282,6 +283,9 @@ export async function reviewChange(
         continue;
       }
       const evidence = f.evidence.map(e => ({filePath:e.filePath,startLine:e.startLine,quote:e.quote,...safeInput.files.find(file=>file.path===e.filePath)?.provenance}));
+      // Keep the finding but drop a suggestion that does not apply cleanly to the head revision.
+      const suggestionIssue = suggestionProblem(f, safeInput.files, diff);
+      if (suggestionIssue) { suppressions.push({ title: f.title, agent: f.agent, reason: "Suggestion dropped: " + suggestionIssue }); delete f.suggestion; }
       const existing=input.existingFindings?.find(x=>overlaps(x,f));
       if (existing) {
         carriedForward.push({...f,evidence,confidence:Math.min(f.confidence,decision.confidence),fingerprint:existing.fingerprint,commitSha:input.headSha});

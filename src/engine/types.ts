@@ -60,6 +60,14 @@ export const findingSchema = z
     suggestedFix: z.string().min(5),
     symbol: z.string(),
     ruleId: z.string().optional(),
+    // Optional committable fix: replaces lines startLine..endLine (the finding's own range);
+    // original must copy those head lines exactly. Dropped when it does not apply cleanly.
+    suggestion: z.object({
+      startLine: z.number().int().positive(),
+      endLine: z.number().int().positive(),
+      original: z.string().max(20000),
+      replacement: z.string().max(10000),
+    }).optional(),
   })
   .refine((f) => f.endLine >= f.startLine, "Invalid line range");
 export type Candidate = z.infer<typeof findingSchema>;

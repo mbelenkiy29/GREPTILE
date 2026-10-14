@@ -485,7 +485,7 @@ export class Github {
       path: f.filePath,
       line: f.startLine,
       side: "RIGHT",
-      body: findingComment(f, style) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
+      body: findingComment(f, style, { syntax: "github", start: f.startLine, end: f.startLine }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
     }));
     const result = await this.request(
       `/repos/${repository}/pulls/${number}/reviews`,
