@@ -138,6 +138,8 @@ export type ReviewInput = {
     ignoredPaths?: string[];
     instructions?: string;
     summarySections?: string[];
+    // Deterministic security checks and dependency advisories (default on).
+    securityScan?: boolean;
   };
 };
 export type ModelUsage = {
@@ -179,6 +181,7 @@ export type ReviewResult = {
     suppressed: number;
     suppressions?: { title: string; agent: string; reason: string }[];
     carriedForward?: Finding[];
+    exploitability?: { fingerprint: string; exploitPath: boolean }[];
     resolvedFingerprints: string[];
   };
   usage: ModelUsage[];

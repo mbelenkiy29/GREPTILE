@@ -31,6 +31,7 @@ import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
 import { inlineFindings, reviewFooter } from "../src/review-summary";
+import { osvClient, osvEnabled } from "../src/osv";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
@@ -615,6 +616,7 @@ export const review = internalAction({
               : effective.categories.map((c) => z.enum(categories).parse(c)),
             instructions: effective.instructions,
             summarySections:effective.summarySections,
+            securityScan: effective.securityScan !== false,
           },
         },
         model,
@@ -623,7 +625,7 @@ export const review = internalAction({
         },
         undefined,
         // Hypothesis runs fit in one action and do not suspend; they only honour cancellation.
-        engine ? { engine, tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: engine === "agentic" ? reviewAgentHooks(ctx, args.reviewId, stepStarted) : { checkpoint: reviewAgentHooks(ctx, args.reviewId, stepStarted).checkpoint } } : {},
+        { ...(osvEnabled() ? { advisories: osvClient({ base: process.env.OSV_API_URL || undefined }) } : {}), ...(engine ? { engine, tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: engine === "agentic" ? reviewAgentHooks(ctx, args.reviewId, stepStarted) : { checkpoint: reviewAgentHooks(ctx, args.reviewId, stepStarted).checkpoint } } : {}) },
       ),integrationScopes:requirements.scopes,repositoryContext:cross.receipt??undefined};
       const storageId = await ctx.storage.store(
         new Blob([JSON.stringify(result)], { type: "application/json" }),

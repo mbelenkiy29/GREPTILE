@@ -26,6 +26,8 @@ import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
 import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
 import { runHypotheses, type HypothesesResult } from "./hypotheses";
+import { deterministicAgents, deterministicGrounded, deterministicSecurity, exploitSchema, exploitSystem } from "./security";
+import type { AdvisoryLookup } from "../osv";
 import { loadGrammars } from "./treesitter";
 import { suggestionProblem } from "../suggestions";
 import { diagramEligible, diagramSchema, renderSequence, validSequence } from "../diagrams";
@@ -39,6 +41,8 @@ export type ReviewOptions = {
   engine?: "pipeline" | "agentic" | "hypotheses";
   tools?: AgentToolbox;
   agent?: AgentHooks;
+  // OSV advisory lookups for changed dependency versions (network; absent = not checked, with a note).
+  advisories?: AdvisoryLookup;
 };
 
 const specialties = {
@@ -277,6 +281,10 @@ export async function reviewChange(
   }
   if (engineUsed === "pipeline" && failedSpecialists.length && failedSpecialists.length === selected.length)
     throw new Error("Every review specialist failed: " + failedSpecialists.map((f) => f.category + ": " + f.error).join("; ").slice(0, 2000));
+  // Deterministic security checks (patterns and dependency advisories) when security review is on.
+  const securityChecks = input.settings?.securityScan !== false && selected.includes("security");
+  const deterministic = securityChecks ? await deterministicSecurity(diff, options.advisories, signal) : { findings: [], limits: [], incomplete: false };
+  engineLimits.push(...deterministic.limits);
   await progress("verifying");
   const minimum = input.settings?.minimumConfidence ?? 0.85;
   const threshold = severities.indexOf(
@@ -290,7 +298,8 @@ export async function reviewChange(
     const reason = f.confidence < minimum ? "Below confidence threshold"
       : severities.indexOf(f.severity) > threshold ? "Below severity threshold"
       : !grounded(f, safeInput) && !groundedOutside(f, safeInput) ? "Evidence or changed-line location does not match source"
-      : f.ruleId && !rules.some((r) => r.id === f.ruleId) ? "Unknown or inapplicable rule" : "";
+      : f.ruleId && !rules.some((r) => r.id === f.ruleId) ? "Unknown or inapplicable rule"
+      : f.category === "security" && deterministic.findings.some((d) => d.filePath === f.filePath && f.startLine <= d.endLine && d.startLine <= f.endLine) ? "Duplicate of a deterministic security check" : "";
     if (reason) suppress(f, reason);
     return !reason;
   });
@@ -360,6 +369,37 @@ export async function reviewChange(
       });
     }
   }
+  // Deterministic security findings skip the model verifier; thresholds, exact-line grounding,
+  // dedupe and carry-forward still apply.
+  for (const f of deterministic.findings) {
+    const reason = severities.indexOf(f.severity) > threshold ? "Below severity threshold"
+      : !deterministicGrounded(f, diff, input.fullDiff) ? "Evidence or changed-line location does not match the diff"
+      : findings.some((x) => overlaps(x, f)) ? "Duplicate candidate" : "";
+    if (reason) { suppress(f, reason); continue; }
+    const existing = input.existingFindings?.find((x) => overlaps(x, f));
+    if (existing) { carriedForward.push({ ...f, fingerprint: existing.fingerprint, commitSha: input.headSha }); suppress(f, "Existing issue revalidated at current revision"); continue; }
+    findings.push({ ...f, fingerprint: fingerprint(f), commitSha: input.headSha });
+  }
+  // Exploit check: the model judges whether an exploit path is shown for model-reported security
+  // findings. Without one, confidence is lowered (never below the threshold): it ranks, never removes.
+  const exploitability: { fingerprint: string; exploitPath: boolean }[] = [];
+  const securityFindings = findings.filter((f) => f.category === "security" && !deterministicAgents.has(f.agent));
+  if (securityChecks && securityFindings.length) {
+    try {
+      const judged = await model.generate({ task: "exploit", signal, system: exploitSystem, context: payload, input: { findings: securityFindings.map((f, index) => ({ index, title: f.title, description: f.description, filePath: f.filePath, startLine: f.startLine, evidence: f.evidence })) } }, exploitSchema(securityFindings.length, runtimeEvidence));
+      usage.push(judged.usage);
+      for (const a of judged.value.assessments) {
+        const f = securityFindings[a.index];
+        exploitability.push({ fingerprint: f.fingerprint, exploitPath: a.exploitPath });
+        if (!a.exploitPath) { f.confidence = Math.max(minimum, Math.round((f.confidence - 0.1) * 100) / 100); f.description += " No exploit path from untrusted input was shown in the reviewed code, so confidence was lowered."; }
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const failure = error as { usage?: ModelUsage };
+      if (failure?.usage) usage.push(failure.usage);
+      engineLimits.push("Exploitability of security findings could not be assessed");
+    }
+  }
   const resolvedFingerprints: string[] = [];
   const previous = (input.existingFindings ?? []).filter((f) =>
     f.commitSha !== input.headSha && !carriedForward.some(c=>c.fingerprint===f.fingerprint) && context.some((c) => c.path === f.filePath),
@@ -392,7 +432,7 @@ export async function reviewChange(
     ...(defaultCategories.some(c => c !== "rules" && !selected.includes(c)) ? ["Some review categories were disabled"] : []),
   ];
   // Changed code went unreviewed, so the verdict cannot be "ready" whatever the score says.
-  const coverageIncomplete = skippedFiles.length > ignoredCount || failedSpecialists.length > 0 || !!agentRun?.limits.length || !!hypothesisRun?.runs.some((r) => r.status !== "completed") ||
+  const coverageIncomplete = skippedFiles.length > ignoredCount || failedSpecialists.length > 0 || deterministic.incomplete || !!agentRun?.limits.length || !!hypothesisRun?.runs.some((r) => r.status !== "completed") ||
     diff.some(f => f.status !== "removed" && !index.files.some(source => source.path === f.path));
   // Sequence diagram of a changed cross-component interaction, grounded in exact source quotes.
   let diagram: string | undefined;
@@ -421,7 +461,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete},input.settings?.summarySections),
     findings,
     diagrams: diagram ? [diagram] : [],
     metadata: {
@@ -440,8 +480,9 @@ export async function reviewChange(
       headSha: input.headSha,
       mode: input.mode,
       context: context.map((c) => ({ path: c.path, reason: c.reason,...(c.provenance?{provenance:c.provenance}:{}) })),
-      candidates: candidates.length,
-      suppressed: candidates.length - findings.length,
+      candidates: candidates.length + deterministic.findings.length,
+      suppressed: candidates.length + deterministic.findings.length - findings.length,
+      ...(exploitability.length ? { exploitability } : {}),
       suppressions,
       carriedForward,
       resolvedFingerprints,

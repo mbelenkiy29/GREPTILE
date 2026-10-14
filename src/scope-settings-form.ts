@@ -20,5 +20,6 @@ export function scopeSettingsFromForm(form:FormData){
   autoApproveConventions:form.has('autoApproveConventions'),
   fixPullRequests:form.has('fixPullRequests'),
   threadReplies:form.has('threadRepliesConfigured')?form.has('threadReplies'):defaults.threadReplies,
+  securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
  };
 }

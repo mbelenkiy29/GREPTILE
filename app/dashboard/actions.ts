@@ -273,6 +273,7 @@ export async function saveSettings(form: FormData) {
       autoApproveConventions: form.has("conventionsConfigured") ? form.has("autoApproveConventions") : previous.settings.autoApproveConventions ?? false,
       fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
       threadReplies: form.has("threadRepliesConfigured") ? form.has("threadReplies") : previous.settings.threadReplies ?? true,
+      securityScan: form.has("securityScanConfigured") ? form.has("securityScan") : previous.settings.securityScan ?? true,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });

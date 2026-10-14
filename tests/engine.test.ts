@@ -110,6 +110,9 @@ class FixtureModel implements ModelProvider {
           ? { resolved: [] }
           : request.task === "diagram"
             ? { diagram: null }
+            // J2: model-reported security findings get one exploitability assessment.
+            : request.task === "exploit"
+              ? { assessments: [{ index: 0, exploitPath: true, reason: "route() returns the secret for any user the guard accepts, including a missing one." }] }
             : {
               reviewScore:{value:1,reason:"The verified defect needs correction before this change is ready to merge."},summary:
                 "This change updates authentication. One high severity authorization defect was verified.",

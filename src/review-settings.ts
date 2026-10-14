@@ -46,6 +46,8 @@ export const defaults = {
   fixPullRequests: false,
   // Human replies in threads OpenReview started are answered without an @openreview mention.
   threadReplies: true,
+  // Deterministic security checks on added lines and OSV advisories for changed dependencies.
+  securityScan: true,
   commentStyle: "concise",
   summarySections:[...defaultSummarySections] as string[],
 };
