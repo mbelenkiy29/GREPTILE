@@ -20,7 +20,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: engine tool loop + memory toolbox; reviewChange options; Convex tenant-scoped tool queries + head-consistent reads; persisted state, waiting_agent resume, checkpoints; reviewEngine setting; multi-hop fixtures.
   evidence: tested with fakes; tests: tests/agent.test.ts (7: multi-hop via find_references with evidence from a tool-read file, shared gates suppress ungrounded, budget exhaustion partial, cancellation mid-loop, suspend/resume without repeated calls + revision mismatch, injection cannot alter tools/budgets/permissions, provider fallback), tests/agent-tools.spec.ts (tenant isolation across 6 tool queries; state save/replace/stale/suspend/attempts/cleanup), tests/agent-toolbox.test.ts (head-consistent reads); `pnpm eval --validate` passes with 3 multi-hop fixtures (not run live); commands: lint/typecheck/test (223 Node + 164 vitest)/build green; commit: 5d5690d
   notes: tests/cli.test.ts now derives the fixture count from scripts/fixtures.ts (deliberate: 3 fixtures added). Pre-existing load-dependent flake seen once in tests/bridge.test.ts ("dispatch records agent exit failures…"), passes 3/3 in isolation.
-- [ ] A3 Multi-language code graph — todo
+- [x] A3 Multi-language code graph — done
+  plan: tree-sitter loader (lazy, fallback) + per-language extraction/resolution; resolved edge storage; ranked multi-hop neighborhood (Convex + memory); wire into retrieval and agent tools; bump index version.
+  evidence: verified locally end-to-end for WASM loading (all 11 grammars load and parse inside a local Convex Node action via `npx convex run graphDiagnostics:status`); extraction tested with fakes; tests: tests/graph.test.ts (18: grammar load, one fixture per language with symbols + resolved edges, visibility, resolution edge cases, regex fallback, TS call resolution, multi-hop ranking/bounds/packages, agent related files), tests/graph.spec.ts (Convex neighborhood: 2 hops, package expansion, legacy raw calls ignored, tenant isolation); commands: lint/typecheck/test (241 Node + 165 vitest)/build green; commit: 2b1885e
+  notes: web-tree-sitter ≥0.25 cannot load the tree-sitter-wasms builds (dylink format) → pinned 0.22.6. Node 24 crashes (Zone OOM) tiering up large grammar WASM → loader sets --no-wasm-tier-up --no-wasm-dynamic-tiering (stress-tested). Dashboard now imports fixPrompt from src/fix-prompt directly to keep the parser out of the web bundle.
 - [ ] A4 Semantic retrieval — todo
 - [ ] B1 Committable suggestions — todo
 - [ ] B2 Multi-line comments — todo
@@ -55,9 +58,13 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 5. (H4) Confirm Vercel/Convex env var names per §3 (dashboard; `convex env list --prod` prints values — private terminal only).
 6. (H4) Raise/reconcile the inference budget per §5 (≈$0.12 unreserved at audit).
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
-8. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+8. (A3) After deploying, run `npx convex run graphDiagnostics:status --prod` once to confirm tree-sitter grammars load in the hosted Node runtime; re-index repositories (INDEX_GRAPH_VERSION 4 reparses graph data automatically on the next index job).
+9. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 
 ## Decisions (date — decision — reason)
+- 2026-10-14 — Grammar source: tree-sitter-wasms 0.1.13 on web-tree-sitter 0.22.6 (newest runtime that loads those builds) rather than 11 separate grammar packages — one pinned package covers every required language; revisit when a maintained multi-grammar build for the 0.25+ ABI exists.
+- 2026-10-14 — Calls resolve at index time only via same-file definitions, named imports and imported qualifiers (no cross-file symbol table during per-file batches); Kotlin top-level functions and Go packages resolve to package directories that traversal expands.
+- 2026-10-14 — Parser packages ship as Convex node externalPackages (installed, ~50 MB) and load through literal dynamic imports so the Convex bundler registers them.
 - 2026-10-14 — Agentic resume uses a `waiting_agent` review status + per-review state blob (saved every turn) and a soft step deadline (AGENT_STEP_SECONDS=420) instead of a separate job table — reuses the existing review lifecycle, recovery sweep and retry semantics; resumes capped at 6.
 - 2026-10-14 — Agent budgets count uncached input + output tokens (cache reads excluded) because every turn re-sends the cached review payload.
 - 2026-10-14 — Agent tool results from the index are labelled with the indexed SHA; read_file always resolves to the PR head tree so cited evidence matches the reviewed revision.
