@@ -121,10 +121,10 @@ test("webhook through indexing, cross-file review, persistence, publish, feedbac
       if (request.task.startsWith("review:")) {
         if (fixed)
           expect(
-            (request.input as { historicalFindings: { title: string }[] })
+            (request.context as { historicalFindings: { title: string }[] })
               .historicalFindings,
           ).toHaveLength(1);
-        const context = (request.input as { context: { path: string }[] })
+        const context = (request.context as { context: { path: string }[] })
           .context;
         expect(context.some((c) => c.path === "route.ts")).toBe(true);
         value = {
@@ -265,7 +265,7 @@ test("webhook through indexing, cross-file review, persistence, publish, feedbac
   });
   expect(dashboard.reviews[0].status).toBe("completed");
   expect(dashboard.reviews[0].reviewScore).toEqual({value:1,reason:"The verified authorization defect must be corrected before merging."});
-  expect(publish.mock.calls[0][3]).toContain("### Review score\n1/5");
+  expect(publish.mock.calls[0][3]).toContain("### Confidence score\n**1/5**");
   expect(
     (
       await t.query(api.reviews.detail, {

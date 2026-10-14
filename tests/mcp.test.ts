@@ -27,8 +27,14 @@ test("MCP initializes over stdio and exposes the documented agent tools", async 
         "get_related_files",
         "get_custom_rules",
         "mark_finding_resolved",
+        "list_repositories",
+        "ask_codebase",
+        "search_code",
       ].sort(),
     );
+    // Network failures surface as tool errors, never crashes.
+    const failed = await client.callTool({ name: "list_repositories", arguments: {} });
+    assert.equal(failed.isError, true);
   } finally {
     await client.close();
   }

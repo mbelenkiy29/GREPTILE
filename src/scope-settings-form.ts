@@ -12,5 +12,12 @@ export function scopeSettingsFromForm(form:FormData){
   categories:form.has('categoriesConfigured')?form.getAll('categories').map(String):defaults.categories,
   summarySections:form.has('summaryConfigured')?form.getAll('summarySections').map(String):defaults.summarySections,
   commentStyle:value('commentStyle')||defaults.commentStyle,
+  reviewEngine:value('reviewEngine')||defaults.reviewEngine,
+  checkFailureSeverity:value('checkFailureSeverity')||defaults.checkFailureSeverity,
+  triggerLabels:list('triggerLabels'),excludedAuthors:list('excludedAuthors'),
+  maxFiles:Number(value('maxFiles')||0),maxChangedLines:Number(value('maxChangedLines')||0),strictness:Number(value('strictness')||0),
+  lockedKeys:form.has('lockedConfigured')?form.getAll('lockedKeys').map(String):defaults.lockedKeys,
+  autoApproveConventions:form.has('autoApproveConventions'),
+  fixPullRequests:form.has('fixPullRequests'),
  };
 }

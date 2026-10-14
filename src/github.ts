@@ -1,4 +1,5 @@
 import {changeMetadataSchema,catalogPageSize,numberedPage,validateChangePage,type ChangeMetadata,type ChangePage} from "./change-metadata";
+import { safeFixBranch } from "./fix-command";
 import {githubWebOrigin} from "./github-enterprise";
 import { reviewLinks } from "./review-summary";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -7,6 +8,7 @@ import { importPKCS8, SignJWT } from "jose";
 import { z } from "zod";
 import type { ChangedFile, Finding, SourceFile } from "./engine/types";
 import {changedLines} from "./engine/diff";
+import {commentRange} from "./engine/patch-lines";
 import {findingComment} from "./review-summary";
 
 export function verifyWebhook(
@@ -35,12 +37,27 @@ export function findingFingerprint(body:string){
   if(/<!-- openreview:conversation:[^>]+ -->\s*$/.test(body))return undefined;
   return [...body.matchAll(/<!-- openreview-finding:([a-f0-9]+) -->/g)].at(-1)?.[1];
 }
+export type CheckConclusion = "success" | "failure" | "neutral" | "cancelled";
+// Check-run conclusion: neutral unless a failure threshold is configured; then findings at or
+// above that severity fail the check and anything else succeeds.
+export function checkConclusion(findings: Pick<Finding, "severity">[], threshold: string | undefined): CheckConclusion {
+  const order = ["critical", "high", "medium", "low"];
+  if (!threshold || threshold === "off" || !order.includes(threshold)) return "neutral";
+  return findings.some((f) => order.indexOf(f.severity) <= order.indexOf(threshold)) ? "failure" : "success";
+}
+export const summaryMarker = "<!-- openreview:summary -->";
+const treeSchema = z.object({
+  truncated: z.boolean(),
+  tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string(), size: z.number().optional() })),
+});
 export class GithubApiError extends Error {
  constructor(message:string,readonly status:number,readonly planRestricted=false){super(message);}
 }
 export class Github {
   readonly supportsApproval:boolean = true;
-  constructor(private token: string, private base = "https://api.github.com", private appSlug?:()=>Promise<string>) {}
+  // permissions: granted installation permissions (from the token response), used to enable
+  // optional features such as check runs without changing the required-permission validation.
+  constructor(private token: string, private base = "https://api.github.com", private appSlug?:()=>Promise<string>, readonly permissions?: Record<string, string>) {}
   protected async publisherLogin(){return this.appSlug?(await this.appSlug())+"[bot]":(await this.request("/user",z.object({login:z.string().min(1)}))).login;}
   sourceUrl(repository:string,revision:string,file:string) {
     const origin=githubWebOrigin(this.base);
@@ -80,7 +97,7 @@ export class Github {
       throw new Error(
         "GitHub App requires issues:read and checks:read for follow-ups and CI context",
       );
-    return new Github(token.token, configuration?.base, async()=> (await app.request(`/app/installations/${id}`,z.object({app_slug:z.string().min(1)}))).app_slug);
+    return new Github(token.token, configuration?.base, async()=> (await app.request(`/app/installations/${id}`,z.object({app_slug:z.string().min(1)}))).app_slug, token.permissions);
   }
   async request<T>(
     endpoint: string,
@@ -275,6 +292,7 @@ export class Github {
         user: z.object({ id:z.number().int().positive().optional(),login: z.string() }),
         head: z.object({ sha: z.string(), ref: z.string() }),
         base: z.object({ sha: z.string(), ref: z.string() }),
+        changed_files: z.number().int().nonnegative().optional(),
       }),
     );
     const files = await this.paginate(
@@ -287,17 +305,13 @@ export class Github {
         changes: z.number(),
       }),
     );
-    if (
-      files.some(
-        (f) =>
-          !f.patch &&
-          f.changes > 0 &&
-          !/\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename),
-      )
-    )
-      throw new Error(
-        "GitHub omitted/truncated a text diff; split this PR to ensure complete review",
-      );
+    // Degrade instead of failing: GitHub omits patches for very large diffs and lists at most
+    // 3,000 files. Those files stay visible as skipped with a reason; grounding never anchors on them.
+    const omitted = files
+      .filter((f) => !f.patch && f.changes > 0 && !/\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename))
+      .map((f) => ({ path: f.filename, reason: "GitHub omitted the text diff (too large to display)" }));
+    if (pr.changed_files !== undefined && pr.changed_files > files.length)
+      omitted.push({ path: `(${pr.changed_files - files.length} more files)`, reason: "GitHub lists at most 3,000 changed files per pull request" });
     const diff: ChangedFile[] = files.map((f) => ({
       path: f.filename,
       previousPath: f.previous_filename,
@@ -345,11 +359,127 @@ export class Github {
       ...pr,
       ...(pr.user.id?{authorExternalId:String(pr.user.id)}:{}),
       diff,
+      ...(omitted.length ? { omitted: omitted as { path: string; reason: string }[] | undefined } : {}),
       comments,
       reviews,
       commits,
       checks: checks.check_runs,
     };
+  }
+  // Ancestry and changes between two commits; "ahead" means base is an ancestor of head.
+  async compare(repository: string, base: string, head: string) {
+    const result = await this.request(
+      `/repos/${repository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
+      z.object({
+        status: z.enum(["ahead", "behind", "diverged", "identical"]),
+        total_commits: z.number().int().nonnegative().optional(),
+        files: z.array(z.object({ filename: z.string(), previous_filename: z.string().optional(), status: z.string(), patch: z.string().optional(), changes: z.number() })).optional(),
+      }),
+    );
+    const files = result.files ?? [];
+    // The compare API lists at most 300 files and omits large patches; incremental review then falls back.
+    const complete = files.length < 300 && files.every((f) => f.patch !== undefined || f.changes === 0 || /\.(png|jpg|gif|pdf|zip|ico|woff2?)$/.test(f.filename));
+    return { status: result.status, commits: result.total_commits ?? 0, complete, files: files.map((f): ChangedFile => ({ path: f.filename, previousPath: f.previous_filename, patch: f.patch ?? "", status: f.status })) };
+  }
+  private graphqlUrl() { return /\/api\/v3\/?$/.test(this.base) ? this.base.replace(/\/api\/v3\/?$/, "/api/graphql") : this.base.replace(/\/$/, "") + "/graphql"; }
+  async graphql<T>(query: string, variables: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
+    const response = await fetch(this.graphqlUrl(), { method: "POST", redirect: "error", headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json", "user-agent": "OpenReview" }, body: JSON.stringify({ query, variables }), signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new GithubApiError(`GitHub GraphQL: HTTP ${response.status}`, response.status);
+    const body = z.object({ data: z.unknown().optional(), errors: z.array(z.object({ message: z.string() })).optional() }).parse(await response.json());
+    if (body.errors?.length) throw new Error("GitHub GraphQL error: " + body.errors.map((e) => e.message).join("; ").slice(0, 300));
+    return schema.parse(body.data);
+  }
+  // Replies to and resolves review threads that OpenReview itself started for findings now fixed.
+  // Threads started by anyone else are never touched; already-resolved threads are skipped.
+  async resolveFindingThreads(repository: string, number: number, items: { commentId: number; body: string; marker: string }[]) {
+    if (!items.length) return { resolved: 0, skipped: 0 };
+    const [owner, name] = repository.split("/");
+    const publisher = await this.publisherLogin();
+    const threadSchema = z.object({ repository: z.object({ pullRequest: z.object({ reviewThreads: z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(z.object({ id: z.string(), isResolved: z.boolean(), comments: z.object({ nodes: z.array(z.object({ databaseId: z.number().nullable(), author: z.object({ login: z.string() }).nullable() })) }) })) }) }).nullable() }).nullable() });
+    const threads: { id: string; isResolved: boolean; first?: { databaseId: number | null; author: { login: string } | null } }[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const data: z.infer<typeof threadSchema> = await this.graphql(`query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor} nodes{id isResolved comments(first:1){nodes{databaseId author{login}}}}}}}}`, { owner, name, number, cursor }, threadSchema);
+      const connection = data.repository?.pullRequest?.reviewThreads;
+      if (!connection) break;
+      threads.push(...connection.nodes.map((n) => ({ id: n.id, isResolved: n.isResolved, first: n.comments.nodes[0] })));
+      if (!connection.pageInfo.hasNextPage) break;
+      cursor = connection.pageInfo.endCursor;
+    }
+    const isPublisher = (login?: string) => !!login && (login === publisher || login + "[bot]" === publisher);
+    let resolved = 0, skipped = 0;
+    for (const item of items) {
+      const thread = threads.find((t) => t.first?.databaseId === item.commentId);
+      if (!thread || thread.isResolved || !isPublisher(thread.first?.author?.login)) { skipped++; continue; }
+      await this.reply(repository, number, item.body, item.commentId, item.marker);
+      await this.graphql(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}`, { id: thread.id }, z.object({ resolveReviewThread: z.object({ thread: z.object({ id: z.string(), isResolved: z.boolean() }) }) }));
+      resolved++;
+    }
+    return { resolved, skipped };
+  }
+  // Check runs need checks:write; without it the feature is skipped (returns null), never an error.
+  async startCheckRun(repository: string, sha: string, externalId: string, detailsUrl?: string): Promise<number | null> {
+    if (this.permissions?.checks !== "write") return null;
+    const run = await this.request(`/repos/${repository}/check-runs`, z.object({ id: z.number() }), { method: "POST", body: JSON.stringify({ name: "OpenReview", head_sha: sha, status: "in_progress", started_at: new Date().toISOString(), external_id: externalId, ...(detailsUrl ? { details_url: detailsUrl } : {}), output: { title: "Review in progress", summary: "OpenReview is reviewing this revision." } }) });
+    return run.id;
+  }
+  async completeCheckRun(repository: string, id: number, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+    if (this.permissions?.checks !== "write") return;
+    await this.request(`/repos/${repository}/check-runs/${id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ status: "completed", conclusion: result.conclusion, completed_at: new Date().toISOString(), ...(result.detailsUrl ? { details_url: result.detailsUrl } : {}), output: { title: result.title.slice(0, 255), summary: result.summary.slice(0, 60000) } }) });
+  }
+  // Fix pull requests need contents:write; without it the feature is skipped, never an error.
+  // Only a new namespaced branch is created and written, from the reviewed head; the pull
+  // request's own branch (and its base) is never written. Retries reuse the branch or open PR.
+  async openFixPullRequest(repository: string, number: number, fix: { branch: string; expectedHead: string; path: string; blobSha: string; content: string; title: string; body: string; message: string }): Promise<{ url: string; reused: boolean } | { skipped: string }> {
+    if (this.permissions?.contents !== "write") return { skipped: "the GitHub App does not have Contents: Read and write permission" };
+    const prefix = `/repos/${repository}`;
+    const pr = await this.request(`${prefix}/pulls/${number}`, z.object({ state: z.string(), head: z.object({ sha: z.string(), ref: z.string(), repo: z.object({ full_name: z.string() }).nullable() }), base: z.object({ ref: z.string() }) }));
+    if (pr.state !== "open") return { skipped: "the pull request is not open" };
+    if (pr.head.repo?.full_name.toLowerCase() !== repository.toLowerCase()) return { skipped: "fix pull requests are not opened for changes from forks" };
+    if (pr.head.sha !== fix.expectedHead) return { skipped: "the pull request changed while the fix was prepared; ask again" };
+    if (!safeFixBranch(fix.branch, [pr.head.ref, pr.base.ref])) throw new Error("Unsafe fix branch");
+    const open = await this.request(`${prefix}/pulls?state=open&head=${encodeURIComponent(repository.split("/")[0] + ":" + fix.branch)}&base=${encodeURIComponent(pr.head.ref)}`, z.array(z.object({ html_url: z.string() })));
+    if (open.length) return { url: open[0].html_url, reused: true };
+    const ref = `${prefix}/git/ref/heads/${fix.branch.split("/").map(encodeURIComponent).join("/")}`;
+    let commit = true;
+    try {
+      await this.request(`${prefix}/git/refs`, z.object({ ref: z.string() }), { method: "POST", body: JSON.stringify({ ref: `refs/heads/${fix.branch}`, sha: fix.expectedHead }) });
+    } catch (error) {
+      if (!(error instanceof GithubApiError) || error.status !== 422) throw error;
+      // The branch survives from an earlier attempt: continue only if it is still at the reviewed
+      // head, or holds exactly one fix commit on top of it.
+      const existing = await this.request(ref, z.object({ object: z.object({ sha: z.string() }) }));
+      if (existing.object.sha !== fix.expectedHead) {
+        const head = await this.request(`${prefix}/git/commits/${existing.object.sha}`, z.object({ parents: z.array(z.object({ sha: z.string() })) }));
+        if (head.parents.length !== 1 || head.parents[0].sha !== fix.expectedHead) return { skipped: `branch ${fix.branch} already exists with other commits; delete it to open a new fix pull request` };
+        commit = false;
+      }
+    }
+    if (commit) await this.request(`${prefix}/contents/${fix.path.split("/").map(encodeURIComponent).join("/")}`, z.object({ commit: z.object({ sha: z.string() }) }), { method: "PUT", body: JSON.stringify({ message: fix.message, content: Buffer.from(fix.content, "utf8").toString("base64"), sha: fix.blobSha, branch: fix.branch }) });
+    const created = await this.request(`${prefix}/pulls`, z.object({ html_url: z.string() }), { method: "POST", body: JSON.stringify({ title: fix.title, head: fix.branch, base: pr.head.ref, body: fix.body }) });
+    return { url: created.html_url, reused: false };
+  }
+  // 👍/👎 reactions on review comments (GitHub sends no reaction webhooks, so callers poll).
+  async reactions(repository: string, commentIds: number[]) {
+    const out: { commentId: string; user: string; reaction: "+1" | "-1"; createdAt: number }[] = [];
+    for (const id of commentIds.slice(0, 200)) {
+      const rows = await this.paginate(`/repos/${repository}/pulls/comments/${id}/reactions`, z.object({ content: z.string(), created_at: z.string(), user: z.object({ login: z.string(), type: z.string() }).nullable() }));
+      for (const r of rows) if ((r.content === "+1" || r.content === "-1") && r.user && r.user.type !== "Bot") out.push({ commentId: String(id), user: r.user.login, reaction: r.content, createdAt: Date.parse(r.created_at) || Date.now() });
+    }
+    return out;
+  }
+  // Human (non-bot) review comments on pull requests merged after `mergedAfter` (ms), oldest
+  // first, bounded per call; the returned cursor is the newest merge time processed.
+  async mergedReviewComments(repository: string, mergedAfter: number, maxPulls = 10) {
+    const pulls = (await this.request(`/repos/${repository}/pulls?state=closed&sort=updated&direction=desc&per_page=50`, z.array(z.object({ number: z.number(), merged_at: z.string().nullable() }))))
+      .filter((p) => p.merged_at && Date.parse(p.merged_at) > mergedAfter)
+      .sort((a, b) => Date.parse(a.merged_at!) - Date.parse(b.merged_at!))
+      .slice(0, maxPulls);
+    const comments: { body: string; path?: string; author: string; url: string; prNumber: number }[] = [];
+    for (const pr of pulls)
+      for (const c of await this.paginate(`/repos/${repository}/pulls/${pr.number}/comments`, z.object({ body: z.string(), path: z.string().optional(), html_url: z.string(), user: z.object({ login: z.string(), type: z.string() }).nullable() })))
+        if (c.user && c.user.type === "User") comments.push({ body: c.body, path: c.path, author: c.user.login, url: c.html_url, prNumber: pr.number });
+    return { comments, cursor: pulls.length ? Date.parse(pulls.at(-1)!.merged_at!) : mergedAfter };
   }
   async branches(repository: string) {
     const schema = z.array(
@@ -390,23 +520,36 @@ export class Github {
   async tree(repository: string, sha: string) {
     const result = await this.request(
       `/repos/${repository}/git/trees/${encodeURIComponent(sha)}?recursive=1`,
-      z.object({
-        truncated: z.boolean(),
-        tree: z.array(
-          z.object({
-            path: z.string(),
-            type: z.string(),
-            sha: z.string(),
-            size: z.number().optional(),
-          }),
-        ),
-      }),
+      treeSchema,
     );
-    if (result.truncated)
-      throw new Error(
-        "Repository tree exceeds GitHub recursive tree limit; subtree indexing required",
-      );
-    return result.tree.filter(f => f.type === "blob");
+    if (!result.truncated) return result.tree.filter(f => f.type === "blob");
+    // GitHub truncates recursive listings (~100k entries / 7 MB); walk subtrees instead.
+    return this.walkTree(repository, sha, "", { requests: 1, entries: 0 });
+  }
+  private async walkTree(repository: string, sha: string, prefix: string, budget: { requests: number; entries: number }): Promise<z.infer<typeof treeSchema>["tree"]> {
+    const take = (n: number) => {
+      budget.requests += n;
+      if (budget.requests > 3000) throw new Error("Repository tree exceeds 3,000 subtree requests; add ignored paths or index a smaller repository");
+    };
+    take(1);
+    const listing = await this.request(`/repos/${repository}/git/trees/${encodeURIComponent(sha)}`, treeSchema);
+    const out: z.infer<typeof treeSchema>["tree"] = [];
+    const add = (entries: z.infer<typeof treeSchema>["tree"]) => {
+      budget.entries += entries.length;
+      if (budget.entries > 1_000_000) throw new Error("Repository tree exceeds 1,000,000 files");
+      out.push(...entries);
+    };
+    for (const entry of listing.tree) {
+      const path = prefix + entry.path;
+      if (entry.type === "blob") add([{ ...entry, path }]);
+      else if (entry.type === "tree") {
+        take(1);
+        const sub = await this.request(`/repos/${repository}/git/trees/${encodeURIComponent(entry.sha)}?recursive=1`, treeSchema);
+        if (sub.truncated) out.push(...await this.walkTree(repository, entry.sha, path + "/", budget));
+        else add(sub.tree.filter(f => f.type === "blob").map(f => ({ ...f, path: path + "/" + f.path })));
+      }
+    }
+    return out;
   }
 
   async blob(
@@ -457,52 +600,73 @@ export class Github {
     const prior = existing.find((r) =>
       r.body?.trimEnd().endsWith(`<!-- openreview:${marker} -->`) && r.commit_id===sha && r.state==="COMMENTED" && r.user.login===publisher,
     );
-    if (prior){const comments=await this.findingComments(repository, number, prior.id,findings,sha);await current();
-      return {
-        id: prior.id,
-        reused: true,
-        comments,
-      };
+    // Inline findings go in a review (idempotent per run marker); the summary is one issue
+    // comment per pull request, edited in place on every run.
+    let review: { id: number; reused: boolean; comments: { id: number; fingerprint: string }[] } | undefined;
+    if (prior) review = { id: prior.id, reused: true, comments: await this.findingComments(repository, number, prior.id, findings, sha) };
+    else if (findings.length) {
+      const patches=new Map<string,string>();
+      const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const file of files)patches.set(file.filename,file.patch??"");for(const f of findings)if(f.commitSha!==sha||!changedLines(patches.get(f.filePath)??"").has(f.startLine))throw new Error("Finding line not in complete current diff");
+      await current();
+      const comments = findings.map((f) => {
+        // Ranges inside one hunk become multi-line comments (start_line…line); others stay single-line.
+        const range = commentRange(patches.get(f.filePath) ?? "", f.startLine, f.endLine);
+        return {
+          path: f.filePath,
+          line: range.end,
+          side: "RIGHT",
+          ...(range.start < range.end ? { start_line: range.start, start_side: "RIGHT" } : {}),
+          body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
+        };
+      });
+      const result = await this.request(
+        `/repos/${repository}/pulls/${number}/reviews`,
+        z.object({ id: z.number(),commit_id:z.string(),user:z.object({login:z.string()}) }),
+        {
+          method: "POST",
+          body: JSON.stringify({
+            commit_id: sha,
+            event: "COMMENT",
+            body: `OpenReview posted ${findings.length} inline finding${findings.length === 1 ? "" : "s"} on \`${sha.slice(0, 7)}\`. The OpenReview summary comment on this pull request is updated in place.\n\n<!-- openreview:${marker} -->`,
+            comments,
+          }),
+        },
+      );
+      if(result.commit_id!==sha||result.user.login!==publisher)throw new Error("GitHub returned another publication identity or revision");
+      review = { id: result.id, reused: false, comments: await this.findingComments(repository, number, result.id, findings, sha) };
     }
-    if(findings.length){const files=await this.paginate(prefix+"/files",z.object({filename:z.string(),patch:z.string().optional()}));for(const f of findings)if(f.commitSha!==sha||!changedLines(files.find(d=>d.filename===f.filePath)?.patch??"").has(f.startLine))throw new Error("Finding line not in complete current diff");}
     await current();
-    const comments = findings.map((f) => ({
-      path: f.filePath,
-      line: f.startLine,
-      side: "RIGHT",
-      body: findingComment(f, style) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
-    }));
-    const result = await this.request(
-      `/repos/${repository}/pulls/${number}/reviews`,
-      z.object({ id: z.number(),commit_id:z.string(),user:z.object({login:z.string()}) }),
-      {
-        method: "POST",
-        body: JSON.stringify({
-          commit_id: sha,
-          event: "COMMENT",
-          body: `## OpenReview\n\n${summary}${reviewLinks(marker,unresolvedCount)}\n\n<!-- openreview:${marker} -->`,
-          comments,
-        }),
-      },
-    );
-    if(result.commit_id!==sha||result.user.login!==publisher)throw new Error("GitHub returned another publication identity or revision");
-    const mapped=await this.findingComments(repository, number, result.id,findings,sha);await current();
-    return {
-      id: result.id,
-      reused: false,
-      comments: mapped,
-    };
+    const commit = `${githubWebOrigin(this.base)}/${repository.split("/").map(encodeURIComponent).join("/")}/commit/${sha}`;
+    const body = `## OpenReview\n\n${summary}${reviewLinks(marker,unresolvedCount)}\n\n**Last reviewed commit:** [\`${sha.slice(0, 7)}\`](${commit})\n\n${summaryMarker}\n<!-- openreview:${marker} -->`;
+    const note = await this.upsertSummary(repository, number, body, publisher);
+    await current();
+    return review ?? { id: note.id, reused: note.reused, comments: [] };
+  }
+  // One summary comment per pull request, found by its hidden marker and edited in place.
+  async upsertSummary(repository: string, number: number, body: string, publisher: string) {
+    const comments = await this.paginate(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), body: z.string().nullable(), user: z.object({ login: z.string() }) }));
+    const target = comments.filter((c) => c.user.login === publisher && c.body?.includes(summaryMarker)).at(-1);
+    if (target) {
+      if (target.body === body) return { id: target.id, reused: true };
+      await this.request(`/repos/${repository}/issues/comments/${target.id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ body }) });
+      return { id: target.id, reused: false };
+    }
+    const created = await this.request(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), user: z.object({ login: z.string() }) }), { method: "POST", body: JSON.stringify({ body }) });
+    if (created.user.login !== publisher) throw new Error("GitHub returned another publication identity");
+    return { id: created.id, reused: false };
   }
   async findingComments(repository: string, number: number, reviewId: number,findings?:Finding[],sha?:string) {
     const publisher=await this.publisherLogin();
     const comments = await this.paginate(
       `/repos/${repository}/pulls/${number}/reviews/${reviewId}/comments`,
-      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number(),in_reply_to_id:z.number().optional() }),
+      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),start_line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number(),in_reply_to_id:z.number().optional() }),
     );
     const mapped=comments.flatMap((c) => {
       if(c.user.login!==publisher||c.pull_request_review_id!==reviewId||c.in_reply_to_id!==undefined||(sha!==undefined&&c.commit_id!==sha))return [];
       const fingerprint=findingFingerprint(c.body);
-      return fingerprint&&(!findings||findings.some(f=>f.fingerprint===fingerprint&&f.filePath===c.path&&f.startLine===(c.line===undefined?c.position:c.line))) ? [{ id: c.id, fingerprint }] : [];
+      // Multi-line comments report their first line as start_line and their last as line.
+      const first=c.start_line??(c.line===undefined?c.position:c.line);
+      return fingerprint&&(!findings||findings.some(f=>f.fingerprint===fingerprint&&f.filePath===c.path&&f.startLine===first)) ? [{ id: c.id, fingerprint }] : [];
     });
     if(findings&&findings.some(f=>!mapped.some(c=>c.fingerprint===f.fingerprint)))throw new Error("Finding publication incomplete; retry or re-review the current revision");return mapped;
   }

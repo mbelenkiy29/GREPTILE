@@ -21,7 +21,7 @@ const originEnvelope=z.object({deliveryId:z.string(),appId:z.string(),installati
 export const replaceGitCredentials=action({args:{token:v.string(),connectionId:v.id("providerConnections"),credential:v.string()},handler:async(ctx,a):Promise<void>=>{
  await ctx.runQuery(internal.providerConnections.authorizeAdmin,{token:a.token,connectionId:a.connectionId});
  const c=await ctx.runQuery(internal.providerConnections.data,{id:a.connectionId});
- if(!["gitlab","gitea","github-enterprise","bitbucket-dc"].includes(c.kind))throw Error("This provider uses its native installation or ticket renewal flow");
+ if(!["gitlab","gitea","github-enterprise","bitbucket-dc","azure-devops"].includes(c.kind))throw Error("This provider uses its native installation or ticket renewal flow");
  const raw=a.credential.trim();if(raw.length<10||raw.length>20000)throw Error("Invalid provider credential");
  const selected=await ctx.runQuery(internal.providerConnections.repositories,{connectionId:c._id});
  const credentials=encryptCredential(raw,c.organizationId+":"+c.kind);
@@ -116,9 +116,10 @@ export const webhook=action({args:{secret:v.string(),connectionId:v.id("provider
  if(!process.env.SERVICE_SECRET||a.secret!==process.env.SERVICE_SECRET)throw new Error("Unauthorized service");
  if(Buffer.byteLength(a.body)>4000000||!a.externalId||a.externalId.length>200)throw new Error("Invalid delivery");
  const c=await ctx.runQuery(internal.providerConnections.data,{id:a.connectionId});
- if(!["gitlab","gitea","github-enterprise","bitbucket-dc"].includes(c.kind))throw new Error("Webhook verifier unavailable");
+ if(!["gitlab","gitea","github-enterprise","bitbucket-dc","azure-devops"].includes(c.kind))throw new Error("Webhook verifier unavailable");
  const expected=decryptCredential(c.webhookSecret,c.organizationId+":"+c.kind+":webhook");
- const verified=c.kind==="gitlab"?timingSafeEqual(createHash("sha256").update(expected).digest(),createHash("sha256").update(a.signature).digest()):verifyWebhook(a.body,c.kind==="gitea"?"sha256="+a.signature:a.signature,expected);
+ // GitLab and Azure DevOps service hooks send the shared secret itself (a header or Basic password).
+ const verified=c.kind==="gitlab"||c.kind==="azure-devops"?timingSafeEqual(createHash("sha256").update(expected).digest(),createHash("sha256").update(a.signature).digest()):verifyWebhook(a.body,c.kind==="gitea"?"sha256="+a.signature:a.signature,expected);
  if(!verified)throw new Error("Invalid webhook signature");
  const payload=JSON.parse(a.body);
  if(c.kind==="bitbucket-dc"&&(!a.eventType||payload.eventKey!==a.eventType))throw new Error("Bitbucket event header and signed body mismatch");
@@ -243,6 +244,23 @@ export const event=internalAction({args:{id:v.id("providerEvents")},handler:asyn
      }
     }
    }
+  }else if(c.kind==="azure-devops"){
+   // Service hook payloads name the event in the body; follow-up commands are not supported yet.
+   const payload=z.object({eventType:z.string(),resource:z.object({repository:z.object({id:z.string()}).optional(),pullRequestId:z.number().int().positive().optional(),refUpdates:z.array(z.object({name:z.string(),newObjectId:z.string()})).optional(),pullRequest:z.object({pullRequestId:z.number().int().positive(),repository:z.object({id:z.string()})}).optional()}).passthrough()}).parse(JSON.parse(event.body));
+   const repositoryId=payload.resource.repository?.id??payload.resource.pullRequest?.repository.id;
+   const repo=(await ctx.runQuery(internal.providerConnections.repositories,{connectionId:c._id})).find(r=>r.externalId===repositoryId);
+   if(repo?.enabled){
+    if(payload.eventType==="git.push"&&payload.resource.refUpdates?.some(u=>u.name==="refs/heads/"+repo.defaultBranch))await ctx.scheduler.runAfter(0,internal.jobs.index,{repositoryId:repo._id});
+    const number=payload.resource.pullRequestId;
+    if(number&&["git.pullrequest.created","git.pullrequest.updated","git.pullrequest.merged"].includes(payload.eventType)){
+     const pr=await (await provider(ctx,repo)).changeMetadata(repo.fullName,number);
+     await ctx.runMutation(internal.pulls.observe,{repositoryId:repo._id,number:pr.number,title:pr.title,author:pr.user.login,url:pr.html_url,headSha:pr.head.sha,baseSha:pr.base.sha,state:pr.state,revisionKey:pr.revisionKey,observedAt});
+     await ctx.runMutation(internal.webhooks.lifecycle,{repositoryId:repo._id,prNumber:number,action:pr.state==="open"?"updated":"closed",state:pr.state,observedAt});
+     const {settings}=await ctx.runQuery(internal.repositories.data,{repositoryId:repo._id});
+     // Updates also fire for votes and descriptions; enqueue de-duplicates an already-reviewed head.
+     if(pr.state==="open"&&settings.automatic&&(!pr.draft||settings.drafts)&&(payload.eventType==="git.pullrequest.created"||settings.rereview)&&(!settings.targetBranches.length||picomatch(settings.targetBranches)(pr.base.ref))&&!picomatch(settings.ignoredBranches)(pr.head.ref))await ctx.runMutation(internal.reviews.enqueue,{repositoryId:repo._id,prNumber:number,headSha:pr.head.sha,revisionKey:pr.revisionKey});
+    }
+   }
   }else if(c.kind==="github-enterprise"){
    const payload=z.object({installation:z.object({id:z.number().int().positive()}),repository:z.object({id:z.number()}).optional(),action:z.string().optional(),ref:z.string().optional(),pull_request:z.object({number:z.number().int().positive()}).optional(),issue:z.object({number:z.number().int().positive(),pull_request:z.unknown().optional()}).optional(),comment:z.object({id:z.number().int().positive(),body:z.string().max(16000),in_reply_to_id:z.number().int().positive().optional(),user:z.object({login:z.string(),type:z.string()})}).optional(),review:z.object({id:z.number().int().positive(),body:z.string().nullable(),user:z.object({login:z.string(),type:z.string()})}).optional()}).parse(JSON.parse(event.body));
    const configuration=z.object({installationId:z.number().int().positive()}).parse(JSON.parse(decryptCredential(c.credentials,c.organizationId+":"+c.kind)));
@@ -319,6 +337,12 @@ export const event=internalAction({args:{id:v.id("providerEvents")},handler:asyn
       if(pr.state==="open")await ctx.runMutation(internal.conversations.requestReview,{repositoryId:repo._id,prNumber:number,commentId:n.id,author:p.user.username,question:n.note,headSha:pr.head.sha,revisionKey:pr.revisionKey,...(/review\s+security/i.test(n.note)?{category:"security"}:{})});
      }else await ctx.scheduler.runAfter(0,internal.conversationJobs.reply,{repositoryId:repo._id,prNumber:number,commentId:n.id,author:p.user.username,question:n.note,inline:true,parentCommentId});
     }
+   }
+   if(payload.object_kind==="emoji"){
+    // Award-emoji webhook: 👍/👎 on an OpenReview finding note becomes reaction feedback.
+    const e=z.object({event_type:z.enum(["award","revoke"]),user:z.object({username:z.string()}),object_attributes:z.object({name:z.string(),awardable_type:z.string(),awardable_id:z.number().int().positive()}),merge_request:z.object({iid:z.number().int().positive()}).optional()}).passthrough().parse(JSON.parse(event.body));
+    const reaction=e.object_attributes.name==="thumbsup"?"+1" as const:e.object_attributes.name==="thumbsdown"?"-1" as const:undefined;
+    if(reaction&&e.object_attributes.awardable_type==="Note"&&e.merge_request)await ctx.runMutation(internal.reactions.emoji,{repositoryId:repo._id,prNumber:e.merge_request.iid,noteId:String(e.object_attributes.awardable_id),user:e.user.username,reaction,award:e.event_type==="award"});
    }
    if(payload.object_kind==="merge_request"&&payload.object_attributes?.iid){
     const attributes=z.object({action:z.string(),oldrev:z.string().nullish()}).parse(payload.object_attributes);

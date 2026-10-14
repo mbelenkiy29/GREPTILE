@@ -14,6 +14,7 @@
     "cli": "tsx src/cli.ts",
     "backend": "convex dev",
     "test:e2e": "tsx scripts/browser.ts",
+    "test:smoke": "tsx scripts/smoke.ts",
     "setup:local": "tsx scripts/bootstrap.ts",
     "mcp": "tsx src/mcp.ts",
     "runtime:worker": "tsx scripts/runtime-worker.ts",
@@ -23,19 +24,26 @@
     "node": ">=24"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/eb-garamond": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "convex": "^1.46.0",
     "ignore": "^7.0.11",
     "jose": "^6.2.12",
+    "mermaid": "11.17.2",
     "next": "^15.5.27",
     "picomatch": "^4.0.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "tree-sitter-wasms": "0.1.13",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "zod": "^3.25.76"
+    "web-tree-sitter": "0.22.6",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",

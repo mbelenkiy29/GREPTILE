@@ -110,7 +110,7 @@ test("P4 digest failures retry visibly; membership loss cancels recovery and com
  const member=await t.run(ctx=>ctx.db.query("organizationMembers").withIndex("by_org_user",q=>q.eq("organizationId",args.organizationId).eq("userId",userId)).unique());
  await t.run(ctx=>ctx.db.delete(member!._id));
  expect(await t.query(internal.repositories.indexAllowed,{jobId:result.jobId})).toBe(false);
- expect(await t.mutation(internal.repositories.finishIndex,{jobId:result.jobId,repositoryId:args.repositoryId,sha:result.revision,paths:[]})).toBe(false);
+ expect(await t.mutation(internal.repositories.finishIndex,{jobId:result.jobId,repositoryId:args.repositoryId,sha:result.revision})).toBe(false);
  expect(await t.run(ctx=>ctx.db.get(result.jobId))).toMatchObject({status:"cancelled"});
  await t.finishAllScheduledFunctions(vi.runAllTimers);
  }finally{vi.unstubAllGlobals();vi.useRealTimers();}
@@ -125,7 +125,7 @@ test("expired index leases can recover once and stale batches cannot advance or 
  expect(await t.mutation(internal.repositories.claimIndexBatch,{jobId:result.jobId,leaseId:"replacement"})).not.toBeNull();
  await t.mutation(internal.repositories.indexProgress,{jobId:result.jobId,cursor:20,leaseId:"first"});
  expect(await t.run(ctx=>ctx.db.get(result.jobId))).toMatchObject({cursor:0,batchLease:{id:"replacement"}});
- expect(await t.mutation(internal.repositories.finishIndex,{repositoryId:args.repositoryId,jobId:result.jobId,sha:result.revision,paths:[],leaseId:"first"})).toBe(false);
+ expect(await t.mutation(internal.repositories.finishIndex,{repositoryId:args.repositoryId,jobId:result.jobId,sha:result.revision,leaseId:"first"})).toBe(false);
  const storageId=await t.run(ctx=>ctx.storage.store(new Blob(["untrusted stale source"])));
  await t.mutation(internal.repositories.indexedFile,{repositoryId:args.repositoryId,jobId:result.jobId,path:"depot/main/stale.ts",sha:"stale",storageId,chunks:[],symbols:[],relationships:[],leaseId:"first"});
  expect(await t.run(ctx=>ctx.db.query("repositoryFiles").collect())).toHaveLength(0);
@@ -173,7 +173,7 @@ test("hosted P4 review queues the pinned native shelf, reviews unchanged callers
  vi.useFakeTimers();
  const {P4CodeReview}=await import('../src/perforce');const {HttpModel}=await import('../src/engine/model');
  const generate=vi.spyOn(HttpModel.prototype,'generate').mockImplementation(async(request,validator)=>{
-  expect(JSON.stringify(request.input)).toContain('export const charge = cents(2)');
+  expect(JSON.stringify([request.context,request.input])).toContain('export const charge = cents(2)');
   const finding={title:'Currency scale is inverted',description:'The cents helper now divides the price while its unchanged billing caller requires multiplication.',severity:'high',confidence:1,category:'correctness',filePath:'depot/main/file00.ts',startLine:1,endLine:1,evidence:[{filePath:'depot/main/file00.ts',startLine:1,quote:'export function cents(price: number) { return price / 100; }'},{filePath:'depot/main/file01.ts',startLine:2,quote:'export const charge = cents(2);'}],impact:'Billing receives an amount ten thousand times smaller than expected.',suggestedFix:'Multiply the price by 100.',symbol:'cents'};
   const value=request.task==='review:correctness'?{findings:[finding]}:request.task.startsWith('review:')?{findings:[]}:request.task==='verify'?{decisions:[{index:0,publish:true,confidence:1,reason:'Pinned shelf and unchanged caller demonstrate a scale regression.'}]}:{summary:'Changes currency arithmetic and introduces an integer cents contract regression.',reviewScore:{value:1,reason:'The verified billing regression requires correction before this change is ready.'}};
   return {value:validator.parse(value),usage:{task:request.task,provider:'fixture',model:'fixture',inputTokens:0,outputTokens:0,estimatedCost:0,latencyMs:0,cached:false}};

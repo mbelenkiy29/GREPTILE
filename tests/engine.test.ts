@@ -108,7 +108,9 @@ class FixtureModel implements ModelProvider {
           }
         : request.task === "resolution"
           ? { resolved: [] }
-          : {
+          : request.task === "diagram"
+            ? { diagram: null }
+            : {
               reviewScore:{value:1,reason:"The verified defect needs correction before this change is ready to merge."},summary:
                 "This change updates authentication. One high severity authorization defect was verified.",
             };
@@ -127,6 +129,16 @@ class FixtureModel implements ModelProvider {
     };
   }
 }
+test("specialists share one system prompt and one payload object so providers can cache the prefix", async () => {
+  const model = new FixtureModel();
+  await reviewChange(input, model);
+  const specialists = model.requests.filter((r) => r.task.startsWith("review:"));
+  assert.ok(specialists.length >= 6);
+  assert.equal(new Set(specialists.map((r) => r.system)).size, 1);
+  assert.equal(new Set(specialists.map((r) => JSON.stringify(r.context))).size, 1);
+  assert.deepEqual(specialists.map((r) => (r.input as { assignment: { category: string } }).assignment.category), specialists.map((r) => r.task.slice("review:".length)));
+  assert.ok(specialists.every((r) => !JSON.stringify(r.input).includes("auth.ts")));
+});
 test("candidate remediation execution claims are repaired before publication and caching", async t => {
   const unsupported = "The regression tests passed after requiring a present active user.";
   const corrected = candidate.suggestedFix + " Run the regression tests to verify authentication.";
@@ -292,7 +304,7 @@ test("shared pipeline runs specialties, verifies, deduplicates, persists usage a
     stages.push(stage);
   });
   assert.equal(result.findings.length, 1);
-  const numbered=model.requests.find(r=>r.task==="review:security")!.input as {context:{path:string;content:string}[];diff:{changedLineNumbers:number[]}[]};
+  const numbered=model.requests.find(r=>r.task==="review:security")!.context as {context:{path:string;content:string}[];diff:{changedLineNumbers:number[]}[]};
   assert.ok(numbered.context.find(c=>c.path==="auth.ts")!.content.includes("2:   return user?.active !== false;"));
   assert.deepEqual(numbered.diff[0].changedLineNumbers,[2]);
   assert.equal(result.findings[0].evidence[0].quote,"  return user?.active !== false;");
@@ -353,7 +365,7 @@ test("confidence threshold and rule glob applicability suppress noise without tr
   const rulesRequest = model.requests.find((r) => r.task === "review:rules");
   assert.ok(rulesRequest);
   assert.deepEqual(
-    (rulesRequest.input as { rules: { id: string }[] }).rules.map((r) => r.id),
+    (rulesRequest.context as { rules: { id: string }[] }).rules.map((r) => r.id),
     ["auth"],
   );
   const stored = await reviewChange(
@@ -394,7 +406,7 @@ test("runtime evidence is commit-bound, redacted, supplied to specialists and re
   assert.ok(result.metadata.runtimeEvidence?.output.includes("[REDACTED]"));
   assert.ok(!JSON.stringify(model.requests).includes("runtime-secret-value"));
   assert.equal(
-    (model.requests[0].input as { runtimeEvidence: { exitCode: number } })
+    (model.requests[0].context as { runtimeEvidence: { exitCode: number } })
       .runtimeEvidence.exitCode,
     1,
   );
@@ -515,15 +527,15 @@ test("oversized source is excluded by byte size even when the provider omits con
 test("configurable summaries preserve evidence and validate risk prose, with one shared preview renderer",async()=>{
  const data={overview:"Updates authentication without changing the public endpoint.",files:[{path:"auth.ts",status:"modified",patch:""},{path:"tests/auth.test.ts",status:"added",patch:""}],findings:[],resolved:[],assessment:undefined,runtimeEvidence:undefined,coverageLimits:["Security category excluded"],contextCount:2,candidates:0,suppressed:0};
  const full=reviewSummary(data);
- for(const section of ["Changes","Affected files","Verified findings","Resolved findings","Risk assessment","Test source","Test execution","Coverage"])assert.ok(full.includes("### "+section));
+ for(const section of ["Overview","Files changed","Issues","Resolved findings","Risk assessment","Skipped files","Test source","Test execution","Coverage"])assert.ok(full.includes("### "+section));
  assert.match(full,/`tests\/auth.test.ts`/);assert.match(full,/Not executed by OpenReview/);assert.match(full,/Security category excluded/);
- const minimal=reviewSummary(data,[]);assert.match(minimal,/### Test execution/);assert.match(minimal,/### Coverage/);assert.equal(minimal.includes(data.overview),false);assert.equal(minimal.includes("### Verified findings"),false);
+ const minimal=reviewSummary(data,[]);assert.match(minimal,/### Test execution/);assert.match(minimal,/### Coverage/);assert.equal(minimal.includes(data.overview),false);assert.equal(minimal.includes("### Issues"),false);
  assert.throws(()=>reviewSummary(data,["madeUp"]),/Invalid summary sections/);assert.throws(()=>reviewSummary(data,["overview","overview"]),/Invalid summary sections/);
  assert.equal(reviewSummarySchema().safeParse({summary:data.overview,approvalAssessment:{risk:"low",confidence:1,reason:"Passing regression tests establish that authorization works."}}).success,false);
  assert.equal(reviewSummarySchema(undefined,[]).safeParse({summary:data.overview,approvalAssessment:{risk:"low",confidence:1,reason:"Requirements confirmed at https://linear.app/team/issue/ENG-9/fake"}}).success,false);
  const model=new FixtureModel(),input:ReviewInput={repository:"acme/api",baseSha:"a".repeat(40),headSha:"b".repeat(40),title:"Update authentication",description:"",files:[],diff:[],rules:[],mode:"standard",settings:{summarySections:[]}};
- const review=await reviewChange(input,model);assert.equal(review.summary.includes("### Changes"),false);assert.match(review.summary,/### Test execution/);
- assert.equal(summarySections.length,7);
+ const review=await reviewChange(input,model);assert.equal(review.summary.includes("### Overview"),false);assert.match(review.summary,/### Test execution/);
+ assert.equal(summarySections.length,9);
 });
 
 
@@ -540,8 +552,8 @@ test("merge readiness is recorded separately from assessment confidence and vali
  assert.equal(validator.safeParse({summary,reviewScore:{...score,reason:"Requirements are confirmed at https://linear.app/acme/issue/ENG-99/invented"}}).success,false);
  assert.equal(reviewSummarySchema().parse({summary}).reviewScore,undefined);
  const result=await reviewChange(input,new FixtureModel());
- assert.equal(result.metadata.reviewScore?.value,1);assert.match(result.summary,/### Review score\n1\/5/);
- assert.equal(reviewSummary({overview:summary,score:result.metadata.reviewScore,files:[],findings:[],resolved:[],assessment:approvalAssessment,runtimeEvidence:undefined,coverageLimits:[],contextCount:0,candidates:0,suppressed:0},["risk"]).includes("### Review score"),false);
+ assert.equal(result.metadata.reviewScore?.value,1);assert.match(result.summary,/### Confidence score\n\*\*1\/5\*\* — /);
+ assert.equal(reviewSummary({overview:summary,score:result.metadata.reviewScore,files:[],findings:[],resolved:[],assessment:approvalAssessment,runtimeEvidence:undefined,coverageLimits:[],contextCount:0,candidates:0,suppressed:0},["risk"]).includes("### Confidence score"),false);
 });
 
 test("structured summaries reject malformed control characters while preserving readable Markdown",()=>{

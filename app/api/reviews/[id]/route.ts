@@ -1,6 +1,6 @@
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { apiIdentity } from "../../../../src/api-auth";
+import { apiIdentity, apiDenied } from "../../../../src/api-auth";
 import { backend } from "../../../../src/server";
 export async function GET(
   request: Request,
@@ -17,7 +17,7 @@ export async function GET(
     if (result.review.organizationId !== organizationId)
       return Response.json({ error: "Forbidden" }, { status: 403 });
     return Response.json(result);
-  } catch {
+  } catch (error) { const denied = apiDenied(error); if (denied) return denied;
     return Response.json(
       { error: "Review unavailable or unauthorized" },
       { status: 404 },

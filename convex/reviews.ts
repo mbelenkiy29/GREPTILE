@@ -1,4 +1,6 @@
 import {executionExplanation} from "../src/execution-claims";
+import { notificationsEnabled } from "./notifications";
+import { reviewAllowance } from "./billing";
 import {
   internalMutation,
   internalQuery,
@@ -31,6 +33,8 @@ const usageValidator = v.object({
   latencyMs: v.number(),
   estimatedCost: v.number(),
   cached: v.boolean(),
+  cacheReadTokens: v.optional(v.number()),
+  cacheWriteTokens: v.optional(v.number()),
 });
 
 export const enqueue = internalMutation({
@@ -42,6 +46,8 @@ export const enqueue = internalMutation({
     force: v.optional(v.boolean()),
     category: v.optional(v.string()),
     runtimeEvidence: v.optional(runtimeEvidenceValidator),
+    // How the review was requested: automatic/label reviews honour size limits; mention bypasses them.
+    trigger: v.optional(v.union(v.literal("automatic"), v.literal("label"), v.literal("mention"), v.literal("manual"))),
   },
   handler: async (ctx, args) => {
     if (args.runtimeEvidence) {
@@ -85,6 +91,10 @@ export const enqueue = internalMutation({
       if (!["completed", "failed", "cancelled"].includes(r.status))
         await cancelReview(ctx,r);
     const config = await effectiveSettings(ctx,repo);
+    // Cloud billing quota (no-op when BILLING_ENABLED is unset): a blocked review is recorded
+    // as failed with the billing reason instead of running.
+    const allowance = await reviewAllowance(ctx, repo.organizationId);
+    if (!allowance.allowed) return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
     const reviewId = await ctx.db.insert("reviews", {
       organizationId: repo.organizationId,
       repositoryId: repo._id,
@@ -95,6 +105,7 @@ export const enqueue = internalMutation({
       mode: config.mode,
       category: args.category,
       runtimeEvidence: args.runtimeEvidence,
+      ...(args.trigger ? { trigger: args.trigger } : {}),
       attempts: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -128,6 +139,7 @@ export const request = mutation({
       prNumber: args.prNumber,
       headSha: args.headSha,
       force: true,
+      trigger: "manual",
     });
   },
 });
@@ -145,7 +157,7 @@ export const stage = internalMutation({
     if(args.status!=="ingesting")requireP4Worker(review,args.workerLease);
     if (
       args.status === "ingesting" &&
-      !["queued", "failed", "waiting_runtime"].includes(review.status)
+      !["queued", "failed", "waiting_runtime", "waiting_agent"].includes(review.status)
     )
       return false;
     if(args.status==="ingesting"&&review.retryScheduledId){
@@ -157,7 +169,7 @@ export const stage = internalMutation({
       status: args.status,
       updatedAt: Date.now(),
       ...(args.status === "ingesting" ? {error:undefined,finishedAt:undefined,retryScheduledId:undefined,retryAt:undefined} : {}),
-      ...(args.status === "ingesting" && review.status !== "waiting_runtime" ? { attempts: review.attempts + 1 } : {}),
+      ...(args.status === "ingesting" && review.status !== "waiting_runtime" && review.status !== "waiting_agent" ? { attempts: review.attempts + 1 } : {}),
     });
     await ctx.db.insert("reviewRuns", {
       organizationId: review.organizationId,
@@ -370,6 +382,45 @@ export const backfillFindings=internalMutation({args:{reviewId:v.id("reviews"),s
  }
  await ctx.db.patch(review._id,{findingsRecorded:true});
 }});
+// Head of the most recent completed review of the same pull request (before this one).
+export const previousHead = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  if(!review)return null;
+  const prior=(await ctx.db.query("reviews").withIndex("by_pr",q=>q.eq("repositoryId",review.repositoryId).eq("prNumber",review.prNumber)).order("desc").take(50))
+    .find(r=>r._id!==review._id&&r.status==="completed"&&r.createdAt<review.createdAt&&r.headSha!==review.headSha&&!r.nativeP4);
+  return prior?.headSha??null;
+}});
+// Published inline comment IDs for findings on this pull request (for thread resolution).
+export const findingCommentIds = internalQuery({args:{repositoryId:v.id("repositories"),prNumber:v.number(),fingerprints:v.array(v.string())},handler:async(ctx,a)=>{
+  const wanted=new Set(a.fingerprints.slice(0,100)),out:{commentId:number;fingerprint:string}[]=[];
+  for(const review of await ctx.db.query("reviews").withIndex("by_pr",q=>q.eq("repositoryId",a.repositoryId).eq("prNumber",a.prNumber)).order("desc").take(50))
+    for(const c of await ctx.db.query("reviewComments").withIndex("by_review",q=>q.eq("reviewId",review._id)).take(200))
+      if(c.fingerprint&&wanted.has(c.fingerprint)&&typeof c.githubId==="number"&&!out.some(o=>o.commentId===c.githubId))out.push({commentId:c.githubId,fingerprint:c.fingerprint});
+  return out;
+}});
+export const checkRun = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{const r=await ctx.db.get(a.reviewId);return r?.checkRunId?{id:r.checkRunId,head:r.checkRunHead}:null;}});
+export const setCheckRun = internalMutation({args:{reviewId:v.id("reviews"),checkRunId:v.number(),checkRunHead:v.string()},handler:async(ctx,a)=>{const r=await ctx.db.get(a.reviewId);if(r)await ctx.db.patch(r._id,{checkRunId:a.checkRunId,checkRunHead:a.checkRunHead});}});
+export const agentStatus = internalQuery({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  return review?{status:review.status,headSha:review.headSha,agentStateStorageId:review.agentStateStorageId,agentStateHead:review.agentStateHead}:null;
+}});
+export const saveAgentState = internalMutation({args:{reviewId:v.id("reviews"),storageId:v.id("_storage"),headSha:v.string()},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  // Returning (not throwing) keeps the orphan-blob deletion committed.
+  if(!review||["cancelled","completed"].includes(review.status)||review.headSha!==a.headSha){await ctx.storage.delete(a.storageId);return false;}
+  if(review.agentStateStorageId)await ctx.storage.delete(review.agentStateStorageId);
+  await ctx.db.patch(review._id,{agentStateStorageId:a.storageId,agentStateHead:a.headSha,updatedAt:Date.now()});
+  return true;
+}});
+// Hands a long agentic investigation to a fresh action step without consuming a retry attempt.
+export const suspendAgent = internalMutation({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
+  const review=await ctx.db.get(a.reviewId);
+  if(!review||!["ingesting","retrieving_context","reviewing"].includes(review.status)||!review.agentStateStorageId)return false;
+  await ctx.db.patch(review._id,{status:"waiting_agent",updatedAt:Date.now()});
+  await ctx.db.insert("reviewRuns",{organizationId:review.organizationId,reviewId:review._id,stage:"waiting_agent",detail:"Agentic investigation continues in a new step",createdAt:Date.now()});
+  await ctx.scheduler.runAfter(0,internal.jobs.review,{reviewId:review._id});
+  return true;
+}});
 export const finished = internalMutation({
   args: {
     reviewId: v.id("reviews"),
@@ -389,6 +440,8 @@ export const finished = internalMutation({
     }
     const retryAt=args.error&&review.attempts>0&&review.attempts<3?Date.now()+10000*2**review.attempts:undefined;
     const retryScheduledId=retryAt===undefined?undefined:await ctx.scheduler.runAt(retryAt,internal.jobs.review,{reviewId:review._id});
+    // A scheduled retry resumes the saved agent state; a final outcome discards it.
+    if(!retryScheduledId&&review.agentStateStorageId){await ctx.storage.delete(review.agentStateStorageId);await ctx.db.patch(review._id,{agentStateStorageId:undefined,agentStateHead:undefined});}
     await ctx.db.patch(review._id, {
       status: args.error ? (retryScheduledId?"queued":"failed") : "completed",
       githubReviewId: args.githubReviewId,
@@ -421,6 +474,7 @@ export const finished = internalMutation({
         });
     }
     if(!args.error&&!review.nativeP4)await ctx.scheduler.runAfter(0,internal.approvals.request,{reviewId:review._id});
+    if(!args.error&&await notificationsEnabled(ctx,review.organizationId))await ctx.scheduler.runAfter(0,internal.notificationJobs.reviewCompleted,{reviewId:review._id});
   },
 });
 export const list = query({

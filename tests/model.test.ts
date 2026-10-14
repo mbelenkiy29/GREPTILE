@@ -15,7 +15,9 @@ test("OpenAI-style adapter validates responses and persistent cache avoids anoth
     async (_url: string, options: RequestInit) => {
       calls++;
       const body = JSON.parse(options.body as string);
-      assert.equal(body.response_format.type, "json_object");
+      assert.equal(body.response_format.type, "json_schema");
+      assert.deepEqual(body.response_format.json_schema.schema.required, ["answer"]);
+      assert.equal(body.response_format.json_schema.strict, false);
       assert.ok(body.messages[0].content.includes("untrusted"));
       return Response.json({
         choices: [{ message: { content: '{"answer":"verified"}' } }],

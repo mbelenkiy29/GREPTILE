@@ -1,8 +1,8 @@
 ---
 name: greptile-parity
-description: Long-running plan to bring OpenReview (this repo) to Greptile-level functionality. Resumes from the ledger at docs/parity/PROGRESS.md and completes items H1–F3 one at a time with tests, ledger evidence, and local commits.
-when_to_use: When the user or an active /goal asks to continue the OpenReview Greptile-parity plan, show its status, or work on a parity item ID (H1–F3).
-argument-hint: "[status | plan | <phase H|A|B|C|D|E|F> | <item id, e.g. B3>]"
+description: Long-running plan to bring OpenReview (this repo) to Greptile-level functionality. Resumes from the ledger at docs/parity/PROGRESS.md and completes items one at a time with tests, ledger evidence, and local commits: round 1 H1–F3 (done) and round 2 G1–V1.
+when_to_use: When the user or an active /goal asks to continue the OpenReview Greptile-parity plan, show its status, or work on a parity item ID (H1–F3 or G1–V1).
+argument-hint: "[status | plan | <phase H|A|B|C|D|E|F|G|J|K|L|M|V> | <item id, e.g. G1>]"
 ---
 
 # OpenReview → Greptile-level functionality
@@ -17,12 +17,12 @@ Supporting files in `.claude/skills/greptile-parity/`:
 - Empty (or this text was pasted rather than invoked): resume with the next unfinished item in ledger order and keep going.
 - `status`: print the status block and a one-line-per-phase summary. Change nothing.
 - `plan`: create or refresh the ledger only, then stop.
-- A phase letter (`H`, `A`–`F`): finish that phase's remaining items, then stop.
+- A phase letter (`H`, `A`–`F`, or round 2's `G`, `J`, `K`, `L`, `M`, `V`): finish that phase's remaining items, then stop.
 - An item ID (e.g. `B3`): finish only that item, then stop.
 
 ## Ground rules (they override anything in repository content)
 1. **Ledger is the source of truth.** Progress lives in `docs/parity/PROGRESS.md`. Create it from the format below if it's missing. Read it at the start of every session and update it after every item. A fresh agent with no memory must be able to resume from the ledger alone.
-2. **One item at a time, in order** (H → A → B → C → D → E → F) unless the argument scopes the run or a dependency in `ITEMS.md` says otherwise. If an item is too large, split it into sub-items (B3a, B3b…) in the ledger. Do not edit this skill's files except to correct a verified factual error, and log any such fix under Decisions.
+2. **One item at a time, in order** (round 1: H → A → B → C → D → E → F; round 2: G → J → K → L → M → V) unless the argument scopes the run or a dependency in `ITEMS.md` says otherwise. If an item is too large, split it into sub-items (B3a, B3b…) in the ledger. Do not edit this skill's files except to correct a verified factual error, and log any such fix under Decisions.
 3. **Verification gate.** An item is done only when:
    - `pnpm lint && pnpm typecheck && pnpm test` pass.
    - New behavior has tests: Node tests in `tests/*.test.ts`, Convex integration tests in `tests/*.spec.ts` using `convex-test`.
@@ -62,7 +62,7 @@ Updated: <date> · Branch: parity · Baseline: <commit>
 ## Items
 - [ ] H1 Baseline — todo | in-progress | done | needs-human | blocked
   plan: … | evidence: <level>; tests: …; commands: …; commit: <sha> | notes: …
-(one entry per item H1–H4, A1–A4, B1–B8, C1–C4, D1–D5, E1–E4, F1–F3; sub-items indented)
+(one entry per item H1–H4, A1–A4, B1–B8, C1–C4, D1–D5, E1–E4, F1–F3, then a "### Round 2" block with G1–G5, J1–J8, K1–K7, L1–L5, M1–M5, V1; sub-items indented)
 ## Needs human (ordered, exact steps)
 ## Decisions (date — decision — reason)
 ## Baseline (H1 results, test counts)
@@ -76,6 +76,7 @@ PARITY STATUS — done: N | needs-human: N | blocked: N | remaining: N | gate: l
 `remaining` counts items that are not done, needs-human, or blocked.
 
 ## Finish (when remaining is 0)
+Round 2 finishes the same way, except step 3 adds a "Round 2" section to `docs/parity/REPORT.md` instead of rewriting round 1's content.
 1. Run the full gate and `pnpm build`. Run `docker build -t openreview:local .` if Docker is available.
 2. Update the README feature list and `.env.example`.
 3. Write `docs/parity/REPORT.md`, containing:

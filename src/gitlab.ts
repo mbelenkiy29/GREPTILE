@@ -3,7 +3,7 @@ import { reviewLinks } from "./review-summary";
 import { z } from "zod";
 import { repositorySourceUrl } from "./source-url";
 import type { Finding, SourceFile } from "./engine/types";
-import { findingComment, type Github } from "./github";
+import { findingComment, summaryMarker, type Github } from "./github";
 import { changedLines } from "./engine/diff";
 type ExternalId = string | number;
 type GithubChange = Awaited<ReturnType<Github["pullRequest"]>>;
@@ -24,6 +24,16 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
  pullRequest(repository:string,number:number):Promise<ScmChange>;
  publish(repository:string,number:number,sha:string,summary:string,findings:Finding[],marker:string,style?:string,revisionKey?:string,unresolvedCount?:number):Promise<{id:ExternalId;reused:boolean;comments?:{id:ExternalId;fingerprint:string}[]}>;
  reply(repository:string,number:number,body:string,parent?:ExternalId,marker?:string):Promise<{id:ExternalId}>;
+  // Optional: commit ancestry/changes for incremental review, and resolving OpenReview-started finding threads.
+  compare?(repository:string,base:string,head:string):Promise<{status:"ahead"|"behind"|"diverged"|"identical";commits:number;complete:boolean;files:import("./engine/types").ChangedFile[]}>;
+  resolveFindingThreads?(repository:string,number:number,items:{commentId:number;body:string;marker:string}[]):Promise<{resolved:number;skipped:number}>;
+  startCheckRun?(repository:string,sha:string,externalId:string,detailsUrl?:string):Promise<number|null>;
+  reactions?(repository:string,commentIds:number[]):Promise<{commentId:string;user:string;reaction:"+1"|"-1";createdAt:number}[]>;
+  mergedReviewComments?(repository:string,mergedAfter:number,maxPulls?:number):Promise<{comments:{body:string;path?:string;author:string;url:string;prNumber:number}[];cursor:number}>;
+  openFixPullRequest?(repository:string,number:number,fix:{branch:string;expectedHead:string;path:string;blobSha:string;content:string;title:string;body:string;message:string}):Promise<{url:string;reused:boolean}|{skipped:string}>;
+  // Azure DevOps pull request statuses (other providers use check runs).
+  reportStatus?(repository:string,number:number,state:"pending"|"succeeded"|"failed"|"notApplicable"|"error",description:string,targetUrl?:string):Promise<void>;
+  completeCheckRun?(repository:string,id:number,result:{conclusion:"success"|"failure"|"neutral"|"cancelled";title:string;summary:string;detailsUrl?:string}):Promise<void>;
 };
 const note=z.object({id:z.number(),body:z.string(),author:z.object({username:z.string()}),position:z.object({new_path:z.string(),new_line:z.number().nullable(),head_sha:z.string().optional()}).nullish()});
 const prSchema=z.object({iid:z.number(),title:z.string(),description:z.string().nullable(),draft:z.boolean(),state:z.string(),web_url:z.string(),author:z.object({id:z.number().int().positive().optional(),username:z.string()}),source_branch:z.string(),target_branch:z.string(),diff_refs:z.object({base_sha:z.string(),head_sha:z.string(),start_sha:z.string()})});
@@ -39,9 +49,9 @@ class GitlabError extends Error {constructor(readonly status:number,endpoint:str
 export class Gitlab implements Scm {
  readonly supportsApproval=true;
  constructor(private base:string,private token:string,private project?:string){}
- async request<T>(endpoint:string,schema:z.ZodType<T>,body?:unknown):Promise<T>{
+ async request<T>(endpoint:string,schema:z.ZodType<T>,body?:unknown,method?:"PUT"|"DELETE"):Promise<T>{
   if(!endpoint.startsWith("/")||endpoint.startsWith("//")||endpoint.includes("://"))throw new Error("Invalid provider API path");
-  const response=await fetch(this.base+"/api/v4"+endpoint,{method:body===undefined?"GET":"POST",redirect:"error",headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+  const response=await fetch(this.base+"/api/v4"+endpoint,{method:method??(body===undefined?"GET":"POST"),redirect:"error",headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
   if(!response.ok)throw new GitlabError(response.status,endpoint);
   return schema.parse(response.status===204?null:await response.json());
  }
@@ -194,15 +204,22 @@ export class Gitlab implements Scm {
    const diff=diffs.find(d=>d.new_path===f.filePath);if(!diff||diff.too_large||diff.collapsed||!changedLines(diff.diff).has(f.startLine))throw new Error("Finding line not in complete current diff");
    const prior=notes.find(n=>n.author.username===me.username&&n.body.includes(findingMarker)&&n.position?.head_sha===sha&&n.position.new_path===f.filePath&&n.position.new_line===f.startLine);if(prior){comments.push({id:prior.id,fingerprint:f.fingerprint});continue;}
    await current();
-   const result=await this.request(prefix+"/discussions",z.object({notes:z.array(note).min(1)}),{body:findingComment(f,style)+"\n\n"+findingMarker+(process.env.APP_URL?"\n\n[Fix with your agent]("+process.env.APP_URL+"/fix/"+marker+"?finding="+f.fingerprint+")":""),position:{position_type:"text",base_sha:pr.diff_refs.base_sha,head_sha:sha,start_sha:pr.diff_refs.start_sha,new_path:diff.new_path,old_path:diff.old_path,new_line:f.startLine}});
+   const result=await this.request(prefix+"/discussions",z.object({notes:z.array(note).min(1)}),{body:findingComment(f,style,{syntax:"gitlab",start:f.startLine,end:f.startLine})+"\n\n"+findingMarker+(process.env.APP_URL?"\n\n[Fix with your agent]("+process.env.APP_URL+"/fix/"+marker+"?finding="+f.fingerprint+")":""),position:{position_type:"text",base_sha:pr.diff_refs.base_sha,head_sha:sha,start_sha:pr.diff_refs.start_sha,new_path:diff.new_path,old_path:diff.old_path,new_line:f.startLine}});
    if(result.notes[0].author.username!==me.username||result.notes[0].position?.head_sha!==sha)throw new Error("GitLab returned another publication identity or revision");
    comments.push({id:result.notes[0].id,fingerprint:f.fingerprint});
   }
   const revisionMarker="<!-- openreview-revision:"+sha+" -->";
   await current();
-  const prior=notes.find(n=>n.author.username===me.username&&n.body.includes("<!-- openreview:"+marker+" -->")&&n.body.includes(revisionMarker));
-  if(prior)return {id:prior.id,reused:true,comments};
-  const result=await this.request(prefix+"/notes",note,{body:"## OpenReview\n\n"+summary+reviewLinks(marker,unresolvedCount)+"\n\n**Reviewed revision:** [`"+sha.slice(0,7)+"`]("+this.base+"/"+repo.split("/").map(encodeURIComponent).join("/")+"/-/commit/"+encodeURIComponent(sha)+")\n\n<!-- openreview:"+marker+" -->\n"+revisionMarker});
+  // One summary note per merge request, found by its hidden marker and edited in place.
+  const body="## OpenReview\n\n"+summary+reviewLinks(marker,unresolvedCount)+"\n\n**Last reviewed commit:** [`"+sha.slice(0,7)+"`]("+this.base+"/"+repo.split("/").map(encodeURIComponent).join("/")+"/-/commit/"+encodeURIComponent(sha)+")\n\n"+summaryMarker+"\n<!-- openreview:"+marker+" -->\n"+revisionMarker;
+  const existing=notes.filter(n=>n.author.username===me.username&&n.body.includes(summaryMarker)).at(-1);
+  if(existing){
+   if(existing.body===body)return {id:existing.id,reused:true,comments};
+   const edited=await this.request(prefix+"/notes/"+existing.id,note,{body},"PUT");
+   if(edited.author.username!==me.username)throw new Error("GitLab returned another publication identity");
+   return {id:existing.id,reused:false,comments};
+  }
+  const result=await this.request(prefix+"/notes",note,{body});
   if(result.author.username!==me.username)throw new Error("GitLab returned another publication identity");
   return {id:result.id,reused:false,comments};
  }

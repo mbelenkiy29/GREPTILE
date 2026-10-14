@@ -1,9 +1,7 @@
-import { randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { cookieOptions, origin, seal } from "../../../../src/server";
+import { beginOAuth } from "../../../../src/oauth-flow";
 
-export async function GET() {
+export async function GET(request: Request) {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId)
     return NextResponse.json(
@@ -13,14 +11,11 @@ export async function GET() {
       },
       { status: 503 },
     );
-  const state = randomBytes(32).toString("hex");
-  (await cookies()).set("openreview_oauth_state", await seal({ state }), {
-    ...cookieOptions,
-    maxAge: 600,
+  return beginOAuth(request, "github", (state, redirectUri) => {
+    const url = new URL("https://github.com/login/oauth/authorize");
+    url.searchParams.set("client_id", clientId);
+    url.searchParams.set("state", state);
+    url.searchParams.set("redirect_uri", redirectUri);
+    return url.toString();
   });
-  const url = new URL("https://github.com/login/oauth/authorize");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("state", state);
-  url.searchParams.set("redirect_uri", `${origin()}/api/auth/callback`);
-  return NextResponse.redirect(url);
 }

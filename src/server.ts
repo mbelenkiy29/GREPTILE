@@ -23,8 +23,10 @@ export const cookieOptions = {
   sameSite: "lax" as const,
   path: "/",
 };
-export async function signSession(userId: string) {
-  return new SignJWT({})
+// Browser sessions carry `sid` (a random ID whose hash is stored server-side); API-key calls sign
+// short-lived tokens without one.
+export async function signSession(userId: string, sid?: string) {
+  return new SignJWT(sid ? { sid } : {})
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuer("openreview")
@@ -45,6 +47,8 @@ export async function session() {
   } catch {
     redirect("/");
   }
+  // Server-side check: revoked or expired sessions (sign-out elsewhere, removal) end here.
+  if (!(await backend().query(api.identity.sessionValid, { token }).catch(() => false))) redirect("/?signedout=1");
   return token;
 }
 export async function current() {

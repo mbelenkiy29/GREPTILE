@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, authorizeRepository,visibleRepositories,audit } from "./auth";
-import { effectiveSettings } from "./scopes";
+import { effectiveSettings, settingsProvenance } from "./scopes";
 export const repository = query({
   args: { token: v.string(), repositoryId: v.id("repositories") },
   handler: async (ctx, args) => {
@@ -12,7 +12,7 @@ export const repository = query({
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
       .collect();
-    return { repo, settings: await effectiveSettings(ctx, repo), preferences };
+    return { repo, settings: await effectiveSettings(ctx, repo), provenance: await settingsProvenance(ctx, repo), preferences };
   },
 });
 export const resetPreference = mutation({
@@ -41,7 +41,7 @@ export const preferences=query({args:{token:v.string(),organizationId:v.id("orga
    const conversation=thread?.repositoryId===repo._id&&thread.organizationId===a.organizationId?{author:thread.author,question:thread.question,prNumber:thread.prNumber,createdAt:thread.createdAt}:null;
    const history=finding?(await ctx.db.query("findingFeedback").withIndex("by_finding",q=>q.eq("findingId",finding._id)).collect()).filter(f=>f.organizationId===a.organizationId).sort((x,y)=>y.createdAt-x.createdAt):[];
    const feedback=await Promise.all(history.slice(0,20).map(async f=>({id:f._id,value:f.value,comment:f.comment,createdAt:f.createdAt,author:f.githubLogin??(f.userId?(await ctx.db.get(f.userId))?.login:undefined)??"Unknown author",generatedPreference:f._id===p.feedbackId})));
-   return {...p,repositoryName:repo.fullName,sourceReview,finding:finding?{title:finding.title,reviewId:finding.reviewId,prNumber:finding.prNumber,status:finding.status,filePath:finding.filePath,startLine:finding.startLine}:null,conversation,feedback,feedbackCount:history.length};
+   return {...p,repositoryName:repo.fullName,hasTeam:!!repo.teamId,sourceReview,finding:finding?{title:finding.title,reviewId:finding.reviewId,prNumber:finding.prNumber,status:finding.status,filePath:finding.filePath,startLine:finding.startLine}:null,conversation,feedback,feedbackCount:history.length};
   }));
  }));
  return groups.flat().sort((x,y)=>(y.updatedAt??y.createdAt)-(x.updatedAt??x.createdAt));

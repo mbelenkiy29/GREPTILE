@@ -27,13 +27,12 @@ export const generate = internalAction({
       const directory = (path: string) =>
         path.split("/").slice(0, -1).slice(0, 2).join("/");
       const directories = new Set(args.paths.map(directory));
-      const chosen = data.files
-        .filter(
-          (f) =>
-            directories.has(directory(f.path)) ||
-            /README|AGENTS|schema|package\.json/.test(f.path),
-        )
-        .slice(0, 30);
+      const chosen = await ctx.runQuery(internal.repositories.filesUnder, {
+        repositoryId: args.repositoryId,
+        directories: [...directories].slice(0, 90),
+        paths: ["README.md", "AGENTS.md", "package.json", "schema.sql", "convex/schema.ts"],
+        limit: 30,
+      });
       const sources: {path: string; content: string}[] = [];
       let remaining = 40000;
       for (const file of chosen) {

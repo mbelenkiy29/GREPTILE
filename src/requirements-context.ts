@@ -13,6 +13,6 @@ export function boundRequirementsContext(files: SourceFile[]) {
   }
   return {
     files: selected,
-    coverage: omitted ? ["Combined Linear and Atlassian requirements context exceeded the 100KB limit; " + omitted + " fetched documents were omitted."] : [],
+    coverage: omitted ? ["Combined Linear and Atlassian plus Notion requirements context exceeded the 100KB limit; " + omitted + " fetched documents were omitted."] : [],
   };
 }

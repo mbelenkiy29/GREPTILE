@@ -37,7 +37,7 @@ export const refreshP4=internalMutation({args:{token:v.string(),id:v.id("provide
 export const access=query({args:{token:v.string(),id:v.id("providerConnections")},handler:async(ctx,a)=>{const c=await ctx.db.get(a.id);if(!c?.active)throw new Error("Connection unavailable");await authorize(ctx,a.token,c.organizationId,true);return {id:c._id,organizationId:c.organizationId};}});
 export const save=mutation({args:{token:v.string(),secret:v.string(),organizationId:v.id("organizations"),kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string()},handler:async(ctx,a)=>{
  service(a.secret);const {user}=await authorize(ctx,a.token,a.organizationId,true);
- if(!["gitlab","github-enterprise","gitea","bitbucket-dc","origin","perforce"].includes(a.kind)||!a.name.trim()||a.name.length>100||a.credentials.length>20000||a.webhookSecret.length>20000)throw new Error("Invalid connection");
+ if(!["gitlab","github-enterprise","gitea","bitbucket-dc","origin","perforce","azure-devops"].includes(a.kind)||!a.name.trim()||a.name.length>100||a.credentials.length>20000||a.webhookSecret.length>20000)throw new Error("Invalid connection");
  const id=await ctx.db.insert("providerConnections",{organizationId:a.organizationId,kind:a.kind,instance:a.instance,name:a.name,credentials:a.credentials,webhookSecret:a.webhookSecret,active:true,createdAt:Date.now()});
  await audit(ctx,a.organizationId,user._id,"provider.connected",id);return id;
 }});

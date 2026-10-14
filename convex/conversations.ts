@@ -7,7 +7,7 @@ export const requestReview=internalMutation({args:{repositoryId:v.id("repositori
  const repo=await ctx.db.get(a.repositoryId);if(!repo?.enabled)throw new Error("Repository disabled");
  const previous=await ctx.db.query("conversations").withIndex("by_repository_comment",q=>q.eq("repositoryId",a.repositoryId).eq("githubCommentId",a.commentId)).unique();if(previous)return null;
  await rateLimit(ctx,`conversation:${repo.organizationId}`,20);
- const reviewId=await ctx.runMutation(internal.reviews.enqueue,{repositoryId:a.repositoryId,prNumber:a.prNumber,headSha:a.headSha,revisionKey:a.revisionKey,category:a.category,force:true});
+ const reviewId=await ctx.runMutation(internal.reviews.enqueue,{repositoryId:a.repositoryId,prNumber:a.prNumber,headSha:a.headSha,revisionKey:a.revisionKey,category:a.category,force:true,trigger:"mention"});
  await ctx.db.insert("conversations",{organizationId:repo.organizationId,repositoryId:a.repositoryId,prNumber:a.prNumber,githubCommentId:a.commentId,author:a.author,question:a.question.slice(0,8000),inline:false,status:"completed",answer:"Requested a new review of the current revision.",createdAt:Date.now(),updatedAt:Date.now(),attempts:1});return reviewId;
 }});
 

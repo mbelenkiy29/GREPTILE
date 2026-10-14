@@ -159,7 +159,7 @@ test("installed CLI reviews committed Git changes and emits clean agent JSON wit
     assert.equal(evaluation.status, "failed");
     assert.equal(evaluation.totals, null);
     assert.equal(evaluation.evaluatedFixtures, 0);
-    assert.equal(evaluation.failedFixtures, 12);
+    assert.equal(evaluation.failedFixtures, (await import("../scripts/fixtures")).fixtures.length);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(directory, { recursive: true, force: true });

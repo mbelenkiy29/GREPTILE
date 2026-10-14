@@ -1,0 +1,34 @@
+# OpenReview Slack app manifest. Create the app at https://api.slack.com/apps → Create New App →
+# From a manifest, then replace:
+#   APP_URL          your OpenReview web origin (the same APP_URL as Vercel/Convex)
+#   CONVEX_SITE_URL  your Convex HTTP actions origin (https://<deployment>.convex.site)
+display_information:
+  name: OpenReview
+  description: Cited answers about your code, and review notifications.
+  background_color: "#315bbe"
+features:
+  bot_user:
+    display_name: OpenReview
+    always_online: true
+  slash_commands:
+    - command: /openreview
+      url: CONVEX_SITE_URL/slack/commands
+      description: Show the repositories linked to this channel
+      usage_hint: status
+      should_escape: true
+oauth_config:
+  redirect_urls:
+    - APP_URL/api/slack/callback
+  scopes:
+    bot:
+      - app_mentions:read
+      - chat:write
+      - commands
+settings:
+  event_subscriptions:
+    request_url: CONVEX_SITE_URL/slack/events
+    bot_events:
+      - app_mention
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

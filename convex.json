@@ -1,0 +1,5 @@
+{
+  "node": {
+    "externalPackages": ["web-tree-sitter", "tree-sitter-wasms"]
+  }
+}

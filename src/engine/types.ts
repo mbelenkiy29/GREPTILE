@@ -9,7 +9,12 @@ export const categories = [
   "testing",
   "performance",
   "rules",
+  // Opt-in (not in the default category set): convention-backed style and syntax checks.
+  "style",
+  "syntax",
 ] as const;
+export const optInCategories = ["style", "syntax"] as const;
+export const defaultCategories = categories.filter((c) => !(optInCategories as readonly string[]).includes(c));
 export const severities = ["critical", "high", "medium", "low"] as const;
 export const reviewScoreSchema = z.object({
   value: z.number().int().min(0).max(5),
@@ -60,6 +65,14 @@ export const findingSchema = z
     suggestedFix: z.string().min(5),
     symbol: z.string(),
     ruleId: z.string().optional(),
+    // Optional committable fix: replaces lines startLine..endLine (the finding's own range);
+    // original must copy those head lines exactly. Dropped when it does not apply cleanly.
+    suggestion: z.object({
+      startLine: z.number().int().positive(),
+      endLine: z.number().int().positive(),
+      original: z.string().max(20000),
+      replacement: z.string().max(10000),
+    }).optional(),
   })
   .refine((f) => f.endLine >= f.startLine, "Invalid line range");
 export type Candidate = z.infer<typeof findingSchema>;
@@ -84,8 +97,16 @@ export type Rule = {
   enabled: boolean;
 };
 export type Preference = { category: string; instruction: string };
+export type SkippedFile = { path: string; reason: string };
 export type ReviewInput = {
   coverageLimits?: string[];
+  // Changed files the provider could not supply (e.g. omitted diffs); reported, never reviewed.
+  skippedFiles?: SkippedFile[];
+  // Complete pull-request diff when `diff` holds only new commits (incremental review): findings
+  // must also anchor on lines the PR changes, and the summary lists every PR file.
+  fullDiff?: ChangedFile[];
+  // Provider link to file lines at the reviewed revision (summary issue table); optional.
+  sourceLink?: (path: string, startLine: number, endLine: number) => string | undefined;
   runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
   contextHints?: { path: string; reason: string; score: number }[];
   repository: string;
@@ -122,6 +143,9 @@ export type ModelUsage = {
   latencyMs: number;
   estimatedCost: number;
   cached: boolean;
+  // Subsets of inputTokens served from / written to the provider prompt cache.
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 };
 export type ReviewResult = {
   summary: string;
@@ -131,6 +155,10 @@ export type ReviewResult = {
     reviewScore?: z.infer<typeof reviewScoreSchema>;
     approvalAssessment?: z.infer<typeof approvalAssessmentSchema>;
     coverageLimits?: string[];
+    skippedFiles?: SkippedFile[];
+    failedSpecialists?: { category: string; error: string }[];
+    engine?: "pipeline" | "agentic";
+    agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
     baseSha: string;
     headSha: string;
@@ -148,13 +176,42 @@ export type ModelRequest = {
   task: string;
   system: string;
   input: unknown;
+  // Large shared data sent before `input` as a stable, cacheable prompt prefix
+  // (e.g. the review payload shared by every specialist). Untrusted, like input.
+  context?: unknown;
   signal?: AbortSignal;
+};
+// JSON Schema object describing a tool's input; results are always untrusted data.
+export type ToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };
+export type ToolCall = { id: string; name: string; input: unknown };
+export type ToolMessage =
+  | { role: "user"; content: string }
+  // providerContent is the provider's raw assistant turn, replayed verbatim (thinking blocks must not be edited).
+  | { role: "assistant"; content: string; toolCalls: ToolCall[]; providerContent?: unknown; provider?: string }
+  | { role: "tool"; results: { id: string; content: string; isError?: boolean }[] };
+export type ToolRequest = {
+  task: string;
+  system: string;
+  context?: unknown;
+  messages: ToolMessage[];
+  tools: ToolDefinition[];
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+};
+export type ToolTurn = {
+  content: string;
+  toolCalls: ToolCall[];
+  stopReason: "tool_use" | "end_turn" | "max_tokens" | "refusal" | "other";
+  message: Extract<ToolMessage, { role: "assistant" }>;
+  usage: ModelUsage;
 };
 export interface ModelProvider {
   generate<T>(
     request: ModelRequest,
     schema: z.ZodType<T>,
   ): Promise<{ value: T; usage: ModelUsage }>;
+  // One model turn with native tool calling; callers own the transcript and execute tools.
+  runTools?(request: ToolRequest): Promise<ToolTurn>;
 }
 export const stages = [
   "queued",

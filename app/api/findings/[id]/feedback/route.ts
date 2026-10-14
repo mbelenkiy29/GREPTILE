@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-import { apiIdentity } from "../../../../../src/api-auth";
+import { apiIdentity, apiDenied } from "../../../../../src/api-auth";
 import { backend } from "../../../../../src/server";
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const { token, organizationId } = await apiIdentity(request),
+    const { token, organizationId } = await apiIdentity(request, "write"),
       { id } = await params;
     const input = z
       .object({
@@ -37,7 +37,7 @@ export async function POST(
       ...input,
     });
     return Response.json({ ok: true });
-  } catch {
+  } catch (error) { const denied = apiDenied(error); if (denied) return denied;
     return Response.json(
       { error: "Invalid request or authorization" },
       { status: 400 },

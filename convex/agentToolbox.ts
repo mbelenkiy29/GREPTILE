@@ -1,0 +1,85 @@
+"use node";
+import type { ActionCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { agentStateSchema, type AgentHooks, type AgentState, type AgentToolbox } from "../src/engine/agent";
+import type { SourceFile } from "../src/engine/types";
+import { indexedFiles } from "./fileReads";
+import { semanticHits } from "./semanticSearch";
+import { hybridRank } from "../src/engine/hybrid";
+
+type Blob = (repository: string, path: string, sha: string) => Promise<SourceFile>;
+// Binds every agent tool to one repository and one head revision. File reads always resolve to
+// the PR head tree (indexed content is reused only when its blob SHA matches), so evidence is
+// revision-consistent; search/definition/reference results are labelled with the indexed revision.
+export function reviewToolbox(ctx: ActionCtx, repo: Doc<"repositories">, headSha: string, head: Map<string, { sha: string; size?: number }>, blob: Blob, preloaded: SourceFile[]): AgentToolbox {
+  const repositoryId = repo._id;
+  return {
+    revisions: { head: headSha, index: repo.indexedSha },
+    async searchCode(query) {
+      const text = await ctx.runQuery(internal.agentTools.search, { repositoryId, query });
+      const vector = await semanticHits(ctx, repositoryId, query, 12).catch(() => []);
+      if (!vector.length) return text;
+      return hybridRank({ vector, text: text.map((hit, rank) => ({ path: hit.path, score: 1 / (1 + rank), startLine: hit.line })) }, 20)
+        .map((hit) => text.find((t) => t.path === hit.path) ?? { path: hit.path, line: hit.startLine ?? 1, snippet: `semantic match, lines ${hit.startLine}–${hit.endLine}` });
+    },
+    async readFile(path) {
+      const entry = head.get(path);
+      if (!entry || (entry.size ?? 0) > 200_000) return null;
+      const known = preloaded.find((f) => f.path === path && !f.provenance && f.sha === entry.sha);
+      if (known) return { path, content: known.content, revision: headSha };
+      const [cached] = await indexedFiles(ctx, repositoryId, [path]);
+      const stored = cached?.sha === entry.sha ? await ctx.storage.get(cached.storageId) : null;
+      if (stored) return { path, content: await stored.text(), revision: headSha };
+      const file = await blob(repo.fullName, path, entry.sha);
+      return file.content || !file.size ? { path, content: file.content, revision: headSha } : null;
+    },
+    findDefinition: (symbol) => ctx.runQuery(internal.agentTools.definitions, { repositoryId, symbol }),
+    findReferences: (symbol) => ctx.runQuery(internal.agentTools.references, { repositoryId, symbol }),
+    listDirectory: (path) => ctx.runQuery(internal.agentTools.directory, { repositoryId, path }),
+    relatedFiles: async (path) => (await ctx.runQuery(internal.context.neighborhood, { repositoryId, paths: [path], hops: 2, limit: 40 })).map((n) => ({ path: n.path, reason: `${n.via}, ${n.hops} hop${n.hops > 1 ? "s" : ""}` })),
+    pastFindings: (path) => ctx.runQuery(internal.agentTools.pastFindings, { repositoryId, path }),
+  };
+}
+// Persist the tool loop between steps; suspend before the action time limit (AGENT_STEP_SECONDS).
+export function reviewAgentHooks(ctx: ActionCtx, reviewId: Id<"reviews">, stepStarted: number): AgentHooks {
+  const stepMs = Math.min(3000, Math.max(60, Number(process.env.AGENT_STEP_SECONDS) || 420)) * 1000;
+  return {
+    async load() {
+      const status = await ctx.runQuery(internal.reviews.agentStatus, { reviewId });
+      if (!status?.agentStateStorageId || status.agentStateHead !== status.headSha) return null;
+      const stored = await ctx.storage.get(status.agentStateStorageId);
+      if (!stored || stored.size > 8_000_000) return null;
+      const parsed = agentStateSchema.safeParse(JSON.parse(await stored.text()));
+      return parsed.success ? (parsed.data as AgentState) : null;
+    },
+    async save(state) {
+      const storageId = await ctx.storage.store(new Blob([JSON.stringify(state)], { type: "application/json" }));
+      if (!await ctx.runMutation(internal.reviews.saveAgentState, { reviewId, storageId, headSha: state.headSha })) throw new Error("Review is no longer active for this revision");
+    },
+    async checkpoint() {
+      const status = await ctx.runQuery(internal.reviews.agentStatus, { reviewId });
+      if (!status || status.status === "cancelled") throw new Error("Review cancelled");
+    },
+    shouldSuspend: () => Date.now() - stepStarted > stepMs,
+  };
+}
+// Codebase chat: the same read-only tools bound to one repository's indexed revision. Files are
+// read only from the stored index (no provider calls), so citations pin to `indexedSha`; past
+// findings and rules are not exposed.
+export function chatToolbox(ctx: ActionCtx, repo: Doc<"repositories">): AgentToolbox {
+  const revision = repo.indexedSha;
+  if (!revision) throw new Error(`${repo.fullName} has not been indexed yet`);
+  const base = reviewToolbox(ctx, repo, revision, new Map(), async () => { throw new Error("Provider reads are disabled for chat"); }, []);
+  return {
+    ...base,
+    revisions: { head: revision, index: revision },
+    async readFile(path) {
+      const [cached] = await indexedFiles(ctx, repo._id, [path]);
+      const stored = cached ? await ctx.storage.get(cached.storageId) : null;
+      if (!stored || stored.size > 200_000) return null;
+      return { path, content: await stored.text(), revision };
+    },
+    pastFindings: async () => [],
+  };
+}

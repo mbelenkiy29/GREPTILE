@@ -38,6 +38,16 @@ export const settingsValidator = v.object({
   mode: v.string(),
   commentStyle: v.string(),
   summarySections:v.optional(v.array(v.string())),
+  reviewEngine:v.optional(v.string()),
+  checkFailureSeverity:v.optional(v.string()),
+  triggerLabels:v.optional(v.array(v.string())),
+  excludedAuthors:v.optional(v.array(v.string())),
+  maxFiles:v.optional(v.number()),
+  maxChangedLines:v.optional(v.number()),
+  strictness:v.optional(v.number()),
+  lockedKeys:v.optional(v.array(v.string())),
+  autoApproveConventions:v.optional(v.boolean()),
+  fixPullRequests:v.optional(v.boolean()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -66,13 +76,14 @@ export const findingValidator = v.object({
     agent: v.string(),
     symbol: v.string(),
     ruleId: v.optional(v.string()),
+    suggestion: v.optional(v.object({ startLine: v.number(), endLine: v.number(), original: v.string(), replacement: v.string() })),
     fingerprint: v.string(),
 });
 export default defineSchema({
   inferenceBudgets: defineTable({limitMicros:v.number(),baselineMicros:v.number(),source:v.string(),committedMicros:v.number(),reservedMicros:v.number(),createdAt:v.number()}),
-  inferenceReservations: defineTable({budgetId:v.id("inferenceBudgets"),provider:v.string(),model:v.string(),baseUrl:v.string(),inputTokenCeiling:v.number(),outputTokenCeiling:v.number(),inputPrice:v.number(),outputPrice:v.number(),reservedMicros:v.number(),status:v.string(),createdAt:v.number(),inputTokens:v.optional(v.number()),outputTokens:v.optional(v.number()),settledMicros:v.optional(v.number()),settledAt:v.optional(v.number())}).index("by_budget",["budgetId"]),
+  inferenceReservations: defineTable({budgetId:v.id("inferenceBudgets"),provider:v.string(),model:v.string(),baseUrl:v.string(),inputTokenCeiling:v.number(),outputTokenCeiling:v.number(),inputPrice:v.number(),outputPrice:v.number(),cacheReadPrice:v.optional(v.number()),cacheWritePrice:v.optional(v.number()),reservedMicros:v.number(),status:v.string(),createdAt:v.number(),inputTokens:v.optional(v.number()),outputTokens:v.optional(v.number()),cacheReadTokens:v.optional(v.number()),cacheWriteTokens:v.optional(v.number()),settledMicros:v.optional(v.number()),settledAt:v.optional(v.number())}).index("by_budget",["budgetId"]),
   reviewFindings: defineTable({reviewId:review,findingId:v.id("findings"),snapshot:findingValidator}).index("by_review",["reviewId"]),
-  integrationConnections:defineTable({organizationId:org,kind:v.union(v.literal("linear"),v.literal("atlassian")),sites:v.optional(v.array(v.object({id:v.string(),name:v.string(),url:v.string(),scopes:v.array(v.string())}))),jiraProjectIds:v.optional(v.array(v.string())),confluenceSpaceIds:v.optional(v.array(v.string())),externalId:v.string(),name:v.string(),credentials:v.string(),expiresAt:v.number(),active:v.boolean(),generation:v.number(),teamIds:v.array(v.string()),projectIds:v.array(v.string()),repositoryIds:v.array(repo),refreshLease:v.optional(v.string()),refreshExpiresAt:v.optional(v.number()),error:v.optional(v.string()),createdAt:v.number()}).index("by_org",["organizationId"]).index("by_account",["organizationId","kind","externalId"]),
+  integrationConnections:defineTable({organizationId:org,kind:v.union(v.literal("linear"),v.literal("atlassian"),v.literal("notion")),sites:v.optional(v.array(v.object({id:v.string(),name:v.string(),url:v.string(),scopes:v.array(v.string())}))),jiraProjectIds:v.optional(v.array(v.string())),confluenceSpaceIds:v.optional(v.array(v.string())),externalId:v.string(),name:v.string(),credentials:v.string(),expiresAt:v.number(),active:v.boolean(),generation:v.number(),teamIds:v.array(v.string()),projectIds:v.array(v.string()),repositoryIds:v.array(repo),refreshLease:v.optional(v.string()),refreshExpiresAt:v.optional(v.number()),error:v.optional(v.string()),createdAt:v.number()}).index("by_org",["organizationId"]).index("by_account",["organizationId","kind","externalId"]),
   integrationRevocations:defineTable({connectionId:v.id("integrationConnections"),organizationId:org,credentials:v.string(),attempts:v.number(),createdAt:v.number(),status:v.string(),lease:v.optional(v.string()),leaseExpiresAt:v.optional(v.number())}).index("by_connection",["connectionId"]),
   approvalPolicies:defineTable({organizationId:org,teamId:v.optional(v.id("teams")),repositoryId:v.optional(repo),policy:approvalPolicyValidator,updatedAt:v.number()}).index("by_org",["organizationId"]),
   approvalJobs:defineTable({organizationId:org,repositoryId:repo,reviewId:review,prNumber:v.number(),headSha:v.string(),policyKey:v.string(),status:v.string(),reasons:v.array(v.string()),providerReviewId:v.optional(v.union(v.number(),v.string())),lease:v.optional(v.string()),leaseExpiresAt:v.optional(v.number()),createdAt:v.number(),updatedAt:v.number()}).index("by_review",["reviewId"]).index("by_repo_pr",["repositoryId","prNumber"]).index("by_status",["status"]).index("by_org_status",["organizationId","status"]),
@@ -136,13 +147,88 @@ export default defineSchema({
       dimensions: 1536,
       filterFields: ["scope"],
     }),
+  // Chunk-level embeddings (definition-boundary chunks). The file-level `embeddings` table above
+  // is legacy: no longer written, rows are removed as their files are re-indexed or deleted.
+  chunkEmbeddings: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    path: v.string(),
+    sha: v.string(),
+    model: v.string(),
+    scope: v.string(),
+    startLine: v.number(),
+    endLine: v.number(),
+    symbol: v.optional(v.string()),
+    vector: v.array(v.float64()),
+    updatedAt: v.number(),
+  })
+    .index("by_path", ["repositoryId", "path"])
+    .vectorIndex("by_vector", {
+      vectorField: "vector",
+      dimensions: 1536,
+      filterFields: ["scope"],
+    }),
   users: defineTable({
-    githubId: v.number(),
+    // Legacy GitHub identity; new accounts link providers through `identities`.
+    githubId: v.optional(v.number()),
     login: v.string(),
     avatar: v.string(),
+    // Tokens issued before this time are rejected ("sign out everywhere", member removal).
+    sessionsValidAfter: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_github", ["githubId"]),
-  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), createdAt: v.number() }),
+  // Sign-in identities: one row per provider account. Accounts link only through a verified
+  // email on both sides, so an unverified address can never take over an existing user.
+  identities: defineTable({
+    userId: v.id("users"),
+    provider: v.string(), // github | gitlab | google | email
+    providerUserId: v.string(),
+    email: v.optional(v.string()),
+    emailVerified: v.boolean(),
+    createdAt: v.number(),
+    lastLoginAt: v.number(),
+  }).index("by_provider_user", ["provider", "providerUserId"]).index("by_user", ["userId"]).index("by_email", ["email"]),
+  // Server-side browser sessions; the session cookie carries a random ID whose SHA-256 is stored.
+  sessions: defineTable({
+    userId: v.id("users"),
+    hash: v.string(),
+    provider: v.string(),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  }).index("by_hash", ["hash"]).index("by_user", ["userId"]),
+  // Email invitations and magic links: single-use, expiring, stored as token hashes only.
+  emailInvitations: defineTable({
+    organizationId: org,
+    email: v.string(),
+    role: v.union(v.literal("admin"), v.literal("member"), v.literal("viewer")),
+    tokenHash: v.string(),
+    invitedBy: v.id("users"),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    acceptedBy: v.optional(v.id("users")),
+    revokedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_token", ["tokenHash"]).index("by_org", ["organizationId"]),
+  loginTokens: defineTable({ email: v.string(), tokenHash: v.string(), expiresAt: v.number(), usedAt: v.optional(v.number()), createdAt: v.number() }).index("by_token", ["tokenHash"]),
+  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), createdAt: v.number() }),
+  // Daily analytics rollup per (repository, UTC day, PR author), recomputed from raw tables for
+  // recent days by a cron; dashboards read only these rows.
+  analyticsDaily: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    day: v.string(),
+    author: v.string(),
+    reviews: v.number(),
+    completed: v.number(),
+    findings: v.number(),
+    high: v.number(),
+    addressed: v.number(),
+    useful: v.number(),
+    notUseful: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_day", ["organizationId", "day"]),
   organizationMembers: defineTable({
     organizationId: org,
     userId: v.id("users"),
@@ -171,6 +257,11 @@ export default defineSchema({
     .index("by_org", ["organizationId"]),
   repositories: defineTable({
     indexScheduledId:v.optional(v.id("_scheduled_functions")),
+    // Incremental ingestion of human review comments for learned conventions.
+    conventionsCursor: v.optional(v.number()),
+    conventionsSyncedAt: v.optional(v.number()),
+    // Latest repository config file read from a pull request base revision (for the dashboard).
+    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number() })),
     branches: v.optional(
       v.array(
         v.object({ name: v.string(), sha: v.string(), protected: v.boolean() }),
@@ -247,6 +338,8 @@ export default defineSchema({
     sourcePath: v.string(),
     to: v.string(),
     kind: v.string(),
+    symbol: v.optional(v.string()),
+    resolved: v.optional(v.boolean()),
   })
     .index("by_repo", ["repositoryId"])
     .index("by_source", ["repositoryId", "sourcePath"])
@@ -297,6 +390,7 @@ export default defineSchema({
     scheduledId:v.optional(v.id("_scheduled_functions")),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()})),createdAt:v.number(),updatedAt:v.number(),
   }).index("by_repo",["repositoryId"]).index("by_status",["status"]),
   pullRequests: defineTable({
+    reactionsSyncedAt: v.optional(v.number()),
     organizationId: org,
     repositoryId: repo,
     number: v.number(),
@@ -348,6 +442,13 @@ export default defineSchema({
     updatedAt: v.number(),
     finishedAt: v.optional(v.number()),
     resultStorageId: v.optional(v.id("_storage")),
+    // Agentic tool-loop transcript/state, kept between execution steps and deleted when the review ends.
+    agentStateStorageId: v.optional(v.id("_storage")),
+    agentStateHead: v.optional(v.string()),
+    // GitHub check run created for this review's head (checks:write only).
+    checkRunId: v.optional(v.number()),
+    trigger: v.optional(v.string()),
+    checkRunHead: v.optional(v.string()),
     repositoryContext:v.optional(repositoryContextValidator),
     nativeP4: v.optional(v.object({requestedBy:v.id("users"),connectionId:v.id("providerConnections"),credentialDigest:v.string(),baselineJobId:v.id("indexJobs"),inputStorageId:v.id("_storage"),polling:v.optional(p4PollingReference),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()}))})),
     retryScheduledId: v.optional(v.id("_scheduled_functions")),
@@ -390,8 +491,137 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_review", ["reviewId"])
     .index("by_repo", ["repositoryId"])
+    .index("by_repo_path", ["repositoryId", "filePath"])
     .index("by_pr", ["repositoryId", "prNumber"])
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
+    .index("by_org_time", ["organizationId", "createdAt"]),
+  // Team conventions learned from human review comments (review guidance only).
+  // Cloud billing (BILLING_ENABLED=true only). One account per workspace; Stripe state is applied
+  // from signed webhooks, newest event wins.
+  billingAccounts: defineTable({
+    organizationId: org,
+    customerId: v.optional(v.string()),
+    subscriptionId: v.optional(v.string()),
+    subscriptionItemId: v.optional(v.string()),
+    status: v.string(), // trial | active | trialing | past_due | unpaid | canceled | incomplete | incomplete_expired | paused
+    seats: v.number(),
+    trialEndsAt: v.number(),
+    currentPeriodEnd: v.optional(v.number()),
+    pastDueSince: v.optional(v.number()),
+    lastEventCreated: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]).index("by_customer", ["customerId"]),
+  billingUsage: defineTable({ organizationId: org, period: v.string(), reviews: v.number(), blocked: v.number() }).index("by_org_period", ["organizationId", "period"]),
+  stripeEvents: defineTable({ eventId: v.string(), type: v.string(), outcome: v.string(), createdAt: v.number() }).index("by_event", ["eventId"]),
+  // Slack app installs (one per Slack workspace); the bot token is encrypted with scope `<org>:slack`.
+  slackInstallations: defineTable({
+    organizationId: org,
+    teamId: v.string(),
+    teamName: v.string(),
+    botUserId: v.string(),
+    credentials: v.string(),
+    installedBy: v.id("users"),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_team", ["teamId"]).index("by_org", ["organizationId"]),
+  // Admin-linked Slack channels: notification events, and the repositories Q&A may read
+  // (empty repositoryIds = notifications for every repository, Q&A disabled).
+  notificationChannels: defineTable({
+    organizationId: org,
+    installationId: v.id("slackInstallations"),
+    channelId: v.string(),
+    repositoryIds: v.array(repo),
+    events: v.array(v.string()),
+    qa: v.boolean(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_org", ["organizationId"]).index("by_channel", ["installationId", "channelId"]),
+  // Per-member email notifications ("off" | "mine" | "all"); sent only to a verified address.
+  notificationPreferences: defineTable({
+    organizationId: org,
+    userId: v.id("users"),
+    email: v.optional(v.string()),
+    emailVerifiedAt: v.optional(v.number()),
+    verificationHash: v.optional(v.string()),
+    verificationExpiresAt: v.optional(v.number()),
+    reviewCompleted: v.string(),
+    highSeverity: v.string(),
+    updatedAt: v.number(),
+  }).index("by_user_org", ["userId", "organizationId"]).index("by_org", ["organizationId"]).index("by_verification", ["verificationHash"]),
+  // One row per (event, review, target): retries never notify twice.
+  notificationDeliveries: defineTable({
+    organizationId: org,
+    key: v.string(),
+    channel: v.string(),
+    status: v.string(), // sending | sent | skipped | failed
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+  slackEventReceipts: defineTable({ eventId: v.string(), createdAt: v.number() }).index("by_event", ["eventId"]),
+  // Codebase chat (web): threads are private to the member who started them.
+  chatThreads: defineTable({
+    organizationId: org,
+    userId: v.id("users"),
+    title: v.string(),
+    repositoryIds: v.array(repo),
+    origin: v.optional(v.string()), // web (default) | api
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_user", ["organizationId", "userId", "updatedAt"]),
+  // Assistant messages stream progress through `events` (persisted deltas read by the SSE route);
+  // `content` and `citations` are written only after citation validation.
+  chatMessages: defineTable({
+    organizationId: org,
+    threadId: v.id("chatThreads"),
+    userId: v.id("users"),
+    role: v.string(), // user | assistant
+    content: v.string(),
+    status: v.string(), // pending | running | completed | failed
+    repositoryIds: v.array(repo),
+    citations: v.optional(v.array(v.object({ repositoryId: repo, repository: v.string(), filePath: v.string(), startLine: v.number(), endLine: v.number(), quote: v.string(), revision: v.string(), url: v.optional(v.string()) }))),
+    events: v.optional(v.array(v.object({ at: v.number(), kind: v.string(), text: v.string() }))),
+    limits: v.optional(v.array(v.string())),
+    error: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    estimatedCost: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_thread", ["threadId"]), // ordered by insertion (_creationTime)
+  learnedRules: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    text: v.string(),
+    category: v.string(),
+    status: v.string(), // suggested | approved | rejected | disabled
+    scope: v.optional(v.string()), // repo (default) | team | workspace
+    teamId: v.optional(v.id("teams")),
+    frequency: v.number(),
+    evidence: v.array(v.object({ url: v.string(), author: v.string(), excerpt: v.string() })),
+    decidedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_repo_status", ["repositoryId", "status"])
+    .index("by_org", ["organizationId"])
+    .index("by_org_scope", ["organizationId", "scope"]),
+  // 👍/👎 reactions on OpenReview's own finding comments, mirrored from the provider
+  // (GitHub: polled; GitLab: emoji webhooks). Bots never count.
+  commentReactions: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    prNumber: v.number(),
+    provider: v.string(),
+    commentId: v.string(),
+    findingId: v.optional(v.id("findings")),
+    user: v.string(),
+    reaction: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_comment", ["repositoryId", "commentId"])
+    .index("by_finding", ["findingId"])
     .index("by_org_time", ["organizationId", "createdAt"]),
   findingFeedback: defineTable({
     organizationId: org,
@@ -415,11 +645,15 @@ export default defineSchema({
     feedbackId:v.optional(v.id("findingFeedback")),
     sourceReviewId:v.optional(review),
     updatedAt:v.optional(v.number()),
+    // Scope beyond the source repository: "team" (its team) or "workspace" (every repository).
+    scope:v.optional(v.string()),
+    teamId:v.optional(v.id("teams")),
     enabled: v.boolean(),
     createdAt: v.number(),
   })
     .index("by_repo", ["repositoryId"])
-    .index("by_source", ["repositoryId", "source"]),
+    .index("by_source", ["repositoryId", "source"])
+    .index("by_org_scope", ["organizationId", "scope"]),
   customRules: defineTable({
     organizationId: org,
     repositoryId: v.optional(repo),
@@ -490,6 +724,8 @@ export default defineSchema({
     latencyMs: v.number(),
     estimatedCost: v.number(),
     cached: v.boolean(),
+    cacheReadTokens: v.optional(v.number()),
+    cacheWriteTokens: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_review", ["reviewId"]),
   webhookDeliveries: defineTable({
@@ -512,6 +748,8 @@ export default defineSchema({
     prefix: v.string(),
     createdAt: v.number(),
     revoked: v.boolean(),
+    // read | write | admin; absent on keys created before scopes (they keep full access).
+    scopes: v.optional(v.array(v.string())),
   })
     .index("by_hash", ["hash"])
     .index("by_org", ["organizationId"]),

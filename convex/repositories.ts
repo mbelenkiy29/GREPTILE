@@ -14,7 +14,8 @@ import {indexWriteAllowed,indexBatchMatches} from "./indexAuthority";
 import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
-import { defaults,validSummarySections } from "../src/review-settings";
+import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings } from "../src/review-settings";
+import { categories } from "../src/engine/types";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
 import type {QueryCtx,MutationCtx} from "./_generated/server";
@@ -55,6 +56,12 @@ export const list = query({
     return visibleRepositories(ctx, args.token, args.organizationId);
   },
 });
+// Index status for the public API (the key's workspace must own the repository).
+export const status = query({ args: { token: v.string(), organizationId: v.id("organizations"), repositoryId: v.id("repositories") }, handler: async (ctx, a) => {
+  const { repo } = await authorizeRepository(ctx, a.token, a.repositoryId);
+  if (repo.organizationId !== a.organizationId) throw new Error("Repository not found");
+  return { id: repo._id, fullName: repo.fullName, defaultBranch: repo.defaultBranch, enabled: repo.enabled, indexStatus: repo.indexStatus, indexedSha: repo.indexedSha ?? null, pendingIndexSha: repo.pendingIndexSha ?? null, indexedAt: repo.indexedAt ?? null, knowledgeStatus: repo.knowledgeStatus ?? null, error: repo.error ?? null };
+} });
 export const configure = mutation({
   args: {
     token: v.string(),
@@ -79,7 +86,10 @@ export const configure = mutation({
         !["fast", "standard", "deep"].includes(s.mode) ||
         !["concise", "detailed"].includes(s.commentStyle) ||
         !validSummarySections(s.summarySections) ||
-        s.categories.some((c) => !defaults.categories.includes(c))
+        !validReviewEngine(s.reviewEngine) ||
+        !validCheckFailureSeverity(s.checkFailureSeverity) ||
+        !validTriggerSettings(s) ||
+        s.categories.some((c) => !(categories as readonly string[]).includes(c))
       )
         throw new Error("Invalid review settings");
       const existing = await ctx.db
@@ -182,36 +192,69 @@ export const connect = mutation({
     }
   },
 });
+// Bounded configuration for a review/index step. File inventories are read on demand through
+// filesByPath / filePage / filesUnder so large repositories never exceed transaction read limits.
 export const data = internalQuery({
   args: { repositoryId: v.id("repositories") },
   handler: async (ctx, args) => {
     const repo = await ctx.db.get(args.repositoryId);
     if (!repo) throw new Error("Repository not found");
-    const files = await ctx.db
-      .query("repositoryFiles")
-      .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
-      .collect();
     const rules = (
       await ctx.db
         .query("customRules")
         .withIndex("by_org", (q) => q.eq("organizationId", repo.organizationId))
-        .collect()
+        .take(maxRules)
     ).filter(
       (r) => r.enabled && (!r.repositoryId || r.repositoryId === repo._id),
     );
-    const preferences = await ctx.db
+    const own = await ctx.db
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
-      .collect();
+      .order("desc")
+      .take(maxPreferences);
+    // Workspace- and team-scoped preferences learned in other repositories apply here too.
+    const shared = [
+      ...(await ctx.db.query("learnedPreferences").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "workspace")).take(500)),
+      ...(repo.teamId ? (await ctx.db.query("learnedPreferences").withIndex("by_org_scope", (q) => q.eq("organizationId", repo.organizationId).eq("scope", "team")).take(500)).filter((p) => p.teamId === repo.teamId) : []),
+    ].filter((p) => p.repositoryId !== repo._id);
+    const preferences = [...own, ...shared];
     return {
       repo,
       settings: await effectiveSettings(ctx, repo),
-      files,
       rules,
       preferences: preferences.filter((p) => p.enabled),
     };
   },
 });
+export const recordConfigFile = internalMutation({args:{repositoryId:v.id("repositories"),sha:v.string(),files:v.array(v.string()),applied:v.array(v.string()),blocked:v.array(v.string()),warnings:v.array(v.string()),values:v.string(),rules:v.number()},handler:async(ctx,a)=>{
+  const repo=await ctx.db.get(a.repositoryId);if(!repo)return;
+  await ctx.db.patch(repo._id,{configFile:a.files.length||a.warnings.length?{sha:a.sha,files:a.files.slice(0,60),applied:a.applied,blocked:a.blocked,warnings:a.warnings.slice(0,20).map(w=>w.slice(0,500)),values:a.values.slice(0,4000),rules:a.rules,checkedAt:Date.now()}:undefined});
+}});
+export const maxRules = 1000, maxPreferences = 1000, fileLookupBatch = 200, filePageSize = 1000;
+const fileRow = (f: Doc<"repositoryFiles">) => ({ path: f.path, sha: f.sha, storageId: f.storageId, graphVersion: f.graphVersion });
+export const filesByPath = internalQuery({args:{repositoryId:v.id("repositories"),paths:v.array(v.string())},handler:async(ctx,a)=>{
+  if(a.paths.length>fileLookupBatch)throw new Error(`File lookup batch exceeds ${fileLookupBatch} paths`);
+  const rows=await Promise.all([...new Set(a.paths)].map(path=>ctx.db.query("repositoryFiles").withIndex("by_path",q=>q.eq("repositoryId",a.repositoryId).eq("path",path)).unique()));
+  return rows.filter((r):r is Doc<"repositoryFiles">=>r!==null).map(fileRow);
+}});
+export const filePage = internalQuery({args:{repositoryId:v.id("repositories"),cursor:v.union(v.string(),v.null()),numItems:v.optional(v.number())},handler:async(ctx,a)=>{
+  const numItems=Math.min(Math.max(1,Math.floor(a.numItems??filePageSize)),filePageSize);
+  const page=await ctx.db.query("repositoryFiles").withIndex("by_repo",q=>q.eq("repositoryId",a.repositoryId)).paginate({cursor:a.cursor,numItems});
+  return {files:page.page.map(f=>({path:f.path,sha:f.sha})),cursor:page.continueCursor,done:page.isDone};
+}});
+// Files under directory prefixes plus exact well-known paths, via path-index ranges.
+export const filesUnder = internalQuery({args:{repositoryId:v.id("repositories"),directories:v.array(v.string()),paths:v.array(v.string()),limit:v.number()},handler:async(ctx,a)=>{
+  if(a.directories.length+a.paths.length>100)throw new Error("Directory lookup exceeds 100 prefixes");
+  const limit=Math.min(Math.max(1,Math.floor(a.limit)),200),out=new Map<string,ReturnType<typeof fileRow>>();
+  for(const path of a.paths){const row=await ctx.db.query("repositoryFiles").withIndex("by_path",q=>q.eq("repositoryId",a.repositoryId).eq("path",path)).unique();if(row)out.set(row.path,fileRow(row));}
+  for(const directory of [...new Set(a.directories)]){
+    if(out.size>=limit)break;
+    const prefix=directory?directory.replace(/\/$/,"")+"/":"";
+    const rows=await ctx.db.query("repositoryFiles").withIndex("by_path",q=>prefix?q.eq("repositoryId",a.repositoryId).gte("path",prefix).lt("path",prefix+"\uffff"):q.eq("repositoryId",a.repositoryId)).take(limit);
+    for(const row of rows)if(out.size<limit&&(prefix||!row.path.includes("/")))out.set(row.path,fileRow(row));
+  }
+  return [...out.values()].slice(0,limit);
+}});
 export const indexModuleReferences=internalQuery({args:{repositoryId:v.id("repositories"),paths:v.array(v.string())},handler:async(ctx,a)=>{
   if(a.paths.length>20)throw new Error("Module receipt batch exceeds 20 files");
   return Promise.all(a.paths.map(path=>ctx.db.query("graphModuleReferences").withIndex("by_path",q=>q.eq("repositoryId",a.repositoryId).eq("path",path)).unique()));
@@ -352,7 +395,7 @@ export const indexedFile = internalMutation({
       }),
     ),
     relationships: v.array(
-      v.object({ from: v.string(), to: v.string(), kind: v.string() }),
+      v.object({ from: v.string(), to: v.string(), kind: v.string(), symbol: v.optional(v.string()), resolved: v.optional(v.boolean()) }),
     ),
   },
   handler: async (ctx, args) => {
@@ -438,8 +481,11 @@ export const finishIndex = internalMutation({
     repositoryId: v.id("repositories"),
     jobId: v.id("indexJobs"),
     sha: v.string(),
-    paths: v.array(v.string()),
+    // Stale stored files are swept by the caller before completion (removeIndexedFiles);
+    // completion only reads the bounded knowledge set, never the whole file inventory.
+    processed: v.optional(v.number()),
     knowledgePaths:v.optional(v.array(v.string())),
+    removedPaths:v.optional(v.array(v.string())),
     error: v.optional(v.string()),
     leaseId:v.optional(v.string()),
   },
@@ -470,18 +516,19 @@ export const finishIndex = internalMutation({
       return;
     }
     if (!args.error) {
-      const paths = new Set(args.paths);
-      const files = await ctx.db.query("repositoryFiles").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).collect();
-      // Candidate inventory includes files excluded after their contents were
-      // fetched. Only retained sources may remain in generated knowledge.
-      const sourcePaths=new Set(files.filter(f=>paths.has(f.path)).map(f=>f.path));
+      const stored=new Map<string,boolean>();
+      const isStored=async(path:string)=>{
+        if(!stored.has(path))stored.set(path,!!await ctx.db.query("repositoryFiles").withIndex("by_path",q=>q.eq("repositoryId",repo._id).eq("path",path)).unique());
+        return stored.get(path)!;
+      };
+      // Only retained sources may remain in generated knowledge.
       const removedKnowledgePaths=new Set<string>();
       for (const entry of await ctx.db
         .query("knowledgeEntries")
         .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
-        .collect()) {
-        const remaining = entry.files.filter((path) => sourcePaths.has(path));
-        for(const path of entry.files)if(!sourcePaths.has(path))removedKnowledgePaths.add(path);
+        .take(500)) {
+        const remaining:string[]=[];
+        for(const path of entry.files.slice(0,100))if(stored.size<3000&&!await isStored(path))removedKnowledgePaths.add(path);else remaining.push(path);
         if (entry.files.length && !remaining.length)
           await ctx.db.delete(entry._id);
         else if (remaining.length !== entry.files.length)
@@ -491,10 +538,6 @@ export const finishIndex = internalMutation({
             updatedAt: Date.now(),
           });
       }
-      for (const file of files)
-        if (!paths.has(file.path)) {
-          await removeFile(ctx, repo._id, file.path);
-        }
       await ctx.db.patch(repo._id, {
         indexStatus: "ready",
         indexedSha: args.sha,
@@ -503,7 +546,8 @@ export const finishIndex = internalMutation({
         pendingIndexSha: undefined,
       });
       if(args.knowledgePaths){
-        const knowledgePaths=[...new Set(args.knowledgePaths)].filter(path=>sourcePaths.has(path)||!paths.has(path)||removedKnowledgePaths.has(path));
+        const removed=new Set(args.removedPaths??[]),knowledgePaths:string[]=[];
+        for(const path of [...new Set(args.knowledgePaths)].slice(0,500))if(removed.has(path)||removedKnowledgePaths.has(path)||await isStored(path))knowledgePaths.push(path);
         await ctx.db.patch(repo._id,{knowledgePaths,knowledgeStatus:knowledgePaths.length?"queued":"completed",knowledgeError:undefined,knowledgeUpdatedAt:Date.now()});
         if(knowledgePaths.length)await ctx.scheduler.runAfter(0,internal.knowledgeJobs.generate,{repositoryId:repo._id,paths:knowledgePaths});
       }
@@ -523,7 +567,7 @@ export const finishIndex = internalMutation({
       status: args.error ? "failed" : "completed",
       batchLease:undefined,
       error: args.error,
-      ...(!args.error ? { processed: args.paths.length } : {}),
+      ...(!args.error && args.processed !== undefined ? { processed: args.processed } : {}),
       updatedAt: Date.now(),
     });
     if(!args.error&&job.nativeDepot)await adoptP4Baseline(ctx,{...job,status:"completed"});
@@ -531,6 +575,16 @@ export const finishIndex = internalMutation({
   },
 });
 
+export const removeIndexedFiles = internalMutation({
+  args: { repositoryId: v.id("repositories"),jobId:v.id("indexJobs"), paths: v.array(v.string()),leaseId:v.optional(v.string()) },
+  handler: async(ctx, args) => {
+    if(args.paths.length>25)throw new Error("Removal batch exceeds 25 files");
+    const job=await ctx.db.get(args.jobId),repo=await ctx.db.get(args.repositoryId);
+    if(!job||job.repositoryId!==args.repositoryId||!indexBatchMatches(job,args.leaseId)||!await indexWriteAllowed(ctx,repo,job))return false;
+    for(const path of args.paths)await removeFile(ctx, args.repositoryId, path);
+    return true;
+  },
+});
 export const removeIndexedFile = internalMutation({
   args: { repositoryId: v.id("repositories"),jobId:v.id("indexJobs"), path: v.string(),leaseId:v.optional(v.string()) },
   handler: async(ctx, args) => {const job=await ctx.db.get(args.jobId),repo=await ctx.db.get(args.repositoryId);if(job&&indexBatchMatches(job,args.leaseId)&&await indexWriteAllowed(ctx,repo,job))await removeFile(ctx, args.repositoryId, args.path);},

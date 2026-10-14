@@ -45,4 +45,6 @@ export async function removeFile(
     )
     .unique();
   if (embedding) await ctx.db.delete(embedding._id);
+  for (const chunk of await ctx.db.query("chunkEmbeddings").withIndex("by_path", (q) => q.eq("repositoryId", repositoryId).eq("path", path)).take(500))
+    await ctx.db.delete(chunk._id);
 }

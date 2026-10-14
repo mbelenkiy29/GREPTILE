@@ -12,8 +12,8 @@ test("review evidence retains fetched Linear requirements and rejects invented i
  const omittedUrl="https://linear.app/engineering/issue/ENG-99/unrelated";
  input.files.push({path:"requirements/linear/connection/ENG-99.md",sha:"old",content:"Lions roam.",provenance:{repository:"Linear: Engineering",revision:"old",sourceUrl:omittedUrl}});
  const model:ModelProvider={generate:async(request,schema)=>{
-  assert.ok(JSON.stringify(request.input).includes(sourceUrl));
-  assert.equal(JSON.stringify(request.input).includes(omittedUrl),false);
+  assert.ok(JSON.stringify([request.context,request.input]).includes(sourceUrl));
+  assert.equal(JSON.stringify([request.context,request.input]).includes(omittedUrl),false);
   const value=request.task.startsWith("review:")?{findings:[candidate]}:request.task==="verify"?{decisions:[{index:0,publish:true,confidence:1,reason:"The fetched requirement explicitly specifies integer cents."}]}:{reviewScore:{value:1,reason:"The verified defect needs correction before this change is ready to merge."},summary:"The cents requirement conflicts with the changed implementation."};
   return {value:schema.parse(value),usage:{task:request.task,provider:"fixture",model:"fixture",inputTokens:0,outputTokens:0,latencyMs:0,estimatedCost:0,cached:false}};
  }};

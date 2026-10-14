@@ -1,5 +1,7 @@
 # Self-hosting and production deployment
 
+Before opening a hosted deployment to users, work through the [production readiness checklist](production-checklist.md).
+
 ## Vercel Hobby and Convex Free
 
 The current hosted acceptance deployment is verified on Vercel **Hobby** in team `open-review-free` and Convex **Free** at `tidy-ocelot-457` (2026-10-04). Its canonical URL is https://openreview-flame-two.vercel.app. The Vercel project ID is `prj_jMAK4u6yVJUfW2atnWbiZnF8F7b9`; the existing free Convex resource remains managed by the original Vercel integration team. Do not remove that integration to clean up the frontend transfer: it owns the live backend. Production credentials were copied with the project, and a fresh Hobby deployment proved the combined build/deploy works. The local CLI link now targets the Hobby team. Full evidence and acceptance boundaries are in [acceptance-matrix.md](acceptance-matrix.md).

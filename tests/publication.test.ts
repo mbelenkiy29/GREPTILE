@@ -11,6 +11,7 @@ for(const kind of ["GitHub","Gitea"] as const)test(kind+" publication binds publ
  const client=kind==="GitHub"?new Github("fixture",undefined,async()=>"openreview"):new Gitea("https://gitea.example","fixture");
  const reviews=[{id:1,body:tag,user:{login:"alice"},commit_id:head,state},{id:2,body:tag+"\n<!-- openreview:other-run -->",user:{login:publisher},commit_id:head,state},{id:3,body:tag,user:{login:publisher},commit_id:old,state},{id:4,body:tag,user:{login:publisher},commit_id:head,state:"PENDING"}];
  let currentHead=head,prReads=0,changeAt=Infinity,posts=0,missingRoot=false,createdAuthor=publisher,createdHead=head;
+ const issueComments:{id:number;body:string;user:{login:string}}[]=[];
  const patch="@@ -1,2 +1,2 @@\n export function total(amount: number) {\n-return amount;\n+return amount / 100;";
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit={})=>{
   const u=new URL(input),path=u.pathname.replace(/^\/api\/v1/,"");assert.equal(options.redirect,"error");
@@ -18,6 +19,8 @@ for(const kind of ["GitHub","Gitea"] as const)test(kind+" publication binds publ
   if(path==="/repos/o/r/pulls/1"){prReads++;if(prReads===changeAt)currentHead=old;return Response.json({state:"open",head:{sha:currentHead}});}
   if(path.endsWith("/files"))return Response.json([{filename:"price.ts",patch}]);
   if(path.endsWith("/pulls/1.diff"))return new Response("diff --git a/price.ts b/price.ts\n--- a/price.ts\n+++ b/price.ts\n"+patch);
+  if(path==="/repos/o/r/issues/1/comments"){if(options.method==="POST"){const c={id:500+issueComments.length,body:JSON.parse(String(options.body)).body,user:{login:publisher}};issueComments.push(c);return Response.json(c);}return Response.json(issueComments);}
+  if(/^\/repos\/o\/r\/issues\/comments\/\d+$/.test(path)&&options.method==="PATCH"){const c=issueComments.find(c=>"/repos/o/r/issues/comments/"+c.id===path)!;c.body=JSON.parse(String(options.body)).body;return Response.json(c);}
   if(path.endsWith("/reviews")&&options.method==="POST"){
    posts++;const body=JSON.parse(String(options.body));assert.equal(body.commit_id,head);assert.equal(body.event,"COMMENT");assert.equal(body.comments[0].path,"price.ts");assert.equal(body.comments[0][kind==="GitHub"?"line":"new_position"],2);
    const result={id:100,body:body.body,user:{login:createdAuthor},commit_id:createdHead,state};reviews.push(result);return Response.json(result);
@@ -31,6 +34,7 @@ for(const kind of ["GitHub","Gitea"] as const)test(kind+" publication binds publ
  });
  assert.deepEqual(await client.publish("o/r",1,head,"Review summary",[finding],marker),{id:100,reused:false,comments:[{id:10,fingerprint}]});assert.equal(posts,1);
  assert.deepEqual(await client.publish("o/r",1,head,"Review summary",[finding],marker),{id:100,reused:true,comments:[{id:10,fingerprint}]});assert.equal(posts,1);
+ if(kind==="GitHub")assert.equal(issueComments.length,1,"one summary comment across the run and its replay");
  currentHead=old;await assert.rejects(client.publish("o/r",1,head,"Stale",[finding],marker),/changed/);assert.equal(posts,1);
  currentHead=head;prReads=0;changeAt=2;await assert.rejects(client.publish("o/r",1,head,"Changed during retry",[finding],marker),/changed/);assert.equal(posts,1);
  currentHead=head;changeAt=Infinity;missingRoot=true;await assert.rejects(client.publish("o/r",1,head,"Missing native finding",[finding],marker),/publication incomplete/);missingRoot=false;

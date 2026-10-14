@@ -83,6 +83,7 @@ export const requirements=internalAction({args:{repositoryId:v.id("repositories"
  await ctx.runQuery(internal.integrations.validate,{repositoryId:a.repositoryId,scopes});
  if(connections.length&&!identifiers.length)coverage.push("No Linear issue identifiers were referenced in the PR title, description or branch; no requirements were fetched.");
  const atlassian=await ctx.runAction(internal.atlassianJobs.requirements,a);
- const combined=boundRequirementsContext([...files,...atlassian.files]);
- return {files:combined.files,scopes:[...scopes,...atlassian.scopes],coverage:[...new Set([...coverage,...atlassian.coverage,...combined.coverage])]};
+ const notion=await ctx.runAction(internal.notionJobs.requirements,a);
+ const combined=boundRequirementsContext([...files,...atlassian.files,...notion.files]);
+ return {files:combined.files,scopes:[...scopes,...atlassian.scopes,...notion.scopes],coverage:[...new Set([...coverage,...atlassian.coverage,...notion.coverage,...combined.coverage])]};
 }});

@@ -1,7 +1,7 @@
 "use node";
 import {budgetModel,inferenceBilling} from "./budgetModel";
 import {executionExplanation} from "../src/execution-claims";
-import { action,internalAction } from "./_generated/server";
+import { action,internalAction,type ActionCtx } from "./_generated/server";
 import { api,internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -9,16 +9,30 @@ import {hasCurrentRepositoryEvidence} from "../src/context-history";
 import type {RepositoryContext} from "./repositoryContext";
 import { z } from "zod";
 import { provider } from "./scm";
+import { fileInventory, indexedFiles } from "./fileReads";
+import { reviewAgentHooks, reviewToolbox } from "./agentToolbox";
+import { semanticHits } from "./semanticSearch";
+import { Github } from "../src/github";
+import { Gitlab } from "../src/gitlab";
+import type { Scm } from "../src/gitlab";
+import { hybridRank } from "../src/engine/hybrid";
+import { validSequence } from "../src/diagrams";
+import { incrementalDiff } from "../src/incremental";
+import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
+import { applyRepoConfig, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
+import { checkConclusion, type CheckConclusion } from "../src/github";
+import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
 import {decryptCredential} from "../src/credentials";
 import { eligibleFile, exclusionReason, indexRepository, moduleReferencesCurrent, redact } from "../src/engine/indexer";
 import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
+import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
-import { sourceChunks } from "../src/engine/chunks";
+import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
-import { ModelFailure } from "../src/engine/model";
+import { ModelFailure, configuredModel } from "../src/engine/model";
 import {
   categories,
   findingSchema,
@@ -42,11 +56,12 @@ export const backfillReviewFindings=internalAction({args:{reviewId:v.id("reviews
 export const index = internalAction({
   args: { repositoryId: v.id("repositories") },
   handler: async (ctx, args) => {
-    const { repo, files } = await ctx.runQuery(
+    const { repo } = await ctx.runQuery(
       internal.repositories.data,
       args,
     );
     if (!repo.enabled) return;
+    const known = await fileInventory(ctx, repo._id);
     let jobId:Id<"indexJobs">|null=null;
     try {
     const github = await provider(ctx,repo);
@@ -61,13 +76,10 @@ export const index = internalAction({
     const entries = tree.filter((f) =>
       eligibleFile({ path: f.path, sha: f.sha, size:f.size, content: "" }, gitignore),
     );
-    const known = new Map(files.map((f) => [f.path, f.sha]));
     const indexedPaths = new Set(entries.map((entry) => entry.path));
     const changedPaths = [
       ...entries.filter((f) => known.get(f.path) !== f.sha).map((f) => f.path),
-      ...files
-        .filter((file) => !indexedPaths.has(file.path))
-        .map((file) => file.path),
+      ...[...known.keys()].filter((path) => !indexedPaths.has(path)),
     ];
     jobId = await ctx.runMutation(internal.repositories.indexing, {
       repositoryId: repo._id,
@@ -133,10 +145,10 @@ export const indexBatch = internalAction({
         if(JSON.stringify(await p4.project(inventory.project.id))!==JSON.stringify(inventory.project))throw new Error("P4 project views changed during hosted indexing");
       }
       const github = inventory?undefined:await provider(ctx,data.repo);
-      const known = new Map(data.files.map((f) => [f.path, f]));
       const allPaths = manifest.entries.map((f) => f.path);
       const pathSet=new Set(allPaths);
       const batch=manifest.entries.slice(cursor,cursor+20);
+      const known = new Map((await indexedFiles(ctx, data.repo._id, batch.map((f) => f.path))).map((f) => [f.path, f]));
       const receipts=await ctx.runQuery(internal.repositories.indexModuleReferences,{repositoryId:data.repo._id,paths:batch.map(f=>f.path)});
       const references=new Map(receipts.filter(r=>r!==null).map(r=>[r.path,r]));
       for (const entry of batch) {
@@ -144,15 +156,8 @@ export const indexBatch = internalAction({
         const receipt=references.get(entry.path);
         if (previous?.sha === entry.sha && previous.graphVersion === INDEX_GRAPH_VERSION && receipt?.sha===entry.sha && receipt.graphVersion===INDEX_GRAPH_VERSION && moduleReferencesCurrent(entry.path,receipt.references,pathSet)) {
           if (!process.env.EMBEDDING_MODEL) continue;
-          const cachedEmbedding = await ctx.runQuery(
-            internal.embeddings.existing,
-            { repositoryId: data.repo._id, path: entry.path },
-          );
-          if (
-            cachedEmbedding?.sha === entry.sha &&
-            cachedEmbedding.model === process.env.EMBEDDING_MODEL
-          )
-            continue;
+          const embedded = await ctx.runQuery(internal.embeddings.chunkState, { repositoryId: data.repo._id, path: entry.path });
+          if (embedded?.sha === entry.sha && embedded.model === process.env.EMBEDDING_MODEL) continue;
         }
         const expected=inventory?.manifest.find(f=>f.depotFile.slice(2)===entry.path);
         if(inventory&&!expected)throw new Error("P4 index entry outside pinned inventory");
@@ -168,38 +173,21 @@ export const indexBatch = internalAction({
           });
           continue;
         }
+        await loadGrammars([file.path]);
         const index = indexRepository([file], allPaths);
         if (!index.files.length) continue;
         const moduleReferences=[...new Map((index.moduleReferences??[]).filter(r=>r.path===file.path).map(({specifier,resolvedPath})=>[specifier,{specifier,resolvedPath}])).values()];
         if (process.env.EMBEDDING_MODEL) {
-          const embedder = new Embeddings(inferenceBilling(ctx)),
-            started = Date.now();
-          const oldEmbedding = await ctx.runQuery(
-            internal.embeddings.existing,
-            { repositoryId: data.repo._id, path: file.path },
-          );
-          if (
-            oldEmbedding?.sha !== file.sha ||
-            oldEmbedding.model !== embedder.model
-          ) {
-            const embedded = await embedder.embed([
-              file.path + "\n" + index.files[0].content,
-            ]);
-            await ctx.runMutation(internal.embeddings.save, {
-              repositoryId: data.repo._id,
-              jobId:job._id,
-              leaseId,
-              path: file.path,
-              sha: file.sha,
-              model: embedder.model!,
-              vector: embedded.vectors[0],
-            });
-            await ctx.runMutation(internal.embeddings.usage, {
-              repositoryId: data.repo._id,
-              tokens: embedded.tokens,
-              estimatedCost: embedded.estimatedCost,
-              durationMs: Date.now() - started,
-            });
+          // Chunk-level embeddings at definition boundaries; unchanged blobs with the current
+          // model are skipped, so re-index backfills are idempotent.
+          const embedder = new Embeddings(inferenceBilling(ctx)), started = Date.now();
+          const state = await ctx.runQuery(internal.embeddings.chunkState, { repositoryId: data.repo._id, path: file.path });
+          if (state?.sha !== file.sha || state.model !== embedder.model) {
+            // Variable declarations (including locals) are not chunk boundaries.
+            const chunks = semanticChunks(index.files[0].content, index.symbols.filter((symbol) => symbol.path === file.path && symbol.kind !== "VariableDeclaration")).slice(0, 64);
+            const embedded = chunks.length ? await embedder.embed(chunks.map((c) => `${file.path}:${c.startLine}-${c.endLine}${c.symbol ? " " + c.symbol : ""}\n${c.content}`)) : { vectors: [], tokens: 0, estimatedCost: 0 };
+            await ctx.runMutation(internal.embeddings.saveChunks, { repositoryId: data.repo._id, jobId: job._id, leaseId, path: file.path, sha: file.sha, model: embedder.model!, chunks: chunks.map((c, i) => ({ startLine: c.startLine, endLine: c.endLine, ...(c.symbol ? { symbol: c.symbol } : {}), vector: embedded.vectors[i] })) });
+            if (embedded.tokens) await ctx.runMutation(internal.embeddings.usage, { repositoryId: data.repo._id, tokens: embedded.tokens, estimatedCost: embedded.estimatedCost, durationMs: Date.now() - started });
           }
         }
         const storageId = await ctx.storage.store(
@@ -225,8 +213,10 @@ export const indexBatch = internalAction({
           })),
           relationships: index.relationships.map((r) => ({
             from: r.from,
-            to: r.to,
+            to: r.to.slice(0, 500),
             kind: r.kind,
+            ...(r.symbol ? { symbol: r.symbol.slice(0, 200) } : {}),
+            ...(r.resolved !== undefined ? { resolved: r.resolved } : {}),
           })),
         });
       }
@@ -239,13 +229,18 @@ export const indexBatch = internalAction({
         });
       else {
         if(inventory&&JSON.stringify(await p4!.project(inventory.project.id))!==JSON.stringify(inventory.project))throw new Error("P4 project views changed before index completion");
+        // Sweep stored files missing from this revision in small batches before completing.
+        const stale=[...(await fileInventory(ctx,data.repo._id)).keys()].filter(path=>!pathSet.has(path));
+        for(let i=0;i<stale.length;i+=10)if(!await ctx.runMutation(internal.repositories.removeIndexedFiles,{repositoryId:data.repo._id,jobId:job._id,leaseId,paths:stale.slice(i,i+10)}))return;
+        const knowledgePaths=manifest.changedPaths?.slice(0,500);
         const finished=await ctx.runMutation(internal.repositories.finishIndex, {
           repositoryId: data.repo._id,
           jobId: job._id,
           sha: manifest.sha,
           leaseId,
-          paths: allPaths,
-          knowledgePaths: manifest.changedPaths?.slice(0,500),
+          processed: allPaths.length,
+          knowledgePaths,
+          removedPaths: knowledgePaths?.filter(path=>!pathSet.has(path)),
         });
         // Submitted P4 inventories remain available for exact-baseline shelf ingestion.
         if(finished&&!job.nativeDepot)await ctx.storage.delete(job.manifestStorageId);
@@ -264,7 +259,6 @@ export const indexBatch = internalAction({
         jobId: job._id,
         sha: job.sha,
         leaseId,
-        paths: [],
         error: error instanceof Error ? error.message : "Index batch failed",
       });
       throw error;
@@ -275,6 +269,7 @@ export const indexBatch = internalAction({
 export const review = internalAction({
   args: { reviewId: v.id("reviews") },
   handler: async (ctx, args) => {
+    const stepStarted = Date.now();
     const state = await ctx.runQuery(internal.reviews.data, args);
     if (["completed", "cancelled"].includes(state.review.status)) return;
     if(state.review.nativeP4){await ctx.runAction(internal.p4ReviewJobs.run,args);return;}
@@ -299,13 +294,14 @@ export const review = internalAction({
       });
       return;
     }
+    let check: { scm: Scm; repository: string; id: number } | null = null;
     try {
       const claimed = await ctx.runMutation(internal.reviews.stage, {
         ...args,
         status: "ingesting",
       });
       if (!claimed) return;
-      const { repo, settings, rules, preferences, files } = await ctx.runQuery(
+      const { repo, settings, rules, preferences } = await ctx.runQuery(
         internal.repositories.data,
         { repositoryId: state.review.repositoryId },
       );
@@ -361,6 +357,8 @@ export const review = internalAction({
           githubReviewId: published.id,
           comments: published.comments,
         });
+        const verified = [...result.findings, ...(result.metadata?.carriedForward ?? [])];
+        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha, state.review.prNumber), { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", detailsUrl: dashboardUrl(args.reviewId) });
         return;
       }
       if (pr.head.sha !== state.review.headSha || pr.state !== "open") {
@@ -369,6 +367,11 @@ export const review = internalAction({
           status: "cancelled",
           detail: "Obsolete head or closed PR",
         });
+        return;
+      }
+      const limit = state.review.trigger === "mention" || state.review.trigger === "manual" ? undefined : sizeLimitIssue(pr.diff, settings);
+      if (limit) {
+        await ctx.runMutation(internal.reviews.stage, { ...args, status: "cancelled", detail: limit });
         return;
       }
       if (pr.draft && !settings.drafts) {
@@ -392,6 +395,18 @@ export const review = internalAction({
         baseBranch: pr.base.ref,
       });
       if(await ctx.runMutation(internal.runtime.request,{reviewId:args.reviewId}))return;
+      check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha, pr.number);
+      // Repository config as code, read from the BASE revision so a change cannot weaken its own review.
+      const repoConfig = await loadRepoConfig(github, repo.fullName, pr.base.sha).catch((error): LoadedRepoConfig => ({ settings: {}, rules: [], files: [], directories: [], warnings: ["Repository config could not be read from the base revision: " + redact(error instanceof Error ? error.message : "unavailable").slice(0, 200)] }));
+      const configured = applyRepoConfig(settings, repoConfig);
+      const effective = configured.settings;
+      if (repoConfig.files.length || repoConfig.warnings.length || repo.configFile)
+        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length });
+      const configNotes = [...repoConfig.warnings, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
+      // Incremental review when the last reviewed head is an ancestor of this head.
+      const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
+      const comparison = previousHead && github.compare ? await github.compare(repo.fullName, previousHead, pr.head.sha).catch(() => "unavailable" as const) : undefined;
+      const scope = incrementalDiff(pr.diff, github.compare ? previousHead ?? undefined : undefined, comparison);
       const graph = await ctx.runQuery(internal.context.related, {
         repositoryId: repo._id,
         paths: pr.diff.map((f) => f.path),
@@ -401,6 +416,8 @@ export const review = internalAction({
           ),
         ].slice(0, 100),
       });
+      // Multi-hop graph neighbours (callers/callees up to two hops) widen retrieval beyond one hop.
+      const neighbors = await ctx.runQuery(internal.context.neighborhood, { repositoryId: repo._id, paths: pr.diff.map((f) => f.path), hops: 2, limit: 30 });
       const tree = await github.tree(repo.fullName, pr.head.sha);
       const history = await ctx.runQuery(internal.reviews.history, {
         repositoryId: repo._id,
@@ -422,49 +439,27 @@ export const review = internalAction({
           status: finding.status,
         }));
       const head = new Map(tree.map((f) => [f.path, f]));
-      const semanticPaths: string[] = [];
-      if (process.env.EMBEDDING_MODEL) {
-        const embedder = new Embeddings(inferenceBilling(ctx));
-        const embedded = await embedder.embed([
-          redact(
-            pr.title +
-              "\n" +
-              pr.diff
-                .map((f) => f.path + "\n" + f.patch.slice(0, 3000))
-                .join("\n"),
-          ),
-        ]);
-        await ctx.runMutation(internal.embeddings.usage, {
-          repositoryId: repo._id,
-          tokens: embedded.tokens,
-          estimatedCost: embedded.estimatedCost,
-          durationMs: 0,
-        });
-        const matches = await ctx.vectorSearch("embeddings", "by_vector", {
-          vector: embedded.vectors[0],
-          limit: 12,
-          filter: (q) => q.eq("scope", `${repo._id}:${embedder.model}`),
-        });
-        semanticPaths.push(
-          ...(await ctx.runQuery(internal.embeddings.paths, {
-            ids: matches.map((m) => m._id),
-            repositoryId: repo._id,
-          })),
-        );
-      }
+      // Hybrid retrieval: chunk vectors (when configured) + full-text identifiers + graph proximity.
+      const identifiers = [...new Set(pr.diff.flatMap((f) => f.patch.match(/^\+.*$/gm)?.join("\n").match(/[A-Za-z_]\w{3,}/g) ?? []))].slice(0, 6);
+      const textHits = (await Promise.all(identifiers.map((identifier) => ctx.runQuery(internal.agentTools.search, { repositoryId: repo._id, query: identifier })))).flatMap((hits) => hits.map((hit, rank) => ({ path: hit.path, score: 1 / (1 + rank), startLine: hit.line })));
+      const vectorHits = await semanticHits(ctx, repo._id, pr.title + "\n" + pr.diff.map((f) => f.path + "\n" + f.patch.slice(0, 3000)).join("\n"), 24);
+      const hybrid = hybridRank({ vector: vectorHits, text: textHits, graph: neighbors.map((n) => ({ path: n.path, score: n.score })) }, 20);
+      const semanticPaths = hybrid.filter((hit) => hit.reason.includes("semantic")).map((hit) => hit.path);
       const paths = [
         ...new Set([
           ...pr.diff.filter((d) => d.status !== "removed").map((f) => f.path),
           ...graph.paths,
+          ...neighbors.map((n) => n.path),
           ...state.findings.flatMap((finding) => [finding.filePath, ...finding.evidence.map((e) => e.filePath)]),
           ...semanticPaths,
+          ...hybrid.map((hit) => hit.path),
           ...historicalFindings.map((finding) => finding.filePath),
           ...(repo.knowledgePaths ?? []).slice(0, 10),
         ]),
       ];
       const sources: SourceFile[] = [];
       let bytes = 0;
-      const cached = new Map(files.map((f) => [f.path, f]));
+      const cached = new Map((await indexedFiles(ctx, repo._id, paths.filter((path) => head.has(path)))).map((f) => [f.path, f]));
       for (const path of paths) {
         const entry = head.get(path);
         if (!entry || bytes > 500000) continue;
@@ -519,13 +514,7 @@ export const review = internalAction({
                 usage: error instanceof ModelFailure ? error.usage : {
                   task: request.task,
                   provider: process.env.LLM_PROVIDER ?? "openai",
-                  model:
-                    process.env[
-                      `LLM_MODEL_${request.task.split(":")[0].toUpperCase()}`
-                    ] ||
-                    settings.model ||
-                    process.env.LLM_MODEL ||
-                    "gpt-4.1",
+                  model: configuredModel(request.task, settings.model),
                   inputTokens: 0,
                   outputTokens: 0,
                   estimatedCost: 0,
@@ -545,11 +534,23 @@ export const review = internalAction({
           if(cross.receipt)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:cross.receipt});
           return result;
         },
+        runTools: async (request) => {
+          if(cross.receipt)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:cross.receipt});
+          try {
+            const turn = await modelProvider.runTools(request);
+            await ctx.runMutation(internal.reviews.recordCall, { reviewId: args.reviewId, usage: turn.usage });
+            return turn;
+          } catch (error) {
+            if (error instanceof ModelFailure) await ctx.runMutation(internal.reviews.recordCall, { reviewId: args.reviewId, usage: error.usage, error: redact(error.message).slice(0, 4000) });
+            throw error;
+          }
+        },
       };
+      const agentic = effective.reviewEngine === "agentic";
       const result = {...await reviewChange(
         {
           repository: repo.fullName,
-          coverageLimits:[...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
+          coverageLimits:[...(scope.note?[scope.note]:[]),...configNotes,...requirements.coverage,...cross.coverage,...(state.findings.some(f=>!hasCurrentRepositoryEvidence(f,cross.files))?["Some prior cross-repository findings were withheld because their exact pinned evidence was not fetched in the current authorized context; they remain unresolved."]:[])],
           baseSha: pr.base.sha,
           headSha: pr.head.sha,
           title: pr.title,
@@ -568,44 +569,50 @@ export const review = internalAction({
               reason: "historical finding",
               score: 25,
             })),
-            ...semanticPaths.map((path) => ({
-              path,
-              reason: "semantic embedding match",
-              score: 35,
+            ...hybrid.map((hit) => ({
+              path: hit.path,
+              reason: `hybrid retrieval: ${hit.reason}${hit.startLine ? ` (lines ${hit.startLine}${hit.endLine ? "–" + hit.endLine : ""})` : ""}`,
+              score: Math.round(20 + 30 * hit.score),
             })),
+            ...neighbors.map((n) => ({ path: n.path, reason: `code graph ${n.via} (${n.hops} hop${n.hops > 1 ? "s" : ""})`, score: Math.round(40 * Math.min(1, n.score)) })),
           ],
-          diff: pr.diff,
-          mode: z.enum(["fast", "standard", "deep"]).parse(settings.mode),
-          rules: rules.map((r) => ({
-            id: r._id,
+          diff: scope.diff,
+          ...(scope.incremental ? { fullDiff: pr.diff } : {}),
+          skippedFiles: pr.omitted,
+          sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
+          mode: z.enum(["fast", "standard", "deep"]).parse(effective.mode),
+          rules: [...rules.map((r) => ({
+            id: r._id as string,
             instructions: r.instructions,
             severity: z.enum(severities).parse(r.severity),
             category: r.category,
             globs: r.globs,
             enabled: r.enabled,
-          })),
-          preferences,
+          })), ...repoConfig.rules],
+          preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
           settings: {
-            minimumConfidence: settings.minimumConfidence,
+            minimumConfidence: effectiveThresholds(effective).minimumConfidence,
             severityThreshold: z
               .enum(severities)
-              .parse(settings.severityThreshold),
-            maxComments: settings.maxComments,
-            ignoredPaths: settings.ignoredPaths,
+              .parse(effectiveThresholds(effective).severityThreshold),
+            maxComments: effective.maxComments,
+            ignoredPaths: effective.ignoredPaths,
             categories: state.review.category
               ? [z.enum(categories).parse(state.review.category)]
-              : settings.categories.map((c) => z.enum(categories).parse(c)),
-            instructions: settings.instructions,
-            summarySections:settings.summarySections,
+              : effective.categories.map((c) => z.enum(categories).parse(c)),
+            instructions: effective.instructions,
+            summarySections:effective.summarySections,
           },
         },
         model,
         async (status) => {
           await ctx.runMutation(internal.reviews.stage, { ...args, status });
         },
+        undefined,
+        agentic ? { engine: "agentic", tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: reviewAgentHooks(ctx, args.reviewId, stepStarted) } : {},
       ),integrationScopes:requirements.scopes,repositoryContext:cross.receipt??undefined};
       const storageId = await ctx.storage.store(
         new Blob([JSON.stringify(result)], { type: "application/json" }),
@@ -634,9 +641,9 @@ export const review = internalAction({
         pr.number,
         pr.head.sha,
         result.summary,
-        result.findings.slice(0, settings.maxComments),
+        result.findings.slice(0, effective.maxComments),
         args.reviewId,
-        settings.commentStyle,
+        effective.commentStyle,
           state.review.revisionKey,
           result.findings.length+(result.metadata.carriedForward?.length??0),
       );
@@ -646,8 +653,16 @@ export const review = internalAction({
         githubReviewId: published.id,
         comments: published.comments,
       });
+      await resolveFixedThreads(ctx, github, repo._id, repo.fullName, pr.number, pr.head.sha, result.metadata.resolvedFingerprints);
+      const verified = [...result.findings, ...(result.metadata.carriedForward ?? [])];
+      await finishCheck(check, { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: [verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", ...(result.metadata.coverageLimits?.length ? ["", "Coverage limits:", ...result.metadata.coverageLimits.map((l) => "- " + l)] : [])].join("\n"), detailsUrl: dashboardUrl(args.reviewId) });
     } catch (error) {
+      if (error instanceof AgentSuspended && await ctx.runMutation(internal.reviews.suspendAgent, args)) {
+        console.log(JSON.stringify({ event: "review.agent_suspended", reviewId: args.reviewId, toolCalls: error.state.toolCalls, turns: error.state.turns }));
+        return;
+      }
       const message = error instanceof Error ? error.message : "Review failed";
+      await finishCheck(check, { conclusion: "neutral", title: "Review could not be completed", summary: "OpenReview could not complete this review: " + redact(message).slice(0, 500), detailsUrl: dashboardUrl(args.reviewId) });
       console.error(
         JSON.stringify({
           event: "review.failed",
@@ -663,11 +678,64 @@ export const review = internalAction({
   },
 });
 
-export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[]} | null>=>{
+export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[]} | null>=>{
  const {review}=await ctx.runQuery(api.reviews.detail,a);
  if(!review.resultStorageId)return null;
  const blob=await ctx.storage.get(review.resultStorageId);if(!blob||blob.size>2000000)throw new Error("Saved review diagnostics unavailable");
- const result=z.object({metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([])})}).parse(JSON.parse(await blob.text()));
+ const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([])})}).parse(JSON.parse(await blob.text()));
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
- return {...result.metadata,suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
+ return {...result.metadata,diagrams:result.diagrams.filter(validSequence).slice(0,1),suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});
+
+// Line links for the summary issue table on providers with stable line anchors.
+function summaryLink(scm: Scm, repository: string, sha: string) {
+  const anchor = scm instanceof Github ? (start: number, end: number) => `#L${start}${end > start ? "-L" + end : ""}` : scm instanceof Gitlab ? (start: number, end: number) => `#L${start}${end > start ? "-" + end : ""}` : undefined;
+  return anchor ? (path: string, start: number, end: number) => { try { return scm.sourceUrl(repository, sha, path) + anchor(start, end); } catch { return undefined; } } : undefined;
+}
+
+// Thread hygiene: reply to and resolve OpenReview's own threads for findings verified fixed.
+// Failures are logged and never fail an already published review.
+async function resolveFixedThreads(ctx: ActionCtx, scm: Scm, repositoryId: Id<"repositories">, repository: string, number: number, sha: string, fingerprints: string[]) {
+  if (!scm.resolveFindingThreads || !fingerprints.length) return;
+  try {
+    const comments = await ctx.runQuery(internal.reviews.findingCommentIds, { repositoryId, prNumber: number, fingerprints });
+    const result = await scm.resolveFindingThreads(repository, number, comments.map((c) => ({ commentId: c.commentId, marker: `resolved:${c.fingerprint}:${sha}`, body: `Resolved: OpenReview verified this finding is fixed in \`${sha.slice(0, 7)}\`.` })));
+    console.log(JSON.stringify({ event: "review.threads_resolved", repositoryId, number, ...result }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "review.thread_resolution_failed", repositoryId, number, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
+  }
+}
+
+const dashboardUrl = (reviewId: Id<"reviews">) => { const app = process.env.APP_URL; return app && /^https:\/\//.test(app) ? new URL(`/dashboard/pulls/${encodeURIComponent(reviewId)}`, app).href : undefined; };
+// GitHub check runs (checks:write only; otherwise the provider returns null and nothing happens),
+// or Azure DevOps pull request statuses (pending while reviewing, then the outcome).
+type CheckHandle = { scm: Scm; repository: string; id: number; prNumber?: number; status?: boolean };
+async function beginCheck(ctx: ActionCtx, scm: Scm, reviewId: Id<"reviews">, repository: string, sha: string, prNumber?: number): Promise<CheckHandle | null> {
+  if (scm.reportStatus && prNumber) {
+    try { await scm.reportStatus(repository, prNumber, "pending", "OpenReview is reviewing this revision", dashboardUrl(reviewId)); return { scm, repository, id: 0, prNumber, status: true }; }
+    catch (error) { console.error(JSON.stringify({ event: "review.status_failed", reviewId, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); return null; }
+  }
+  if (!scm.startCheckRun) return null;
+  try {
+    const existing = await ctx.runQuery(internal.reviews.checkRun, { reviewId });
+    if (existing && existing.head === sha) return { scm, repository, id: existing.id };
+    const id = await scm.startCheckRun(repository, sha, reviewId, dashboardUrl(reviewId));
+    if (id === null) return null;
+    await ctx.runMutation(internal.reviews.setCheckRun, { reviewId, checkRunId: id, checkRunHead: sha });
+    return { scm, repository, id };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "review.check_run_failed", reviewId, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
+    return null;
+  }
+}
+async function finishCheck(check: CheckHandle | null, result: { conclusion: CheckConclusion; title: string; summary: string; detailsUrl?: string }) {
+  if (check?.status && check.prNumber && check.scm.reportStatus) {
+    const state = result.conclusion === "success" ? "succeeded" : result.conclusion === "failure" ? "failed" : result.conclusion === "cancelled" ? "error" : "notApplicable";
+    try { await check.scm.reportStatus(check.repository, check.prNumber, state, result.title, result.detailsUrl); }
+    catch (error) { console.error(JSON.stringify({ event: "review.status_failed", error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }
+    return;
+  }
+  if (!check?.scm.completeCheckRun) return;
+  try { await check.scm.completeCheckRun(check.repository, check.id, result); }
+  catch (error) { console.error(JSON.stringify({ event: "review.check_run_failed", error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }
+}

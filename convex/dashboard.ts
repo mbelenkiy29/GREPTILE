@@ -1,3 +1,4 @@
+import { recordFindingFeedback } from "./feedbackCore";
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories,repositoryAccess } from "./auth";
@@ -170,57 +171,7 @@ export const feedback = mutation({
       args.comment.length > 5000
     )
       throw new Error("Invalid feedback");
-    const feedbackId=await ctx.db.insert("findingFeedback", {
-      organizationId: finding.organizationId,
-      findingId: finding._id,
-      userId: user._id,
-      value: args.value,
-      comment: args.comment,
-      createdAt: Date.now(),
-    });
-    await ctx.db.patch(finding._id, {
-      lastFeedback: args.value,
-      ...(["resolved", "wont_fix", "false_positive"].includes(args.value)
-        ? { status: args.value }
-        : args.value === "useful" &&
-            ["wont_fix", "false_positive"].includes(finding.status)
-          ? { status: "open" }
-          : {}),
-      updatedAt: Date.now(),
-    });
-    const previousPreference = await ctx.db
-      .query("learnedPreferences")
-      .withIndex("by_source", (q) =>
-        q.eq("repositoryId", finding.repositoryId).eq("source", finding._id),
-      )
-      .first();
-    if (args.value === "resolved") {
-      if (previousPreference)
-        await ctx.db.patch(previousPreference._id, { enabled: false,updatedAt:Date.now(),feedbackId });
-    } else {
-      const rejected = ["not_useful", "wont_fix", "false_positive"].includes(
-        args.value,
-      );
-      const instruction = rejected
-        ? `Avoid repeating this ${args.value} finding pattern: ${finding.title}. ${args.comment}`
-        : `Prioritize actionable issues like this accepted finding${finding.ruleId ? ` from rule ${finding.ruleId}` : ""}: ${finding.title}. ${args.comment}`;
-      const preference = {
-        organizationId: finding.organizationId,
-        repositoryId: finding.repositoryId,
-        category: finding.category,
-        instruction: instruction.slice(0, 2000),
-        source: finding._id,
-        findingId:finding._id,
-        sourceReviewId:finding.reviewId,
-        feedbackId,
-        enabled: true,
-        createdAt: previousPreference?.createdAt??Date.now(),
-        updatedAt:Date.now(),
-      };
-      if (previousPreference)
-        await ctx.db.patch(previousPreference._id, preference);
-      else await ctx.db.insert("learnedPreferences", preference);
-    }
+    await recordFindingFeedback(ctx, finding, { value: args.value, comment: args.comment, userId: user._id });
   },
 });
 export const knowledge = query({

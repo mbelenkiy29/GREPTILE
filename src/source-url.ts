@@ -14,6 +14,11 @@ export function repositorySourceUrl(kind: string, instance: string, repository: 
     case "github-enterprise": return `${origin}/${repo}/blob/${ref}/${path}`;
     case "gitlab": return `${origin}/${repo}/-/blob/${ref}/${path}`;
     case "gitea": return `${origin}/${repo}/src/commit/${ref}/${path}`;
+    case "azure-devops": {
+      const parts = repository.split("/");
+      if (parts.length !== 2) throw new Error("Invalid Azure DevOps repository");
+      return `${origin}/${encodeURIComponent(parts[0])}/_git/${encodeURIComponent(parts[1])}?path=${encodeURIComponent("/" + file)}&version=GC${ref}`;
+    }
     case "bitbucket-cloud":
       if (repository.split("/").length !== 2) throw new Error("Invalid Bitbucket repository name");
       return `https://bitbucket.org/${repo}/src/${ref}/${path}`;

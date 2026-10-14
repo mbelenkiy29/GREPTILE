@@ -13,6 +13,10 @@ import {runtimePolicySchema} from "../../src/runtime-policy";
 import {approvalDefaults,runtimeDefaults} from "../../src/review-settings";
 
 const text = (f: FormData, key: string) => z.string().parse(f.get(key) ?? "");
+// One-shot confirmation shown by the dashboard Toaster after a redirect or revalidation.
+async function notify(message: string, tone: "success" | "error" = "success") {
+  (await cookies()).set("openreview_toast", encodeURIComponent(JSON.stringify({ text: message, tone })), { path: "/", sameSite: "lax", maxAge: 30, httpOnly: false, secure: process.env.NODE_ENV === "production" });
+}
 export async function saveApprovalPolicy(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
  try{
   const {token}=await current(),scope=text(form,"scope");
@@ -96,6 +100,7 @@ export async function configureRepository(form: FormData) {
     repositoryId: text(form, "repositoryId") as Id<"repositories">,
     enabled: text(form, "enabled") === "true",
   });
+  await notify("Repository updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function reindex(form: FormData) {
@@ -104,6 +109,7 @@ export async function reindex(form: FormData) {
     token,
     repositoryId: text(form, "repositoryId") as Id<"repositories">,
   });
+  await notify("Re-index queued.");
   revalidatePath("/dashboard", "layout");
 }
 export async function saveRule(form: FormData) {
@@ -126,6 +132,7 @@ export async function saveRule(form: FormData) {
       ? { repositoryId: text(form, "repositoryId") as Id<"repositories"> }
       : {}),
   });
+  await notify("Rule saved.");
   revalidatePath("/dashboard", "layout");
 }
 export async function feedback(form: FormData) {
@@ -177,8 +184,44 @@ export async function revokeInvitation(_state:{error?:string},form:FormData):Pro
   return {};
 }
 export async function logout() {
-  (await cookies()).delete("openreview_session");
+  const jar = await cookies(), token = jar.get("openreview_session")?.value;
+  if (token) await backend().mutation(api.identity.signOut, { token }).catch(() => undefined);
+  jar.delete("openreview_session");
   redirect("/");
+}
+export async function signOutEverywhere() {
+  const { token } = await current();
+  await backend().mutation(api.identity.signOutEverywhere, { token });
+  (await cookies()).delete("openreview_session");
+  redirect("/?signedout=1");
+}
+export async function revokeSession(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.identity.revokeSession, { token, sessionId: text(form, "sessionId") as Id<"sessions"> });
+  await notify("Session signed out.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function inviteByEmail(form: FormData) {
+  const { token } = await current();
+  let outcome = "sent";
+  try { outcome = await backend().action(api.identityJobs.inviteByEmail, { token, organizationId: text(form, "organizationId") as Id<"organizations">, email: text(form, "email"), role: z.enum(["admin", "member", "viewer"]).parse(text(form, "role")) }); }
+  catch { outcome = "error"; }
+  revalidatePath("/dashboard", "layout");
+  redirect(`/dashboard/settings/people?emailInvite=${outcome}`);
+}
+export async function revokeEmailInvitation(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.identity.revokeEmailInvitation, { token, invitationId: text(form, "invitationId") as Id<"emailInvitations"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function acceptEmailInvitation(form: FormData) {
+  const { token } = await current();
+  const raw = text(form, "token");
+  let organizationId: string;
+  try { organizationId = await backend().mutation(api.identity.acceptEmailInvitation, { token, tokenHash: createHash("sha256").update(raw).digest("hex") }); }
+  catch { redirect("/invite?error=1"); }
+  (await cookies()).set("openreview_workspace", organizationId, { httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production" });
+  redirect("/dashboard");
 }
 export async function cancelReview(form: FormData) {
   const { token } = await current();
@@ -219,9 +262,105 @@ export async function saveSettings(form: FormData) {
       model: text(form, "model"),
       instructions: text(form, "instructions"),
       commentStyle: text(form, "commentStyle"),
+      reviewEngine: text(form, "reviewEngine") || previous.settings.reviewEngine || "pipeline",
+      checkFailureSeverity: text(form, "checkFailureSeverity") || previous.settings.checkFailureSeverity || "off",
+      triggerLabels: form.has("triggerLabels") ? list("triggerLabels") : previous.settings.triggerLabels ?? [],
+      excludedAuthors: form.has("excludedAuthors") ? list("excludedAuthors") : previous.settings.excludedAuthors ?? [],
+      maxFiles: form.has("maxFiles") ? Number(text(form, "maxFiles")) : previous.settings.maxFiles ?? 0,
+      maxChangedLines: form.has("maxChangedLines") ? Number(text(form, "maxChangedLines")) : previous.settings.maxChangedLines ?? 0,
+      strictness: form.has("strictness") ? Number(text(form, "strictness")) : previous.settings.strictness ?? 0,
+      lockedKeys: form.has("lockedConfigured") ? form.getAll("lockedKeys").map(String) : previous.settings.lockedKeys ?? [],
+      autoApproveConventions: form.has("conventionsConfigured") ? form.has("autoApproveConventions") : previous.settings.autoApproveConventions ?? false,
+      fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
+  await notify("Review settings saved.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function setMinutesPerFinding(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.analytics.setMinutesPerFinding, { token, organizationId: text(form, "organizationId") as Id<"organizations">, minutes: Number(text(form, "minutes")) }); await notify("Time-saved estimate updated."); }
+  catch { await notify("Only workspace admins can change the estimate (1–480 minutes).", "error"); }
+  revalidatePath("/dashboard", "layout");
+}
+export async function startCheckout(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.checkout, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); }
+  catch { redirect("/dashboard/settings/billing?billing=error"); }
+  redirect(url);
+}
+export async function openBillingPortal(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.portal, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); }
+  catch { redirect("/dashboard/settings/billing?billing=error"); }
+  redirect(url);
+}
+export async function saveSlackChannel(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.saveChannel, { token, organizationId: text(form, "organizationId") as Id<"organizations">, channelId: text(form, "channelId"), repositoryIds: form.getAll("repositoryIds").map(String) as Id<"repositories">[], events: form.getAll("events").map(String), qa: form.has("qa") });
+  await notify("Slack channel linked.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function removeSlackChannel(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.removeChannel, { token, channelId: text(form, "channelId") as Id<"notificationChannels"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function disconnectSlack(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.disconnectSlack, { token, organizationId: text(form, "organizationId") as Id<"organizations"> });
+  revalidatePath("/dashboard", "layout");
+}
+export async function saveNotificationPreferences(form: FormData) {
+  const { token } = await current();
+  const level = z.enum(["off", "mine", "all"]);
+  await backend().mutation(api.notifications.savePreferences, { token, organizationId: text(form, "organizationId") as Id<"organizations">, reviewCompleted: level.parse(text(form, "reviewCompleted")), highSeverity: level.parse(text(form, "highSeverity")) });
+  await notify("Email preferences saved.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function setNotificationEmail(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.notifications.setEmail, { token, organizationId: text(form, "organizationId") as Id<"organizations">, email: text(form, "email") });
+  revalidatePath("/dashboard", "layout");
+}
+export async function askChat(form: FormData) {
+  const { token } = await current();
+  const threadId = text(form, "threadId");
+  const result = await backend().mutation(api.chat.ask, { token, organizationId: text(form, "organizationId") as Id<"organizations">, ...(threadId ? { threadId: threadId as Id<"chatThreads"> } : {}), repositoryIds: form.getAll("repositoryIds").map(String).slice(0, 5) as Id<"repositories">[], question: text(form, "question") });
+  redirect(`/dashboard/chat?thread=${result.threadId}`);
+}
+export async function deleteChatThread(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.chat.deleteThread, { token, threadId: text(form, "threadId") as Id<"chatThreads"> });
+  redirect("/dashboard/chat");
+}
+export async function editPreference(form: FormData) {
+  const { token } = await current();
+  const scope = text(form, "scope");
+  await backend().mutation(api.memory.editPreference, { token, preferenceId: text(form, "preferenceId") as Id<"learnedPreferences">, ...(form.has("instruction") ? { instruction: text(form, "instruction") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}) });
+  await notify("Preference updated.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function editLearnedRule(form: FormData) {
+  const { token } = await current();
+  const scope = text(form, "scope"), status = text(form, "status");
+  await backend().mutation(api.memory.editLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, ...(form.has("text") ? { text: text(form, "text") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}), ...(status ? { status: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(status) } : {}) });
+  await notify("Convention updated.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function deleteLearnedRule(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.memory.deleteLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules"> });
+  await notify("Convention deleted.");
+  revalidatePath("/dashboard", "layout");
+}
+export async function decideConvention(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.conventions.decide, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, decision: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(text(form, "decision")) });
+  await notify("Convention updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function resetPreference(form: FormData) {
@@ -230,10 +369,11 @@ export async function resetPreference(form: FormData) {
     token,
     preferenceId: text(form, "preferenceId") as Id<"learnedPreferences">,
   });
+  await notify("Preference deleted.");
   revalidatePath("/dashboard", "layout");
 }
 export async function setPreferenceEnabled(form:FormData){
- const {token}=await current();await backend().mutation(api.settings.setPreferenceEnabled,{token,preferenceId:text(form,"preferenceId") as Id<"learnedPreferences">,enabled:text(form,"enabled")==="true"});revalidatePath("/dashboard","layout");
+ const {token}=await current();await backend().mutation(api.settings.setPreferenceEnabled,{token,preferenceId:text(form,"preferenceId") as Id<"learnedPreferences">,enabled:text(form,"enabled")==="true"});await notify('Preference updated.');revalidatePath("/dashboard","layout");
 }
 export async function createApiKey(
   _previous: string,
@@ -247,6 +387,7 @@ export async function createApiKey(
     name: text(form, "name"),
     hash: createHash("sha256").update(key).digest("hex"),
     prefix: key.slice(0, 11),
+    scopes: [z.enum(["read", "write", "admin"]).parse(text(form, "scope") || "read")],
   });
   revalidatePath("/dashboard/settings/keys");
   return key;
@@ -257,6 +398,7 @@ export async function revokeApiKey(form: FormData) {
     token,
     keyId: text(form, "keyId") as Id<"apiKeys">,
   });
+  await notify("API key revoked.");
   revalidatePath("/dashboard/settings/keys");
 }
 export async function updateMember(form: FormData) {
@@ -267,6 +409,7 @@ export async function updateMember(form: FormData) {
     role: z.enum(["owner", "admin", "member", "viewer"]).parse(text(form, "role")),
     remove: text(form, "remove") === "true",
   });
+  await notify("Member updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function approveBridge(form: FormData) {
@@ -332,15 +475,16 @@ export async function connectProvider(_previous:{error?:string},form:FormData):P
  try{
   const user=await current(),token=user.token,organizationId=text(form,"organizationId") as Id<"organizations">;
   if(!user.organizations.some(o=>o._id===organizationId && ["owner","admin"].includes(o.role)))throw new Error("Workspace admin required");
-  const kind=z.enum(["gitlab","github-enterprise","gitea","bitbucket-dc","perforce"]).parse(text(form,"kind"));
+  const kind=z.enum(["gitlab","github-enterprise","gitea","bitbucket-dc","perforce","azure-devops"]).parse(text(form,"kind"));
   const {encryptCredential,providerOrigin}=await import("../../src/credentials");
-  const instance=providerOrigin(text(form,"instance"),kind==="gitlab"?["gitlab.com"]:[]);
+  const instance=providerOrigin(text(form,"instance"),kind==="gitlab"?["gitlab.com"]:kind==="azure-devops"?["dev.azure.com"]:[]);
   const credential=text(form,"credential"),webhook=text(form,"webhookSecret");
   if(credential.length<10||credential.length>20000||kind!=="perforce"&&webhook.length<32)throw new Error("Credentials required; webhook providers need a secret of at least 32 characters");
   let config:unknown;
   if(["github-enterprise","bitbucket-dc","perforce"].includes(kind)){try{config=JSON.parse(credential);}catch{throw new Error("Credential must be valid JSON with the fields shown in setup");}}
   if(kind==="gitlab"){const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential).repositories();}
   else if(kind==="gitea"){const {Gitea}=await import("../../src/gitea");await new Gitea(instance,credential).discover();}
+  else if(kind==="azure-devops"){if(!/^https:\/\/[^/]+\/[^/]+/.test(instance))throw new Error("Use the organization URL, for example https://dev.azure.com/your-organization");const {AzureDevOps}=await import("../../src/azure-devops");await new AzureDevOps(instance,credential).repositories();}
   else if(kind==="bitbucket-dc"){const {BitbucketDC}=await import("../../src/bitbucket-dc");const c=z.object({token:z.string().min(10),username:z.string().min(1)}).safeParse(config);if(!c.success)throw new Error("Bitbucket credential requires a token (10+ characters) and bot username");await new BitbucketDC(instance,c.data.token,undefined,c.data.username).repositories();}
   else if(kind==="perforce"){const {P4CodeReview,p4Credential}=await import("../../src/perforce");const c=p4Credential.safeParse(config);if(!c.success)throw new Error("P4 credential requires only username and ticket, as shown in setup");await new P4CodeReview(instance,c.data.username,c.data.ticket).projects();}
   else{const {Github}=await import("../../src/github");const c=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).safeParse(config);if(!c.success)throw new Error("Enterprise credential requires appId, privateKey, and a positive installationId");await (await Github.installation(c.data.installationId,{appId:c.data.appId,privateKey:c.data.privateKey,base:instance+(new URL(instance).hostname.endsWith(".ghe.com")?"":"/api/v3")})).repositories();}
@@ -385,6 +529,12 @@ export async function disconnectLinear(form:FormData) {
  try {await backend().mutation(api.integrations.disconnect,{token,id});}
  catch {redirect("/dashboard/memory/integrations?error=disconnect");}
  revalidatePath("/dashboard","layout");redirect("/dashboard/memory/integrations?saved=disconnected");
+}
+export async function configureNotion(form:FormData) {
+ const {token}=await current(),id=text(form,"integrationId") as Id<"integrationConnections">;
+ try {await backend().action(api.notionJobs.configure,{token,id,repositoryIds:form.getAll("repositoryIds").map(String) as Id<"repositories">[]});}
+ catch {redirect("/dashboard/memory/integrations?error=notion-scope&integration="+encodeURIComponent(id));}
+ revalidatePath("/dashboard","layout");redirect("/dashboard/memory/integrations?saved=true&integration="+encodeURIComponent(id));
 }
 export async function refreshLinear(form:FormData) {
  const {token}=await current(),id=text(form,"integrationId") as Id<"integrationConnections">;

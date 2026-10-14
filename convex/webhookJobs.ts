@@ -3,8 +3,8 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
-import picomatch from "picomatch";
 import { Github } from "../src/github";
+import { pullRequestTrigger } from "../src/triggers";
 
 const payloadSchema = z.object({
   action: z.string().optional(),
@@ -23,8 +23,11 @@ const payloadSchema = z.object({
       state: z.string(),
       head: z.object({ sha: z.string(), ref: z.string() }),
       base: z.object({ ref: z.string() }),
+      user: z.object({ login: z.string() }).optional(),
+      labels: z.array(z.object({ name: z.string() })).optional(),
     })
     .optional(),
+  label: z.object({ name: z.string() }).optional(),
   issue: z
     .object({ number: z.number(), pull_request: z.unknown().optional() })
     .optional(),
@@ -161,24 +164,20 @@ export const process = internalAction({
           if (
             delivery.event === "pull_request" &&
             payload.pull_request &&
-            ["opened", "synchronize", "reopened", "ready_for_review"].includes(
+            ["opened", "synchronize", "reopened", "ready_for_review", "labeled"].includes(
               payload.action ?? "",
             )
           ) {
             const pr = payload.pull_request;
-            if (
-              settings?.automatic &&
-              (!pr.draft || settings.drafts) &&
-              (payload.action !== "synchronize" || settings.rereview) &&
-              (!settings.targetBranches.length ||
-                picomatch(settings.targetBranches)(pr.base.ref)) &&
-              !picomatch(settings.ignoredBranches)(pr.head.ref)
-            )
+            const decision = settings ? pullRequestTrigger({ action: payload.action ?? "", label: payload.label?.name, pr }, settings) : { review: false as const, reason: "No settings" };
+            if (decision.review)
               await ctx.runMutation(internal.reviews.enqueue, {
                 repositoryId: repo._id,
                 prNumber: pr.number,
                 headSha: pr.head.sha,
+                trigger: decision.trigger,
               });
+            else console.log(JSON.stringify({ event: "review.not_triggered", repositoryId: repo._id, prNumber: pr.number, action: payload.action, reason: decision.reason }));
           }
           if (
             delivery.event === "push" &&
