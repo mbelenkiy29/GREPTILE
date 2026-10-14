@@ -187,6 +187,9 @@ export type ReviewResult = {
     carriedForward?: Finding[];
     exploitability?: { fingerprint: string; exploitPath: boolean }[];
     knowledge?: string[];
+    requirements?: { ticket: string; source?: string; url?: string; ticketLine: number; criterion: string; status: "met" | "not met" | "unclear"; reason: string; code: { filePath: string; startLine: number; quote: string }[] }[];
+    // Grounded "not met" acceptance criteria; any blocks automatic approval.
+    requirementsNotMet?: number;
     resolvedFingerprints: string[];
   };
   usage: ModelUsage[];

@@ -27,6 +27,10 @@ The score is shown next to the verdict when the confidence-score summary section
 
 The summary ends with a footer such as "Review 3 on this pull request · Comment `@openreview review` to re-run it.", followed by links to the dashboard. The number counts this pull request's published reviews and stays the same when a publication is retried. The command matches what each provider accepts: `@openreview review` on GitHub, GitHub Enterprise, GitLab, Gitea, Bitbucket and Origin, `@openreview review again` on Perforce, and the dashboard on Azure DevOps, which does not accept comment commands.
 
+## Requirements check
+
+When a pull request references a Linear, Jira or Notion ticket that OpenReview can read, the summary gets a **Requirements** section. Each acceptance criterion is quoted exactly from the ticket and marked ✅ met, ❌ not met or ❔ unclear, with the code lines it relied on. Criteria the model cannot quote from the ticket are dropped, and "met" without matching code becomes "unclear". A "not met" criterion whose evidence includes a changed line becomes a finding, after the usual verification. Any "not met" criterion backed by code blocks automatic approval, and unclear criteria add a coverage note (which also blocks it). Turn the check off by unchecking the Requirements summary section.
+
 ## Generated reproduction tests
 
 When the runtime worker is set up and an administrator opts in, OpenReview drafts a small test for up to three verified findings and runs each one in the isolated sandbox on a copy of the reviewed revision. A test that fails reproduces the defect and raises the finding's confidence; one that passes lowers it. Each finding's comment shows the recorded outcome, the command, the test code and the output. The tests are never committed. See [runtime validation](../runtime-worker.md#generated-reproduction-tests).

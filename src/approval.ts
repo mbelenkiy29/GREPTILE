@@ -21,6 +21,8 @@ export type ApprovalState = {
   checks:{name:string;appId?:number;status:string;conclusion:string|null}[];
   nativeRequiredChecks:{name:string;appId?:number}[];
   runtimeRequired:boolean; runtimePassed:boolean;
+  // Grounded "not met" acceptance criteria from linked tickets.
+  requirementsNotMet?:number;
 };
 /** All inputs come from trusted settings, recorded review state, and fresh provider reads. */
 export function approvalBlockers(policy:z.infer<typeof approvalPolicySchema>,state:ApprovalState){
@@ -42,5 +44,6 @@ export function approvalBlockers(policy:z.infer<typeof approvalPolicySchema>,sta
   const required=[...state.nativeRequiredChecks,...p.requiredChecks];
   if(required.some(required=>{const matches=state.checks.filter(c=>c.name===required.name&&(required.appId===undefined||required.appId===c.appId));return !matches.length||matches.some(c=>c.status!=="completed"||c.conclusion!=="success");}))reasons.push("Required checks have not passed");
   if(state.runtimeRequired&&!state.runtimePassed)reasons.push("Required runtime validation has not passed");
+  if((state.requirementsNotMet??0)>0)reasons.push("Linked ticket requirements are not met");
   return reasons;
 }
