@@ -12,7 +12,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   notes: deliberately updated test accessors (engine/linear/perforce-depot/pipeline/p4-index) to read the specialist payload from `request.context`, and tests/model.test.ts now expects `json_schema` for provider openai. Prices/IDs checked against official docs 2026-10-14.
 - [x] H4 Production-readiness runbook — done (prepare only)
   evidence: docs/production-checklist.md (Deployment Protection scope per current Vercel docs, APP_URL/GitHub App URLs, env names for Vercel+Convex, model-key rotation before 2026-11-01, inference budget, Convex backups with verified CLI flags, final verification); linked from docs/deployment.md; human steps 2–7 below.
-- [ ] A1 Resilience and scale — todo
+- [x] A1 Resilience and scale — done
+  plan: data() without inventory + filesByPath/filePage/filesUnder; sweep-then-finish indexing; GitHub subtree walk; omitted diffs → skipped; risk-ranked per-mode budgets + context trimming; allSettled specialists; skipped files in summary/dashboard.
+  evidence: tested with fakes (+ convex-test at 33,000 files); tests: tests/scale.spec.ts (above-ceiling repo: bounded pages, path lookups, batch sweep, finishIndex), tests/resilience.test.ts (7: truncated tree walk, untruncated single call, omitted diffs, 600-file PR, context-budget trimming, one/all specialists failing + cancellation, ignored paths); commands: lint/typecheck/test (215 Node + 162 vitest)/build green; commit: db71bf0
+  notes: convex-test doesn't enforce Convex read limits — the test proves every query is bounded by construction. Deliberately updated: finishIndex callers in tests use the sweep protocol (no `paths`); diagnostics toEqual includes new empty arrays. Grounding now uses the reviewed diff, so findings can't anchor on ignored/skipped files.
 - [ ] A2 Agentic reviewer — todo
 - [ ] A3 Multi-language code graph — todo
 - [ ] A4 Semantic retrieval — todo
@@ -51,6 +54,9 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
 
 ## Decisions (date — decision — reason)
+- 2026-10-14 — Review file limits per mode: fast 200, standard 350, deep 500 (was a hard failure above 500 for all modes); payload stays capped at 300 KB with lowest-risk trimming — keeps cost bounded while never failing outright.
+- 2026-10-14 — Rules and learned preferences in repositories.data are capped at 1,000 rows each (newest preferences first) — bounded reads; real deployments are far below this.
+- 2026-10-14 — `pnpm test:e2e` runs at the end of each phase rather than after every small dashboard change, since it needs both local dev servers.
 - 2026-10-14 — Anthropic structured output uses `output_config.format` (GA, no beta header), not forced tool use — forced tool_choice conflicts with always-on adaptive thinking on Claude 5.x.
 - 2026-10-14 — Specialists share one system prompt; the review payload moves to `ModelRequest.context` (a stable prefix) and the category goes in a small trailing `assignment` input — lets 7 specialist calls share one cache write instead of 7 full-price inputs. Repairs are appended after the prefix on Anthropic.
 - 2026-10-14 — `runTools` is an optional `ModelProvider` member so existing fake providers compile; agentic callers must fall back when absent.
