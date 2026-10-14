@@ -10,7 +10,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: runTools on ModelProvider (optional member, Anthropic+OpenAI native); native structured output with zod fallback; context prefix + cache_control; reasoning token param + LLM_MAX_OUTPUT_TOKENS; price table w/ overrides & tiers; Claude defaults.
   evidence: tested with fakes; tests: tests/model-tools.test.ts (9: tool round trips both adapters, thinking replay, breakpoint placement, structured output + 400 fallback, prefix stability on repair, reasoning param, defaults, price table fail-closed/tiers/overrides, cache receipts), tests/inference-budget.spec.ts (+1 cache settle/idempotency), tests/engine.test.ts (+1 specialists share prefix); commands: lint/typecheck/test green (208 Node + 161 vitest); commit: 12b12b0
   notes: deliberately updated test accessors (engine/linear/perforce-depot/pipeline/p4-index) to read the specialist payload from `request.context`, and tests/model.test.ts now expects `json_schema` for provider openai. Prices/IDs checked against official docs 2026-10-14.
-- [ ] H4 Production-readiness runbook — todo
+- [x] H4 Production-readiness runbook — done (prepare only)
+  evidence: docs/production-checklist.md (Deployment Protection scope per current Vercel docs, APP_URL/GitHub App URLs, env names for Vercel+Convex, model-key rotation before 2026-11-01, inference budget, Convex backups with verified CLI flags, final verification); linked from docs/deployment.md; human steps 2–7 below.
 - [ ] A1 Resilience and scale — todo
 - [ ] A2 Agentic reviewer — todo
 - [ ] A3 Multi-language code graph — todo
@@ -42,6 +43,12 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
+2. (H4) Before 2026-11-01: rotate the model key in Convex production (`LLM_API_KEY`) per docs/production-checklist.md §4; optionally switch to `LLM_PROVIDER=anthropic` with empty `LLM_MODEL`.
+3. (H4) Vercel → openreview → Settings → Deployment Protection → scope **Standard Protection** (or add a custom production domain) per §1; verify `/api/health` signed-out.
+4. (H4) Set `APP_URL` identically in Vercel and Convex; set GitHub App callback/setup/webhook URLs per §2; redeploy; confirm a 2xx webhook delivery.
+5. (H4) Confirm Vercel/Convex env var names per §3 (dashboard; `convex env list --prod` prints values — private terminal only).
+6. (H4) Raise/reconcile the inference budget per §5 (≈$0.12 unreserved at audit).
+7. (H4) Take a Convex backup (dashboard **Backup Now** with files, or `npx convex export --prod --include-file-storage --path <private-dir>`) before deploying parity changes (§6); then run §7 verification.
 
 ## Decisions (date — decision — reason)
 - 2026-10-14 — Anthropic structured output uses `output_config.format` (GA, no beta header), not forced tool use — forced tool_choice conflicts with always-on adaptive thinking on Claude 5.x.
