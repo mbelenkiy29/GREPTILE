@@ -317,7 +317,7 @@ Both servers expose the same tools:
 
 ## Self-hosting
 
-See [deployment documentation](docs/deployment.md). Both web and Convex backend run on your infrastructure. Convex's open-source backend provides persistent scheduling and file storage. Source files use Convex storage blobs; file metadata, symbols, and relationships are indexed in tables.
+See [deployment documentation](docs/deployment.md) for Docker Compose, and the [self-hosting kit](docs/self-hosting-kit.md) for the Helm chart, the AWS Terraform module, offline mode (`OPENREVIEW_OFFLINE=true`, which limits outbound traffic to your model, embedding, code-host and SSO endpoints), the egress list and the bundled tree-sitter grammars. Both web and Convex backend run on your infrastructure. Convex's open-source backend provides persistent scheduling and file storage. Source files use Convex storage blobs; file metadata, symbols, and relationships are indexed in tables.
 
 ## Local demo without GitHub
 

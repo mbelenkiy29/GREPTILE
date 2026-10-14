@@ -1,3 +1,4 @@
+import { assertEgress } from "./egress";
 // Cloud billing (Stripe). Disabled unless BILLING_ENABLED=true, which is the self-host default.
 // A workspace starts on an app-level trial; a per-seat subscription sets a monthly review quota.
 export type BillingConfig = { enabled: boolean; trialDays: number; trialReviews: number; reviewsPerSeat: number; graceDays: number };
@@ -105,6 +106,7 @@ export function formEncode(params: Record<string, unknown>, prefix = ""): string
 }
 export async function stripe<T>(path: string, params: Record<string, unknown>, key: string, fetchImpl: typeof fetch = fetch, idempotencyKey?: string): Promise<T> {
   if (!/^\/v1\/[a-z_/]+[a-zA-Z0-9_/]*$/.test(path)) throw new Error("Invalid Stripe API path");
+  assertEgress("billing", "Stripe billing");
   const response = await fetchImpl("https://api.stripe.com" + path, { method: "POST", redirect: "error", headers: { authorization: `Bearer ${key}`, "content-type": "application/x-www-form-urlencoded", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: formEncode(params).join("&"), signal: AbortSignal.timeout(20000) });
   const data = (await response.json().catch(() => null)) as T & { error?: { type?: string } } | null;
   if (!response.ok || !data) throw new Error(`Stripe request failed (${response.status}${data?.error?.type ? ` ${data.error.type}` : ""})`);

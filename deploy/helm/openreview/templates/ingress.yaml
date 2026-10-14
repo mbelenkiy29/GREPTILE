@@ -1,0 +1,22 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openreview.name" . }}
+  labels: {{- include "openreview.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - secretName: {{ .Values.ingress.tls.secretName }}
+      hosts: [{{ .Values.ingress.hosts.web | quote }}, {{ .Values.ingress.hosts.backend | quote }}, {{ .Values.ingress.hosts.site | quote }}]
+  rules:
+    - host: {{ .Values.ingress.hosts.web | quote }}
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: {{ include "openreview.name" . }}-web, port: { name: http } } } }] }
+    - host: {{ .Values.ingress.hosts.backend | quote }}
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: {{ include "openreview.name" . }}-backend, port: { name: functions } } } }] }
+    - host: {{ .Values.ingress.hosts.site | quote }}
+      http: { paths: [{ path: /, pathType: Prefix, backend: { service: { name: {{ include "openreview.name" . }}-backend, port: { name: site } } } }] }
+{{- end }}

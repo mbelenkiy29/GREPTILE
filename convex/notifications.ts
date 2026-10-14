@@ -5,9 +5,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { audit, authorize, repositoryAccess } from "./auth";
 import { rateLimit } from "./rateLimit";
-import { emailAddress } from "../src/email";
+import { emailAddress, emailConfigured } from "../src/email";
 import { notificationEvents } from "../src/notifications";
 import { mentionQuestion, slackChannelId } from "../src/slack";
+import { egressAllowed, offline } from "../src/egress";
 
 // Notifications: Slack channels (admin-linked) and per-member email. Everything is inert until a
 // Slack workspace is installed or a member verifies an email address.
@@ -26,8 +27,9 @@ export const settings = query({ args: { token: v.string(), organizationId: v.id(
   const channels = admin && slack ? await ctx.db.query("notificationChannels").withIndex("by_org", (q) => q.eq("organizationId", a.organizationId)).filter((q) => q.eq(q.field("installationId"), slack._id)).take(200) : [];
   return {
     admin,
-    slackConfigured: Boolean(process.env.SLACK_CLIENT_ID),
-    emailConfigured: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+    slackConfigured: Boolean(process.env.SLACK_CLIENT_ID) && egressAllowed("slack"),
+    offline: offline(),
+    emailConfigured: emailConfigured(),
     slack: slack ? { teamId: slack.teamId, teamName: slack.teamName, installedAt: slack.createdAt } : null,
     channels: channels.map((c) => ({ _id: c._id, channelId: c.channelId, repositoryIds: c.repositoryIds, events: c.events, qa: c.qa })),
     preferences: { email: own?.email ?? null, verified: Boolean(own?.emailVerifiedAt), reviewCompleted: own?.reviewCompleted ?? preferenceDefaults.reviewCompleted, highSeverity: own?.highSeverity ?? preferenceDefaults.highSeverity },

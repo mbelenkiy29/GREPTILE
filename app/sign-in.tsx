@@ -1,6 +1,7 @@
 // Sign-in choices for the providers this deployment has configured; `next` returns the user to a
 // same-origin page (e.g. an invitation) after signing in.
 import { emailOnWeb } from "../src/email";
+import { offline } from "../src/egress";
 
 export function SignInOptions({ next }: { next?: string }) {
   const q = next ? `?next=${encodeURIComponent(next)}` : "";
@@ -8,7 +9,7 @@ export function SignInOptions({ next }: { next?: string }) {
   return <div className="sign-in-options">
     <a className="button primary" href={`/api/auth/login${q}`}>Sign in with GitHub</a>
     {process.env.GITLAB_OAUTH_CLIENT_ID && <a className="button" href={`/api/auth/gitlab/login${q}`}>Sign in with GitLab</a>}
-    {process.env.GOOGLE_CLIENT_ID && <a className="button" href={`/api/auth/google/login${q}`}>Sign in with Google</a>}
+    {process.env.GOOGLE_CLIENT_ID && !offline() && <a className="button" href={`/api/auth/google/login${q}`}>Sign in with Google</a>}
     {email && <form action="/api/auth/email" method="post" className="email-sign-in">
       {next && <input type="hidden" name="next" value={next} />}
       <label>Email<input type="email" name="email" required maxLength={254} autoComplete="email" /></label>

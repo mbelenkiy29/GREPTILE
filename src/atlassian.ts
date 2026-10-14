@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertEgress } from "./egress";
 
 export const atlassianScopes = ["offline_access", "read:jira-work", "read:page:confluence", "read:space:confluence"];
 const cloudId = z.string().uuid();
@@ -24,6 +25,7 @@ export function atlassianAuthorization(clientId:string,redirectUri:string,state:
 export async function atlassianToken(clientId:string,clientSecret:string,grant:{code:string;redirectUri:string}|{refreshToken:string}):Promise<AtlassianCredentials> {
   if(!clientId || !clientSecret) throw new Error("Configure ATLASSIAN_CLIENT_ID and ATLASSIAN_CLIENT_SECRET");
   const body = "code" in grant ? {grant_type:"authorization_code",code:grant.code,redirect_uri:callback(grant.redirectUri)} : {grant_type:"refresh_token",refresh_token:grant.refreshToken};
+  assertEgress("integrations", "Atlassian");
   const response = await fetch("https://auth.atlassian.com/oauth/token",{method:"POST",redirect:"error",headers:{"content-type":"application/json"},body:JSON.stringify({...body,client_id:clientId,client_secret:clientSecret}),signal:AbortSignal.timeout(30000)});
   if(!response.ok) throw new AtlassianError("Atlassian token request failed ("+response.status+")",response.status);
   const result = z.object({access_token:z.string().min(10),refresh_token:z.string().min(10),expires_in:z.number().int().positive().max(86400),scope:z.string()}).parse(await response.json());
@@ -43,7 +45,7 @@ export class Atlassian {
   constructor(private accessToken:string){if(!accessToken) throw new Error("Atlassian access token required");}
   private async get<T>(path:string,schema:z.ZodType<T>):Promise<T> {
     if(!path.startsWith("/")) throw new Error("Invalid Atlassian API path");
-    const response=await fetch("https://api.atlassian.com"+path,{redirect:"error",headers:{authorization:"Bearer "+this.accessToken,accept:"application/json"},signal:AbortSignal.timeout(30000)});
+    assertEgress("integrations","Atlassian");const response=await fetch("https://api.atlassian.com"+path,{redirect:"error",headers:{authorization:"Bearer "+this.accessToken,accept:"application/json"},signal:AbortSignal.timeout(30000)});
     if(!response.ok) throw new AtlassianError("Atlassian API request failed ("+response.status+")",response.status);
     const text = await response.text();
     if(Buffer.byteLength(text,"utf8")>2000000) throw new Error("Atlassian response exceeds 2MB retrieval limit");

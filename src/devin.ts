@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertEgress } from "./egress";
 
 // Devin handoff (opt-in). Devin documents no "open with prompt" link, only its API: POST
 // https://api.devin.ai/v1/sessions with `Authorization: Bearer <personal (apk_user_…) or service (apk_…) key>`
@@ -11,6 +12,7 @@ const sessionResponse = z.object({ session_id: z.string().min(1), url: z.string(
 export type DevinFetch = (url: string, init: { method: "POST"; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
 
 export async function createDevinSession(key: string, prompt: string, title: string, fetcher: DevinFetch = (url, init) => fetch(url, init)) {
+  assertEgress("handoff", "Send to Devin");
   if (!validDevinKey(key)) throw new Error("The saved Devin API key is not valid; replace it in Personal agents.");
   const response = await fetcher(devinApi, { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ prompt: prompt.slice(0, 30_000), title: title.slice(0, 120), unlisted: true }), signal: AbortSignal.timeout(30_000) });
   if (response.status === 401 || response.status === 403) throw new Error("Devin rejected the API key; replace it in Personal agents.");

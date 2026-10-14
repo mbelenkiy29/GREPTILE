@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { egressAllowed } from "./egress";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
@@ -32,7 +33,7 @@ export function authorizationServerMetadata(base: string) {
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
     scopes_supported: [...apiScopes],
-    client_id_metadata_document_supported: true,
+    client_id_metadata_document_supported: egressAllowed("oauth-client-metadata"),
     authorization_response_iss_parameter_supported: true,
   };
 }
@@ -136,6 +137,7 @@ export const safeMetadataFetch: MetadataFetcher = (url) => new Promise((resolve,
   req.end();
 });
 export async function loadClientMetadata(clientId: string, fetcher: MetadataFetcher = safeMetadataFetch) {
+  if (!egressAllowed("oauth-client-metadata")) return { error: "Client ID Metadata Documents are not fetched in offline mode; register the client instead" } as const;
   const url = clientMetadataUrl(clientId);
   if (!url) return { error: "client_id must be an HTTPS URL with a path on a public host" } as const;
   let response;

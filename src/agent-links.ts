@@ -1,3 +1,4 @@
+import { egressAllowed } from "./egress";
 // "Open in agent" links, only for schemes the agents officially document (checked 2026-10-14):
 // Cursor   cursor://anysphere.cursor-deeplink/prompt?text=… (≤10,000 URL-encoded chars; user confirms)
 // Claude   claude-cli://open?q=…&repo=owner/name (q ≤5,000 chars; pre-filled, never auto-sent)
@@ -31,5 +32,5 @@ export function agentLinks(prompt: string, context: { githubSlug?: string; origi
 // The Devin handoff is offered only when the viewer saved their own Devin key and the finding (or review)
 // can be fixed; otherwise there is no Devin button at all.
 export function devinHandoff(configured: boolean, fixable: boolean, reviewId: string, finding?: string) {
-  return configured && fixable ? { reviewId, ...(finding ? { finding } : {}) } : undefined;
+  return configured && fixable && egressAllowed("handoff") ? { reviewId, ...(finding ? { finding } : {}) } : undefined;
 }
