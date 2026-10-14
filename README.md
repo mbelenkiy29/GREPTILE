@@ -92,6 +92,13 @@ Test execution, coverage and a visible **Last reviewed commit** link always appe
 
 Reaction feedback: 👍 and 👎 on OpenReview finding comments count as feedback. A person who only gives 👍 marks the finding useful, and one who only gives 👎 marks it not useful. Each person's vote is recorded once and feeds the learned-preference system that dashboard feedback already uses. Bots never count. GitHub has no reaction webhooks, so reactions are polled when a pull request closes or merges and hourly for recently reviewed open pull requests. GitLab reactions arrive through award-emoji webhooks (enable "Emoji events" on the project hook). Analytics shows reaction counts per period.
 
+Learned team conventions:
+- **Ingestion:** each day OpenReview reads, incrementally and with bounds, the human review comments on newly merged GitHub pull requests in each enabled repository. Bots and trivial remarks are excluded.
+- **Suggestion:** a model call (task `knowledge:conventions`, counted against the inference budget) extracts recurring conventions. Similar ones are clustered and stored as **suggested** rules with links to the supporting comments and a frequency count.
+- **Approval:** administrators approve, reject or disable suggestions on the repository settings page, and every decision is audited. Auto-approval can be turned on per scope.
+- **Use:** approved conventions reach reviews only as review guidance.
+- **Guardrails:** text that would suppress findings, approve changes, touch permissions, secrets or budgets, or looks like prompt injection is rejected.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

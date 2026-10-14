@@ -37,6 +37,8 @@ export const defaults = {
   strictness: 0,
   // Keys the repository config file (.openreview.json, base branch) may not override.
   lockedKeys: [] as string[],
+  // Learned team conventions start as suggestions; admins may auto-approve them per scope.
+  autoApproveConventions: false,
   commentStyle: "concise",
   summarySections:[...summarySections],
 };

@@ -227,9 +227,15 @@ export async function saveSettings(form: FormData) {
       maxChangedLines: form.has("maxChangedLines") ? Number(text(form, "maxChangedLines")) : previous.settings.maxChangedLines ?? 0,
       strictness: form.has("strictness") ? Number(text(form, "strictness")) : previous.settings.strictness ?? 0,
       lockedKeys: form.has("lockedConfigured") ? form.getAll("lockedKeys").map(String) : previous.settings.lockedKeys ?? [],
+      autoApproveConventions: form.has("conventionsConfigured") ? form.has("autoApproveConventions") : previous.settings.autoApproveConventions ?? false,
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
+  revalidatePath("/dashboard", "layout");
+}
+export async function decideConvention(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.conventions.decide, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, decision: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(text(form, "decision")) });
   revalidatePath("/dashboard", "layout");
 }
 export async function resetPreference(form: FormData) {

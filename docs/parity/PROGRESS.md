@@ -63,7 +63,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: commentReactions mirror; Github.reactions polling (on close/merge + hourly bounded sweep with reactionsSyncedAt); GitLab emoji webhook; shared recordFindingFeedback (dashboard + reactions) → learned preferences; analytics counts.
   evidence: tested with fakes; tests: tests/reactions.test.ts (GitHub pagination/bot/emoji filtering), tests/reactions.spec.ts (4: mirror + dedup + once-per-user feedback + removal, sync/sweep selection, GitLab award/revoke, analytics aggregation); commands: lint/typecheck/test (277 Node + 175 vitest)/build green; commit: see git log feat(C1)
   notes: summary-comment reactions are not polled (finding comments only). GitLab needs "Emoji events" enabled on the project webhook (Needs human).
-- [ ] C2 Learn from human reviewers — todo
+- [x] C2 Learn from human reviewers — done
+  plan: Github.mergedReviewComments (incremental cursor, ≤10 merged PRs/run, humans only); usableComments filter; model extraction with evidence indexes (fake-model tested); clusterConventions + similarity merge; conventionProblem guardrails; learnedRules (suggested/approved/rejected/disabled) with evidence + frequency; decide mutation (admin, audited); autoApproveConventions setting; approved conventions → review preferences; daily sweep.
+  evidence: tested with fakes; tests: tests/conventions.test.ts (3: guardrails, clustering/similarity, input filtering + evidence validation), tests/conventions.spec.ts (2: ingestion → guarded suggestion with evidence/frequency + cursor + usage + merge on next batch; approval flow with viewer denial, audit, rejected stays rejected, auto-approve); commands: lint/typecheck/test (280 Node + 177 vitest)/build green; commit: see git log feat(C2)
+  notes: extraction makes a real model call per batch in production (not run here). GitHub only; other providers lack mergedReviewComments.
 - [ ] C3 Memory management — todo
 - [ ] C4 `@openreview fix this` — todo
 - [ ] D1 Codebase chat (web) — todo

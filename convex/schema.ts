@@ -46,6 +46,7 @@ export const settingsValidator = v.object({
   maxChangedLines:v.optional(v.number()),
   strictness:v.optional(v.number()),
   lockedKeys:v.optional(v.array(v.string())),
+  autoApproveConventions:v.optional(v.boolean()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean()});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -201,6 +202,9 @@ export default defineSchema({
     .index("by_org", ["organizationId"]),
   repositories: defineTable({
     indexScheduledId:v.optional(v.id("_scheduled_functions")),
+    // Incremental ingestion of human review comments for learned conventions.
+    conventionsCursor: v.optional(v.number()),
+    conventionsSyncedAt: v.optional(v.number()),
     // Latest repository config file read from a pull request base revision (for the dashboard).
     configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number() })),
     branches: v.optional(
@@ -436,6 +440,22 @@ export default defineSchema({
     .index("by_pr", ["repositoryId", "prNumber"])
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
     .index("by_org_time", ["organizationId", "createdAt"]),
+  // Team conventions learned from human review comments (review guidance only).
+  learnedRules: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    text: v.string(),
+    category: v.string(),
+    status: v.string(), // suggested | approved | rejected | disabled
+    scope: v.optional(v.string()), // repo (default) | team | workspace (C3)
+    frequency: v.number(),
+    evidence: v.array(v.object({ url: v.string(), author: v.string(), excerpt: v.string() })),
+    decidedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_repo_status", ["repositoryId", "status"])
+    .index("by_org", ["organizationId"]),
   // 👍/👎 reactions on OpenReview's own finding comments, mirrored from the provider
   // (GitHub: polled; GitLab: emoji webhooks). Bots never count.
   commentReactions: defineTable({

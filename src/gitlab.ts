@@ -29,6 +29,7 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
   resolveFindingThreads?(repository:string,number:number,items:{commentId:number;body:string;marker:string}[]):Promise<{resolved:number;skipped:number}>;
   startCheckRun?(repository:string,sha:string,externalId:string,detailsUrl?:string):Promise<number|null>;
   reactions?(repository:string,commentIds:number[]):Promise<{commentId:string;user:string;reaction:"+1"|"-1";createdAt:number}[]>;
+  mergedReviewComments?(repository:string,mergedAfter:number,maxPulls?:number):Promise<{comments:{body:string;path?:string;author:string;url:string;prNumber:number}[];cursor:number}>;
   completeCheckRun?(repository:string,id:number,result:{conclusion:"success"|"failure"|"neutral"|"cancelled";title:string;summary:string;detailsUrl?:string}):Promise<void>;
 };
 const note=z.object({id:z.number(),body:z.string(),author:z.object({username:z.string()}),position:z.object({new_path:z.string(),new_line:z.number().nullable(),head_sha:z.string().optional()}).nullish()});

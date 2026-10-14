@@ -589,7 +589,7 @@ export const review = internalAction({
             globs: r.globs,
             enabled: r.enabled,
           })), ...repoConfig.rules],
-          preferences,
+          preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,

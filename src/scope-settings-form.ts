@@ -17,5 +17,6 @@ export function scopeSettingsFromForm(form:FormData){
   triggerLabels:list('triggerLabels'),excludedAuthors:list('excludedAuthors'),
   maxFiles:Number(value('maxFiles')||0),maxChangedLines:Number(value('maxChangedLines')||0),strictness:Number(value('strictness')||0),
   lockedKeys:form.has('lockedConfigured')?form.getAll('lockedKeys').map(String):defaults.lockedKeys,
+  autoApproveConventions:form.has('autoApproveConventions'),
  };
 }

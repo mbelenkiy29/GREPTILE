@@ -28,6 +28,7 @@ import {
   switchWorkspace,
   switchTeam,
   reviewAgain,
+  decideConvention,
 } from "../actions";
 import { ApiKeyForm } from "../api-key";
 import {SummarySettings} from "../summary-settings";
@@ -204,6 +205,7 @@ export default async function Dashboard({
         })
       : null;
   const semantic = repoSettings ? await backend().query(api.embeddings.status, { token: user.token, repositoryId: repoSettings.repo._id }) : null;
+  const conventions = repoSettings ? await backend().query(api.conventions.list, { token: user.token, repositoryId: repoSettings.repo._id }) : [];
   return (
     <div className="shell">
       <PortalNav organization={(organization.name ?? "Workspace")+(selectedTeam?" / "+selectedTeam.name:"")} login={user.user.login} route={route} section={section[1]} team={filters.team} scopeSelector={<><form action={switchWorkspace}><label className="sr-only" htmlFor="workspace">Workspace</label><select key={organization._id} id="workspace" name="organizationId" defaultValue={organization._id}>{user.organizations.map(o => <option key={o._id} value={o._id}>{o.name}</option>)}</select><button className="small">Switch workspace</button></form><form action={switchTeam}><label htmlFor="scope-team">Team</label><select key={organization._id+":"+(selectedTeam?._id??"")} id="scope-team" name="teamId" defaultValue={selectedTeam?._id??""}><option value="">All accessible teams</option>{scopes.teams.map(t=><option key={t._id} value={t._id}>{t.name}</option>)}</select><input type="hidden" name="returnTo" value={"/dashboard/"+(reviewDetailId?"pulls":section.join("/"))}/><button className="small">Apply team</button></form><p className="muted">Team selection filters repository activity. Workspace administration applies across the workspace.</p><form action={createWorkspace}><label>New workspace name<input name="name" required maxLength={100}/></label><button>Create workspace</button></form></>}>
@@ -1273,6 +1275,11 @@ export default async function Dashboard({
                     <input name="maxChangedLines" type="number" min={0} defaultValue={repoSettings.settings.maxChangedLines ?? 0} />
                   </label>
                   <fieldset className="wide">
+                    <legend>Learned team conventions</legend>
+                    <input type="hidden" name="conventionsConfigured" value="true" />
+                    <label className="check"><input type="checkbox" name="autoApproveConventions" defaultChecked={repoSettings.settings.autoApproveConventions ?? false} /> Auto-approve conventions learned from human review comments (they only add review guidance)</label>
+                  </fieldset>
+                  <fieldset className="wide">
                     <legend>Lock against the repository config file</legend>
                     <input type="hidden" name="lockedConfigured" value="true" />
                     {lockableKeys.map((key) => (
@@ -1338,6 +1345,13 @@ export default async function Dashboard({
                   <button className="primary">Save review settings</button>
                 </fieldset></form>
                 {!isAdmin&&<p>Workspace admin access is required to edit these settings.</p>}
+                <h2>Learned team conventions</h2>
+                {conventions.length === 0 ? <p className="muted">No conventions learned yet. OpenReview reads human review comments on merged pull requests daily and suggests recurring conventions here.</p> : <ul className="conventions" aria-label="Learned team conventions">{conventions.map((rule) => (
+                  <li key={rule._id}><strong>{rule.text}</strong> <span className={`badge ${rule.status === "approved" ? "low" : rule.status === "rejected" ? "critical" : "medium"}`}>{rule.status}</span> · {rule.category} · seen {rule.frequency}×
+                    <span className="muted"> · {rule.evidence.map((e, i) => <a key={e.url} href={e.url} rel="noreferrer">{i ? ", " : ""}@{e.author}</a>)}</span>
+                    {isAdmin && <form action={decideConvention} className="inline-actions"><input type="hidden" name="ruleId" value={rule._id} />{rule.status !== "approved" && <button name="decision" value="approved">Approve</button>}{rule.status !== "rejected" && <button name="decision" value="rejected">Reject</button>}{rule.status === "approved" && <button name="decision" value="disabled">Disable</button>}</form>}
+                  </li>
+                ))}</ul>}
                 <h2>Learned preferences</h2><Link href={"/dashboard/memory/preferences?repository="+repoSettings.repo._id}>Inspect sources and manage learned preferences</Link>
 
               </section>

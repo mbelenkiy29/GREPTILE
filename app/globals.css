@@ -703,3 +703,6 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 
 .effective-config table { width: 100%; font-size: 0.875rem; }
 .effective-config .warning { color: var(--danger, #b42318); }
+
+.conventions { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+.inline-actions { display: inline-flex; gap: 0.25rem; margin-left: 0.5rem; }

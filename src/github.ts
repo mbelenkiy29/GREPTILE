@@ -435,6 +435,19 @@ export class Github {
     }
     return out;
   }
+  // Human (non-bot) review comments on pull requests merged after `mergedAfter` (ms), oldest
+  // first, bounded per call; the returned cursor is the newest merge time processed.
+  async mergedReviewComments(repository: string, mergedAfter: number, maxPulls = 10) {
+    const pulls = (await this.request(`/repos/${repository}/pulls?state=closed&sort=updated&direction=desc&per_page=50`, z.array(z.object({ number: z.number(), merged_at: z.string().nullable() }))))
+      .filter((p) => p.merged_at && Date.parse(p.merged_at) > mergedAfter)
+      .sort((a, b) => Date.parse(a.merged_at!) - Date.parse(b.merged_at!))
+      .slice(0, maxPulls);
+    const comments: { body: string; path?: string; author: string; url: string; prNumber: number }[] = [];
+    for (const pr of pulls)
+      for (const c of await this.paginate(`/repos/${repository}/pulls/${pr.number}/comments`, z.object({ body: z.string(), path: z.string().optional(), html_url: z.string(), user: z.object({ login: z.string(), type: z.string() }).nullable() })))
+        if (c.user && c.user.type === "User") comments.push({ body: c.body, path: c.path, author: c.user.login, url: c.html_url, prNumber: pr.number });
+    return { comments, cursor: pulls.length ? Date.parse(pulls.at(-1)!.merged_at!) : mergedAfter };
+  }
   async branches(repository: string) {
     const schema = z.array(
       z.object({
