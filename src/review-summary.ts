@@ -1,6 +1,8 @@
 import {summarySections,summaryLabels,validSummarySections} from "./review-settings";
 import type {Finding,ReviewInput,ReviewResult,SourceFile} from "./engine/types";
 import {suggestionBlock,type SuggestionSyntax} from "./suggestions";
+import {changedLines} from "./engine/patch-lines";
+import {reviewVerdict,verdictLine} from "./verdict";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -8,7 +10,9 @@ export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  return evidence.exitCode===0?"passed":evidence.exitCode===null?"outcome unavailable":"failed";
 }
 const code=(value:string)=>"`"+value.replaceAll("`","").replace(/[\r\n]/g," ")+"`";
-type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];diagram?:string;sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined};
+type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];diagram?:string;sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined;incomplete?:boolean};
+// Findings anchored on lines the change did not modify are summary-only; providers post the rest inline.
+export const inlineFindings=<T extends Pick<Finding,"outsideDiff">>(findings:readonly T[])=>findings.filter(f=>!f.outsideDiff);
 const label=(value:string)=>value.slice(0,200).replace(/[\r\n]/g," ").replace(/[\\[\]*_<>]/g,"\\$&");
 function requirementsLinks(context:Summary["requirementsContext"],cross=false,seen=new Set<string>()){
  const links:string[]=[];let bytes=0,omitted=0;
@@ -34,16 +38,26 @@ const cell=(value:string)=>value.replace(/[\r\n]+/g," ").replace(/\|/g,"\\|").sl
 const firstSentence=(text:string)=>{const sentence=text.replace(/\s+/g," ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0]??text.trim();return sentence.length>300?sentence.slice(0,297)+"…":sentence;};
 const lineStats=(patch:string)=>{let added=0,removed=0;for(const line of patch.split("\n")){if(/^\+(?!\+\+)/.test(line))added++;else if(/^-(?!--)/.test(line))removed++;}return `+${added} −${removed}`;};
 const severityOrder={critical:0,high:1,medium:2,low:3} as const;
+// The changed line an outside-the-diff finding cites as its cause.
+function cause(f:Finding,files:Summary["files"]){
+ for(const e of f.evidence){
+  const file=files.find(d=>d.path===e.filePath);if(!file)continue;
+  const lines=changedLines(file.patch);
+  for(let line=e.startLine;line<e.startLine+e.quote.split("\n").length;line++)if(lines.has(line))return code(e.filePath+":"+line);
+ }
+ return "";
+}
 export function reviewSummary(data:Summary,selected:readonly string[]=summarySections){
  if(!validSummarySections(selected))throw new Error("Invalid summary sections");
  const describe=new Map((data.fileSummaries??[]).map(f=>[f.path,f.summary]));
  const location=(f:Finding)=>{const text=code(f.filePath+":"+f.startLine+(f.endLine>f.startLine?"–"+f.endLine:""));const url=data.sourceLink?.(f.filePath,f.startLine,f.endLine);return url&&/^https:\/\//.test(url)?"["+text+"](<"+url.replaceAll(">","%3E")+">)":text;};
  const files=data.files.slice(0,60);
+ const inline=inlineFindings(data.findings),outside=data.findings.filter(f=>f.outsideDiff).sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]);
  const sections:Record<(typeof summarySections)[number],string>={
   overview:data.overview,
   diagram:data.diagram?"```mermaid\n"+data.diagram+"\n```":"",
   affectedAreas:files.length?"| File | Change |\n| --- | --- |\n"+files.map(f=>"| "+code(f.path)+" | "+cell(describe.get(f.path)??(f.status+" · "+lineStats(f.patch)))+" |").join("\n")+(data.files.length>files.length?"\n\n…and "+(data.files.length-files.length)+" more changed files.":""):"No remaining changed files.",
-  findings:data.findings.length?"| Severity | Location | Issue |\n| --- | --- | --- |\n"+[...data.findings].sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]).map(f=>"| **"+f.severity+"** | "+location(f)+" | "+cell(f.title)+" |").join("\n"):"No verified findings. This does not establish that the change is risk-free.",
+  findings:inline.length?"| Severity | Location | Issue |\n| --- | --- | --- |\n"+[...inline].sort((a,b)=>severityOrder[a.severity]-severityOrder[b.severity]).map(f=>"| **"+f.severity+"** | "+location(f)+" | "+cell(f.title)+" |").join("\n"):outside.length?"No verified findings on the changed lines; see Outside the changed code.":"No verified findings. This does not establish that the change is risk-free.",
   score:data.score?"**"+data.score.value+"/5** — "+firstSentence(data.score.reason):"Not recorded for this review.",
   risk:data.assessment?data.assessment.risk+" · Confidence "+Math.round(data.assessment.confidence*100)+"%\n\n"+data.assessment.reason:"Unknown: no structured risk assessment was recorded.",
   resolved:data.resolved.map(f=>"- "+f.title+" · "+code(f.filePath)).join("\n")||"No previously reported findings were confirmed resolved in this review.",
@@ -51,7 +65,16 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   testSource:data.files.filter(f=>/(?:^|\/)(?:tests?|__tests__)(?:\/|\.)|\.(?:test|spec)\.[^/]+$/.test(f.path)).map(f=>"- "+code(f.path)).join("\n")||"No changed test source identified by filename. This does not measure test coverage.",
  };
  const runtime=data.runtimeEvidence;
- return [...selected.filter(s=>s!=="diagram"||data.diagram).map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]),
+ const verdict=reviewVerdict({score:data.score?.value,findings:data.findings,incomplete:data.incomplete});
+ const shown=selected.filter(s=>s!=="diagram"||data.diagram);
+ const blocks=shown.map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]);
+ // Always shown when present: these findings have no inline comment, so the summary is their only place.
+ if(outside.length){
+  const pivot=summarySections.indexOf("findings");
+  const at=shown.reduce((last,s,i)=>summarySections.indexOf(s as (typeof summarySections)[number])<=pivot?i+1:last,0);
+  blocks.splice(at,0,"### Outside the changed code\nVerified findings on lines this change did not modify, caused by lines it did. They are not posted as inline comments.\n\n"+outside.slice(0,20).map(f=>{const by=cause(f,data.files);return "- **"+f.severity+"** · "+location(f)+" · "+cell(f.title)+"\n  "+(by?"Caused by "+by+". ":"")+firstSentence(f.description)+" **Fix:** "+firstSentence(f.suggestedFix);}).join("\n")+(outside.length>20?"\n- "+(outside.length-20)+" more on the review page.":""));
+ }
+ return [verdictLine(verdict,selected.includes("score")?data.score:undefined),...blocks,
   "### Test execution\n"+(runtime?"Recorded command: "+code(runtime.command)+" · "+runtimeStatus(runtime)+" at "+runtime.headSha+".":"Not executed by OpenReview. Test files and CI metadata are context, not proof of a successful test run."),
   `### Coverage\n${data.files.length} changed files; ${data.contextCount} retrieved context files. ${data.candidates} candidates; ${data.findings.length} verified findings; ${data.suppressed} suppressed.`+(data.coverageLimits.length?"\n\n"+data.coverageLimits.map(l=>"- "+l).join("\n"):"")+(selected.includes("skipped")?"":skippedList(data.skippedFiles))+fetchedContextLinks(data.requirementsContext)].join("\n\n");
 }

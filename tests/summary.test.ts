@@ -25,6 +25,8 @@ const data = {
 
 test("summary renders overview, file and issue tables, n/5 confidence, risk, skipped files and coverage (snapshot)", () => {
   const expected = [
+    // G1: the verdict opens the summary; the score shows because the score section is on.
+    "**Needs changes** · Confidence score **1/5**",
     "### Overview\nTotals are now computed in a shared helper.",
     "### Files changed\n| File | Change |\n| --- | --- |\n| `src/total.ts` | Moves total computation into a helper \\| with pipes. |\n| `tests/total.test.ts` | added · +1 −0 |\n| `src/a|b.ts` | modified · +0 −0 |",
     `### Issues\n| Severity | Location | Issue |\n| --- | --- | --- |\n| **critical** | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| **medium** | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
@@ -43,7 +45,8 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
 
 test("summary sections toggle independently; skipped files fall back into coverage when their section is off", () => {
   const minimal = reviewSummary(data, ["findings"]);
-  assert.match(minimal, /^### Issues\n/);
+  // G1: the verdict line always comes first; without the score section it carries no score.
+  assert.match(minimal, /^\*\*Needs changes\*\*\n\n### Issues\n/);
   assert.doesNotMatch(minimal, /### Overview|### Files changed|### Confidence score|### Skipped files/);
   assert.match(minimal, /### Coverage[\s\S]*Skipped files:\n- `package-lock.json`/);
   assert.match(reviewSummary({ ...data, findings: [], sourceLink: undefined }, ["findings"]), /No verified findings/);

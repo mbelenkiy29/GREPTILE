@@ -6,11 +6,28 @@ When a pull request opens or updates, OpenReview:
 2. **Investigates.** The default pipeline runs specialists for correctness, security, data, compatibility, testing and performance. The optional agentic engine instead follows the code with read-only tools.
 3. **Verifies.** Every finding must quote exact source lines at the reviewed revision, and an independent verification pass drops anything it cannot support. Findings never claim tests ran unless runtime evidence was recorded.
 4. **Publishes:**
-   - One summary comment that is edited in place, with an overview, changed files, issues, a confidence score and an optional sequence diagram.
+   - One summary comment that is edited in place. It opens with a verdict and the confidence score, followed by an overview, changed files, issues, findings outside the changed code and an optional sequence diagram.
    - Inline findings, with committable suggestions where a small exact fix exists.
    - An optional check run.
 
 Later pushes are reviewed incrementally. Threads for findings fixed in the new commits are resolved automatically.
+
+## Verdict
+
+The first line of every summary is one of four verdicts. It is computed from recorded data only, never from model prose:
+
+| Verdict | When |
+| --- | --- |
+| **Needs changes** | Any unresolved critical or high finding, or a confidence score of 0–2 |
+| **Merge after fixes** | Any unresolved medium finding, or a confidence score of 3 |
+| **Ready to merge** | Only low findings or none, and a score of 4–5 |
+| **Review incomplete** | Would be ready, but some changed code was not reviewed (skipped files, a failed specialist, unavailable sources or an agent that ran out of budget), or no score was recorded |
+
+The score is shown next to the verdict when the confidence-score summary section is enabled.
+
+## Findings outside the changed code
+
+A change can break code it did not touch, such as a caller in another file that still expects the old behavior. OpenReview keeps such a finding only when its evidence quotes, exactly, a line the pull request changed that causes the problem. These findings are listed in an **Outside the changed code** section of the summary (always shown when there are any) and on the review page. They are never posted as inline comments, because providers only accept those on changed lines, and they carry no committable suggestion.
 
 ## Commands in pull requests
 

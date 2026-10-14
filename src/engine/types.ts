@@ -80,6 +80,9 @@ export type Finding = Candidate & {
   fingerprint: string;
   agent: string;
   commitSha: string;
+  // Anchored on a line the change did not modify (e.g. a caller it breaks); its evidence quotes a
+  // changed line. Published only in the summary, never as an inline comment.
+  outsideDiff?: boolean;
 };
 export type SourceFile = { path: string; content: string; sha: string; size?: number; provenance?: { repository: string; revision: string; sourceUrl: string } };
 export type ChangedFile = {
@@ -153,6 +156,10 @@ export type ReviewResult = {
   diagrams: string[];
   metadata: {
     reviewScore?: z.infer<typeof reviewScoreSchema>;
+    verdict?: "ready" | "fixes" | "changes" | "incomplete";
+    // Changed code went unreviewed (skipped files, failed specialists, unavailable sources or an
+    // exhausted agent budget), so the verdict cannot be "ready".
+    coverageIncomplete?: boolean;
     approvalAssessment?: z.infer<typeof approvalAssessmentSchema>;
     coverageLimits?: string[];
     skippedFiles?: SkippedFile[];

@@ -30,6 +30,7 @@ import {INDEX_GRAPH_VERSION} from "../src/engine/index-version";
 import { loadGrammars } from "../src/engine/treesitter";
 // Validate shared summaries against recorded test evidence before native publication.
 import { reviewChange } from "../src/engine/review";
+import { inlineFindings } from "../src/review-summary";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
 import { ModelFailure, configuredModel } from "../src/engine/model";
@@ -327,6 +328,7 @@ export const review = internalAction({
                   fingerprint: z.string(),
                   agent: z.string(),
                   commitSha: z.string(),
+                  outsideDiff: z.boolean().optional(),
                 }),
               ),
             ),
@@ -345,7 +347,7 @@ export const review = internalAction({
           pr.number,
           state.review.headSha,
           result.summary,
-          result.findings.slice(0, settings.maxComments),
+          inlineFindings(result.findings).slice(0, settings.maxComments),
           args.reviewId,
           settings.commentStyle,
           state.review.revisionKey,
@@ -625,6 +627,7 @@ export const review = internalAction({
         repositoryContext:cross.receipt??undefined,
         approvalAssessment: result.metadata.approvalAssessment,
         reviewScore: result.metadata.reviewScore,
+        verdict: result.metadata.verdict,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,
@@ -641,7 +644,7 @@ export const review = internalAction({
         pr.number,
         pr.head.sha,
         result.summary,
-        result.findings.slice(0, effective.maxComments),
+        inlineFindings(result.findings).slice(0, effective.maxComments),
         args.reviewId,
         effective.commentStyle,
           state.review.revisionKey,

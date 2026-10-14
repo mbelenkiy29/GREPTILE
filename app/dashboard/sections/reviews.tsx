@@ -1,4 +1,5 @@
 import { findingSchema } from "../../../src/engine/types";
+import { verdictLabels } from "../../../src/verdict";
 import Link from "next/link";
 import { ReviewMarkdown } from "../markdown";
 import { ScrollTable } from "../scroll-table";
@@ -65,6 +66,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
               )}
               {detail.retryPending&&<p role="status">Retry {detail.review.retryAt ? "scheduled for "+when(detail.review.retryAt) : "pending"}. The review will update automatically.</p>}
               <RuntimeReview token={user.token} reviewId={detail.review._id} evidence={detail.review.runtimeEvidence}/>{detail.review.nativeP4?<p>Automatic approval is not available for Perforce reviews.</p>:<ApprovalReview token={user.token} reviewId={detail.review._id}/>}
+              {detail.review.verdict && <section aria-label="Verdict"><h2>Verdict</h2><p><strong>{verdictLabels[detail.review.verdict]}</strong> · computed from the score, unresolved findings and review coverage</p></section>}
               <section aria-label="Confidence score">
                 <h2>Confidence score</h2>
                 {detail.review.reviewScore ? <><p><strong>{detail.review.reviewScore.value}/5</strong> · confidence that the change is safe to merge</p><p>{detail.review.reviewScore.reason}</p></> : <p className="muted">Not recorded for this review.</p>}
@@ -157,6 +159,7 @@ export function ReviewsSection({ ctx }: { ctx: DashboardContext }) {
                       </h3>
                       <p>
                         {finding.filePath}:{finding.startLine} ·{" "}
+                        {finding.outsideDiff && <>Outside the changed code (summary only, not posted inline) ·{" "}</>}
                         {Math.round(finding.confidence * 100)}% confidence ·{" "}
                         Verified at this revision · Current status: {finding.currentStatus}
                       </p>

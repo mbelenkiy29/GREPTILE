@@ -78,6 +78,8 @@ export const findingValidator = v.object({
     ruleId: v.optional(v.string()),
     suggestion: v.optional(v.object({ startLine: v.number(), endLine: v.number(), original: v.string(), replacement: v.string() })),
     fingerprint: v.string(),
+    // Anchored on an unchanged line the change breaks; published in the summary only.
+    outsideDiff: v.optional(v.boolean()),
 });
 export default defineSchema({
   inferenceBudgets: defineTable({limitMicros:v.number(),baselineMicros:v.number(),source:v.string(),committedMicros:v.number(),reservedMicros:v.number(),createdAt:v.number()}),
@@ -414,6 +416,7 @@ export default defineSchema({
   }).index("by_pr", ["pullRequestId"]),
   reviews: defineTable({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
+    verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     title: v.optional(v.string()),

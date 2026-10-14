@@ -285,6 +285,7 @@ export const save = internalMutation({
     repositoryContext:v.optional(repositoryContextValidator),
     integrationScopes:v.optional(v.array(v.object({id:v.id("integrationConnections"),generation:v.number()}))),
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
+    verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     reviewId: v.id("reviews"),
@@ -310,6 +311,7 @@ export const save = internalMutation({
       summary: args.summary,
       repositoryContext:args.repositoryContext,
       reviewScore: args.reviewScore ? reviewScoreSchema.parse(args.reviewScore) : undefined,
+      verdict: args.verdict,
       approvalAssessment: args.approvalAssessment ? approvalAssessmentSchema.parse(args.approvalAssessment) : undefined,
       coverageLimits: args.coverageLimits,
       findingCount: args.findings.length,
@@ -350,7 +352,7 @@ export const save = internalMutation({
           createdAt: Date.now(),
           updatedAt: Date.now(),
         });
-      else await ctx.db.patch(exists._id,{...f,reviewId:review._id,status:"open",updatedAt:Date.now()});
+      else await ctx.db.patch(exists._id,{...f,outsideDiff:f.outsideDiff,reviewId:review._id,status:"open",updatedAt:Date.now()});
       await ctx.db.insert("reviewFindings",{reviewId:review._id,findingId:findingId!,snapshot:f});
     }
     for (const fingerprint of args.resolved) {
