@@ -668,6 +668,7 @@ export const review = internalAction({
         approvalAssessment: result.metadata.approvalAssessment,
         reviewScore: result.metadata.reviewScore,
         verdict: result.metadata.verdict,
+        requirementsNotMet: result.metadata.requirementsNotMet,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,

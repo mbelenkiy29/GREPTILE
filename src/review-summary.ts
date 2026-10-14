@@ -6,6 +6,7 @@ import {reviewVerdict,verdictLine} from "./verdict";
 import {priorityBadge,tagBadges} from "./priority";
 import {tipLine,type TicketKind,type TipKey} from "./feature-tips";
 import {generatedTestSection} from "./generated-tests";
+import {requirementsSection,type RequirementResult} from "./requirements-check";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -13,7 +14,7 @@ export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  return evidence.exitCode===0?"passed":evidence.exitCode===null?"outcome unavailable":"failed";
 }
 const code=(value:string)=>"`"+value.replaceAll("`","").replace(/[\r\n]/g," ")+"`";
-type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];diagram?:string;sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined;incomplete?:boolean;knowledgeUsed?:string[]};
+type Summary={overview:string;files:ReviewInput["diff"];findings:Finding[];resolved:Finding[];score?:ReviewResult["metadata"]["reviewScore"];assessment:ReviewResult["metadata"]["approvalAssessment"];runtimeEvidence:ReviewInput["runtimeEvidence"];coverageLimits:string[];contextCount:number;candidates:number;suppressed:number;requirementsContext?:{path:string;provenance?:SourceFile["provenance"]}[];skippedFiles?:{path:string;reason:string}[];fileSummaries?:{path:string;summary:string}[];diagram?:string;sourceLink?:(path:string,startLine:number,endLine:number)=>string|undefined;incomplete?:boolean;knowledgeUsed?:string[];requirements?:RequirementResult[]};
 // Findings anchored on lines the change did not modify are summary-only; providers post the rest inline.
 export const inlineFindings=<T extends Pick<Finding,"outsideDiff">>(findings:readonly T[])=>findings.filter(f=>!f.outsideDiff);
 const label=(value:string)=>value.slice(0,200).replace(/[\r\n]/g," ").replace(/[\\[\]*_<>]/g,"\\$&");
@@ -68,12 +69,13 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   resolved:data.resolved.map(f=>"- "+f.title+" · "+code(f.filePath)).join("\n")||"No previously reported findings were confirmed resolved in this review.",
   skipped:data.skippedFiles?.length?skippedList(data.skippedFiles).replace(/^\n\nSkipped files:\n/,""):"No changed files were skipped.",
   tips:"",
+  requirements:data.requirements?requirementsSection(data.requirements):"",
   testSource:data.files.filter(f=>/(?:^|\/)(?:tests?|__tests__)(?:\/|\.)|\.(?:test|spec)\.[^/]+$/.test(f.path)).map(f=>"- "+code(f.path)).join("\n")||"No changed test source identified by filename. This does not measure test coverage.",
  };
  const runtime=data.runtimeEvidence;
  const verdict=reviewVerdict({score:data.score?.value,findings:data.findings,incomplete:data.incomplete});
  // Tips are a footer line added at publication (see reviewFooter), not a summary section.
- const shown=selected.filter(s=>s!=="tips"&&(s!=="diagram"||data.diagram));
+ const shown=selected.filter(s=>s!=="tips"&&(s!=="diagram"||data.diagram)&&(s!=="requirements"||data.requirements));
  const blocks=shown.map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]);
  // Always shown when present: these findings have no inline comment, so the summary is their only place.
  if(outside.length){

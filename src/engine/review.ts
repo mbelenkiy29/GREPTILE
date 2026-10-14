@@ -29,6 +29,7 @@ import { runHypotheses, type HypothesesResult } from "./hypotheses";
 import { deterministicAgents, deterministicGrounded, deterministicSecurity, exploitSchema, exploitSystem } from "./security";
 import type { AdvisoryLookup } from "../osv";
 import { knowledgeNote } from "../knowledge-context";
+import { blockingRequirements, groundRequirements, isRequirementSource, requirementsSchema, requirementsSystem, type RequirementResult } from "../requirements-check";
 import { loadGrammars } from "./treesitter";
 import { suggestionProblem } from "../suggestions";
 import { diagramEligible, diagramSchema, renderSequence, validSequence } from "../diagrams";
@@ -283,6 +284,25 @@ export async function reviewChange(
   }
   if (engineUsed === "pipeline" && failedSpecialists.length && failedSpecialists.length === selected.length)
     throw new Error("Every review specialist failed: " + failedSpecialists.map((f) => f.category + ": " + f.error).join("; ").slice(0, 2000));
+  // Requirements check against linked tickets (when the Requirements section is on): criteria and code
+  // quotes are grounded; grounded "not met" on a changed line joins the candidates for verification.
+  let requirements: RequirementResult[] | undefined;
+  const tickets = safeInput.files.filter(isRequirementSource);
+  if (tickets.length && (input.settings?.summarySections ?? summarySections).includes("requirements")) {
+    try {
+      const checked = await model.generate({ task: "requirements", signal, system: requirementsSystem, context: payload, input: { tickets: tickets.map((t) => ({ path: t.path, source: t.provenance?.repository, lines: t.content.split("\n").map((text, i) => ({ line: i + 1, text })) })) } }, requirementsSchema);
+      usage.push(checked.usage);
+      const grounded = groundRequirements(checked.value, safeInput.files, diff, runtimeEvidence);
+      requirements = grounded.results;
+      candidates.push(...grounded.candidates);
+      if (grounded.results.some((r) => r.status === "unclear" || (r.status === "not met" && !r.code.length))) engineLimits.push("Some linked-ticket requirements could not be confirmed against the code");
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const failure = error as { usage?: ModelUsage };
+      if (failure?.usage) usage.push(failure.usage);
+      engineLimits.push("Linked-ticket requirements could not be checked");
+    }
+  }
   // Deterministic security checks (patterns and dependency advisories) when security review is on.
   const securityChecks = input.settings?.securityScan !== false && selected.includes("security");
   const deterministic = securityChecks ? await deterministicSecurity(diff, options.advisories, signal) : { findings: [], limits: [], incomplete: false };
@@ -463,7 +483,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete,knowledgeUsed:input.knowledge?.map(k=>k.subsystem)},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete,knowledgeUsed:input.knowledge?.map(k=>k.subsystem),requirements},input.settings?.summarySections),
     findings,
     diagrams: diagram ? [diagram] : [],
     metadata: {
@@ -486,6 +506,7 @@ export async function reviewChange(
       suppressed: candidates.length + deterministic.findings.length - findings.length,
       ...(exploitability.length ? { exploitability } : {}),
       ...(input.knowledge?.length ? { knowledge: input.knowledge.map((k) => k.subsystem) } : {}),
+      ...(requirements ? { requirements, requirementsNotMet: blockingRequirements(requirements) } : {}),
       suppressions,
       carriedForward,
       resolvedFingerprints,

@@ -1,5 +1,5 @@
-export const summarySections=["overview","affectedAreas","diagram","findings","score","risk","resolved","skipped","testSource","tips"] as const;
-export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source",tips:"Feature tips"};
+export const summarySections=["overview","affectedAreas","diagram","findings","requirements","score","risk","resolved","skipped","testSource","tips"] as const;
+export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",requirements:"Requirements",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source",tips:"Feature tips"};
 // Feature tips (a footer line, not a section) are off by default; the hosted cloud turns them on
 // through deploymentDefaults().
 const defaultSummarySections=summarySections.filter(s=>s!=="tips");
