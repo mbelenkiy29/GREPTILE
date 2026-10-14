@@ -764,3 +764,16 @@ form.catalog-review { display: grid!important; justify-items: start; gap: 8px; }
 .docs-content table { border-collapse: collapse; }
 .docs-content th, .docs-content td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
 @media (max-width: 760px) { .docs-layout { grid-template-columns: minmax(0, 1fr); } .docs-nav { border-right: none; border-bottom: 1px solid var(--line); } }
+/* UI kit */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; min-width: 0; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.card-head h2 { margin: 0 0 8px; }
+.stat { display: grid; gap: 2px; min-width: 0; }
+.stat strong { font-size: 1.4rem; }
+.skeleton { display: grid; gap: 10px; padding: 16px 0; }
+.skeleton span { display: block; height: 14px; border-radius: 6px; background: linear-gradient(90deg, var(--line), var(--soft), var(--line)); background-size: 200% 100%; animation: skeleton 1.4s ease-in-out infinite; }
+@keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton span { animation: none; } }
+.toast { position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: min(420px, calc(100vw - 32px)); display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+.toast.success { border-color: var(--success); }
+.toast.error { border-color: var(--error); }

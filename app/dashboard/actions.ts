@@ -13,6 +13,10 @@ import {runtimePolicySchema} from "../../src/runtime-policy";
 import {approvalDefaults,runtimeDefaults} from "../../src/review-settings";
 
 const text = (f: FormData, key: string) => z.string().parse(f.get(key) ?? "");
+// One-shot confirmation shown by the dashboard Toaster after a redirect or revalidation.
+async function notify(message: string, tone: "success" | "error" = "success") {
+  (await cookies()).set("openreview_toast", encodeURIComponent(JSON.stringify({ text: message, tone })), { path: "/", sameSite: "lax", maxAge: 30, httpOnly: false, secure: process.env.NODE_ENV === "production" });
+}
 export async function saveApprovalPolicy(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
  try{
   const {token}=await current(),scope=text(form,"scope");
@@ -96,6 +100,7 @@ export async function configureRepository(form: FormData) {
     repositoryId: text(form, "repositoryId") as Id<"repositories">,
     enabled: text(form, "enabled") === "true",
   });
+  await notify("Repository updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function reindex(form: FormData) {
@@ -104,6 +109,7 @@ export async function reindex(form: FormData) {
     token,
     repositoryId: text(form, "repositoryId") as Id<"repositories">,
   });
+  await notify("Re-index queued.");
   revalidatePath("/dashboard", "layout");
 }
 export async function saveRule(form: FormData) {
@@ -126,6 +132,7 @@ export async function saveRule(form: FormData) {
       ? { repositoryId: text(form, "repositoryId") as Id<"repositories"> }
       : {}),
   });
+  await notify("Rule saved.");
   revalidatePath("/dashboard", "layout");
 }
 export async function feedback(form: FormData) {
@@ -191,6 +198,7 @@ export async function signOutEverywhere() {
 export async function revokeSession(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.identity.revokeSession, { token, sessionId: text(form, "sessionId") as Id<"sessions"> });
+  await notify("Session signed out.");
   revalidatePath("/dashboard", "layout");
 }
 export async function inviteByEmail(form: FormData) {
@@ -267,6 +275,7 @@ export async function saveSettings(form: FormData) {
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
+  await notify("Review settings saved.");
   revalidatePath("/dashboard", "layout");
 }
 export async function startCheckout(form: FormData) {
@@ -286,6 +295,7 @@ export async function openBillingPortal(form: FormData) {
 export async function saveSlackChannel(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.notifications.saveChannel, { token, organizationId: text(form, "organizationId") as Id<"organizations">, channelId: text(form, "channelId"), repositoryIds: form.getAll("repositoryIds").map(String) as Id<"repositories">[], events: form.getAll("events").map(String), qa: form.has("qa") });
+  await notify("Slack channel linked.");
   revalidatePath("/dashboard", "layout");
 }
 export async function removeSlackChannel(form: FormData) {
@@ -302,6 +312,7 @@ export async function saveNotificationPreferences(form: FormData) {
   const { token } = await current();
   const level = z.enum(["off", "mine", "all"]);
   await backend().mutation(api.notifications.savePreferences, { token, organizationId: text(form, "organizationId") as Id<"organizations">, reviewCompleted: level.parse(text(form, "reviewCompleted")), highSeverity: level.parse(text(form, "highSeverity")) });
+  await notify("Email preferences saved.");
   revalidatePath("/dashboard", "layout");
 }
 export async function setNotificationEmail(form: FormData) {
@@ -324,22 +335,26 @@ export async function editPreference(form: FormData) {
   const { token } = await current();
   const scope = text(form, "scope");
   await backend().mutation(api.memory.editPreference, { token, preferenceId: text(form, "preferenceId") as Id<"learnedPreferences">, ...(form.has("instruction") ? { instruction: text(form, "instruction") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}) });
+  await notify("Preference updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function editLearnedRule(form: FormData) {
   const { token } = await current();
   const scope = text(form, "scope"), status = text(form, "status");
   await backend().mutation(api.memory.editLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, ...(form.has("text") ? { text: text(form, "text") } : {}), ...(scope ? { scope: z.enum(["repo", "team", "workspace"]).parse(scope) } : {}), ...(status ? { status: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(status) } : {}) });
+  await notify("Convention updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function deleteLearnedRule(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.memory.deleteLearnedRule, { token, ruleId: text(form, "ruleId") as Id<"learnedRules"> });
+  await notify("Convention deleted.");
   revalidatePath("/dashboard", "layout");
 }
 export async function decideConvention(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.conventions.decide, { token, ruleId: text(form, "ruleId") as Id<"learnedRules">, decision: z.enum(["approved", "rejected", "disabled", "suggested"]).parse(text(form, "decision")) });
+  await notify("Convention updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function resetPreference(form: FormData) {
@@ -348,10 +363,11 @@ export async function resetPreference(form: FormData) {
     token,
     preferenceId: text(form, "preferenceId") as Id<"learnedPreferences">,
   });
+  await notify("Preference deleted.");
   revalidatePath("/dashboard", "layout");
 }
 export async function setPreferenceEnabled(form:FormData){
- const {token}=await current();await backend().mutation(api.settings.setPreferenceEnabled,{token,preferenceId:text(form,"preferenceId") as Id<"learnedPreferences">,enabled:text(form,"enabled")==="true"});revalidatePath("/dashboard","layout");
+ const {token}=await current();await backend().mutation(api.settings.setPreferenceEnabled,{token,preferenceId:text(form,"preferenceId") as Id<"learnedPreferences">,enabled:text(form,"enabled")==="true"});await notify('Preference updated.');revalidatePath("/dashboard","layout");
 }
 export async function createApiKey(
   _previous: string,
@@ -376,6 +392,7 @@ export async function revokeApiKey(form: FormData) {
     token,
     keyId: text(form, "keyId") as Id<"apiKeys">,
   });
+  await notify("API key revoked.");
   revalidatePath("/dashboard/settings/keys");
 }
 export async function updateMember(form: FormData) {
@@ -386,6 +403,7 @@ export async function updateMember(form: FormData) {
     role: z.enum(["owner", "admin", "member", "viewer"]).parse(text(form, "role")),
     remove: text(form, "remove") === "true",
   });
+  await notify("Member updated.");
   revalidatePath("/dashboard", "layout");
 }
 export async function approveBridge(form: FormData) {

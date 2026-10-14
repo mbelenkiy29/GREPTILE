@@ -6,7 +6,7 @@ export const contentType = "image/png";
 export default function OpengraphImage() {
   return new ImageResponse(
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 72, background: "#0f172a", color: "#f8fafc", fontFamily: "sans-serif" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 700 }}><span style={{ display: "flex", width: 64, height: 64, borderRadius: 14, background: "#315bbe", alignItems: "center", justifyContent: "center" }}>⌘</span>OpenReview</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 40, fontWeight: 700 }}><span style={{ display: "flex", width: 64, height: 64, borderRadius: 14, background: "#315bbe", alignItems: "center", justifyContent: "center", fontSize: 30 }}>OR</span>OpenReview</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.1 }}>Review the change.</div>
         <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.1, color: "#93b4ff" }}>Understand the codebase.</div>

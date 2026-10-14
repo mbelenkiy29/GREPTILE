@@ -109,7 +109,12 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   plan: landing page (hero with sign-in, how it works, features, self-host vs cloud, pricing only when BILLING_ENABLED, FAQ, footer); /docs from a manifest (src/docs-manifest.ts) rendering Markdown at build time (new docs/public/*: quickstart, GitHub App, reviews, rules, chat, API, MCP, CLI, self-hosting; existing guides for configuration, providers, integrations, identity, billing…), cross-doc links rewritten to /docs/<slug> and unpublished targets rendered as text; /docs/openapi.yaml; /changelog from CHANGELOG.md; SEO metadata (title template, Open Graph/Twitter), robots.txt, sitemap.xml, generated OG image; 58 docs/*-acceptance.md moved to docs/internal/ with every link and path mention fixed.
   evidence: verified locally end-to-end (production `next start`: /, /docs, /docs/quickstart, /docs/configuration, /docs/api, /changelog, /docs/openapi.yaml, robots, sitemap and OG image return 200 with correct types; unknown doc 404; doc cross-links rewritten); tests: tests/docs-links.test.ts (3: no broken relative links across README/CHANGELOG/docs, internal logs unpublished, manifest completeness + public pages link only to published docs + resolver cases); scripts/browser.ts landing/docs/changelog checks (Needs human #10); commands: lint/typecheck/test (310 Node + 215 vitest; bridge flake rerun twice)/build green; commit: see git log feat(E3)
   notes: docs are Markdown rendered with the existing react-markdown stack rather than MDX (Decisions).
-- [ ] E4 UI polish — todo
+- [ ] E4 UI polish — in-progress (split into E4a–E4c)
+  - [x] E4a Page split, component kit, loading/not-found, toasts — done
+    plan: app/dashboard/[[...section]]/page.tsx (1,389 lines) split mechanically into app/dashboard/load.ts (all queries/redirects, typed DashboardContext) and app/dashboard/sections/{repositories,reviews,findings,rules,team,knowledge,usage,settings-review,shared}.tsx with JSX moved verbatim (page is now a 98-line shell); app/ui kit (Button, ButtonLink, Card, Badge, Stat, EmptyState, Skeleton) over existing tokens; dashboard loading.tsx skeleton, dashboard and global not-found pages; Toaster (one-shot cookie set by server actions) wired into 15 settings actions; OG image no longer fetches a font at build.
+    evidence: typecheck + lint (only pre-existing warnings) + full tests (310 Node + 215 vitest) + build green; behaviour-preserving refactor (no selector changes); e2e still blocked (Needs human #10); commit: see git log feat(E4a)
+  - [ ] E4b Analytics aggregates and charts — todo
+  - [ ] E4c Diff viewer with inline findings — todo
 - [ ] F1 Azure DevOps — todo
 - [ ] F2 Live-verification runbooks — todo
 - [ ] F3 Fix handoff — todo
@@ -192,6 +197,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 - 2026-10-14 — Public docs use Markdown (an MDX subset) rendered at build time with the existing react-markdown/remark-gfm stack instead of adding @next/mdx — no new dependency, and the same files stay readable on any Git host; MDX components were not needed.
 - 2026-10-14 — The landing page's pricing section renders only when BILLING_ENABLED=true; the price label is operator-configured (BILLING_SEAT_PRICE_LABEL) so the page never invents prices.
+
+- 2026-10-14 — E4 component system: a small in-repo kit (app/ui) over the existing CSS tokens instead of Tailwind + shadcn/ui — Tailwind's preflight would restyle the hand-written CSS everywhere and both need new packages; the kit gives typed primitives that new UI adopts incrementally.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.
