@@ -57,7 +57,7 @@ export function parseRulesMarkdown(text: string, idPrefix = "repo"): Rule[] {
   return rules.slice(0, 100);
 }
 
-export type LoadedRepoConfig = { settings: z.infer<typeof repoSettingsSchema>; rules: Rule[]; files: string[]; warnings: string[]; directories: { directory: string; instructions?: string }[] };
+export type LoadedRepoConfig = { settings: z.infer<typeof repoSettingsSchema>; rules: Rule[]; files: string[]; warnings: string[]; directories: { directory: string; instructions?: string }[]; guides?: { path: string; content: string }[] };
 type Source = { tree(repository: string, sha: string): Promise<{ path: string; sha: string; size?: number }[]>; blob(repository: string, path: string, sha: string): Promise<{ content: string; size?: number }> };
 const parseJson = (text: string, file: string, warnings: string[]): RepoConfig | undefined => {
   let raw: unknown;
@@ -98,8 +98,15 @@ export async function loadRepoConfig(source: Source, repository: string, sha: st
     rules.push(...(config.rules ?? []).map((r) => ({ ...r, id: `${directory}:${r.id}`, globs: r.globs.length ? r.globs.map((g) => scopeGlob(directory, g)) : [`${directory}/**`] })));
     if (config.settings?.instructions) directories.push({ directory, instructions: config.settings.instructions.slice(0, 4000) });
   }
+  // API guidance packs (J7): at most 10 Markdown files under .openreview/guides/.
+  const guides: { path: string; content: string }[] = [];
+  for (const entry of tree.filter((e) => /^\.openreview\/guides\/[^/]+\.md$/.test(e.path)).slice(0, 10)) {
+    if ((entry.size ?? 0) > 16_000) { warnings.push(`${entry.path} exceeds 16 KB; it was ignored.`); continue; }
+    const text = await read(entry.path);
+    if (text !== undefined) guides.push({ path: entry.path, content: text });
+  }
   const seen = new Set<string>();
-  return { settings, rules: rules.filter((r) => !seen.has(r.id) && seen.add(r.id)).slice(0, 100), files, warnings, directories };
+  return { settings, rules: rules.filter((r) => !seen.has(r.id) && seen.add(r.id)).slice(0, 100), files, warnings, directories, guides };
 }
 
 // Applies the repository file on top of dashboard settings, skipping admin-locked keys.

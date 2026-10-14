@@ -32,6 +32,24 @@ OpenReview reads review configuration from the repository. Server reviews always
 }
 ```
 
+## API guidance packs
+
+Markdown files in `.openreview/guides/` (at most 10, 16 KB each, read from the base branch like the other config files) add review guidance for third-party APIs. A pack loads when a changed file imports one of its packages or an added line calls one of its functions:
+
+```markdown
+---
+id: acme-gateway
+version: 2
+title: ACME payment gateway
+imports: @acme/gateway, acme_gateway
+calls: chargeCard
+---
+- Gateway calls must pass the merchant id from the request context.
+- Link to the vendor's documentation for each claim.
+```
+
+OpenReview ships built-in packs for webhook signature verification, idempotency keys and SDK retries and timeouts. A repository pack with the same `id` replaces the built-in one. Packs only add guidance: they can never suppress, downgrade or approve a finding. A pack that tries to (or that contains prompt-injection phrasing, budget changes, code blocks or HTML) is not used, and the review's coverage notes say why. Reviews list the packs they applied in the summary's Coverage section.
+
 ## Precedence
 
 Workspace defaults → team → repository dashboard settings → repository file.

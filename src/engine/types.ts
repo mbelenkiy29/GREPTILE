@@ -126,6 +126,8 @@ export type ReviewInput = {
   diff: ChangedFile[];
   rules: Rule[];
   preferences?: Preference[];
+  // API guidance packs matched to the change's imports (guidance only; never suppresses).
+  guidance?: { id: string; version: number; title: string; body: string; source: "built-in" | "repository" }[];
   // Knowledge base entries about the changed code (derived background; never evidence).
   knowledge?: { subsystem: string; description: string; risks: string[]; conventions: string[]; files: string[] }[];
   mode: "fast" | "standard" | "deep";
@@ -187,6 +189,7 @@ export type ReviewResult = {
     carriedForward?: Finding[];
     exploitability?: { fingerprint: string; exploitPath: boolean }[];
     knowledge?: string[];
+    guidance?: { id: string; version: number; source: string }[];
     requirements?: { ticket: string; source?: string; url?: string; ticketLine: number; criterion: string; status: "met" | "not met" | "unclear"; reason: string; code: { filePath: string; startLine: number; quote: string }[] }[];
     // Grounded "not met" acceptance criteria; any blocks automatic approval.
     requirementsNotMet?: number;
