@@ -128,6 +128,11 @@ try {
     .getByRole("heading", { name: /Browser check membership/ })
     .last()
     .waitFor();
+  await page.getByRole("link", { name: "Chat", exact: true }).first().click();
+  await page.getByRole("heading", { name: "Chat", exact: true }).waitFor();
+  await page.getByRole("link", { name: "New chat" }).waitFor();
+  await page.getByRole("heading", { name: "No indexed repositories" }).waitFor();
+  assert.equal((await page.request.get(`${url}/api/chat/abcdefghij/stream`)).status(), 404);
   await page.goto(`${url}/dashboard/memory/preferences`);
   await page.getByRole("heading", { name: "Learned team conventions" }).waitFor();
   await page.getByLabel("Convention status").selectOption("suggested");
@@ -153,7 +158,7 @@ try {
   );
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    "Browser verification passed: onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
+    "Browser verification passed: onboarding, repository selection, nine dashboard pages, persisted settings/rules, Memory page filters, Chat page, and mobile layout. GitHub OAuth and real indexing still require external credentials.",
   );
 } finally {
   await browser.close();

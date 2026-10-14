@@ -234,6 +234,17 @@ export async function saveSettings(form: FormData) {
   });
   revalidatePath("/dashboard", "layout");
 }
+export async function askChat(form: FormData) {
+  const { token } = await current();
+  const threadId = text(form, "threadId");
+  const result = await backend().mutation(api.chat.ask, { token, organizationId: text(form, "organizationId") as Id<"organizations">, ...(threadId ? { threadId: threadId as Id<"chatThreads"> } : {}), repositoryIds: form.getAll("repositoryIds").map(String).slice(0, 5) as Id<"repositories">[], question: text(form, "question") });
+  redirect(`/dashboard/chat?thread=${result.threadId}`);
+}
+export async function deleteChatThread(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.chat.deleteThread, { token, threadId: text(form, "threadId") as Id<"chatThreads"> });
+  redirect("/dashboard/chat");
+}
 export async function editPreference(form: FormData) {
   const { token } = await current();
   const scope = text(form, "scope");

@@ -64,3 +64,22 @@ export function reviewAgentHooks(ctx: ActionCtx, reviewId: Id<"reviews">, stepSt
     shouldSuspend: () => Date.now() - stepStarted > stepMs,
   };
 }
+// Codebase chat: the same read-only tools bound to one repository's indexed revision. Files are
+// read only from the stored index (no provider calls), so citations pin to `indexedSha`; past
+// findings and rules are not exposed.
+export function chatToolbox(ctx: ActionCtx, repo: Doc<"repositories">): AgentToolbox {
+  const revision = repo.indexedSha;
+  if (!revision) throw new Error(`${repo.fullName} has not been indexed yet`);
+  const base = reviewToolbox(ctx, repo, revision, new Map(), async () => { throw new Error("Provider reads are disabled for chat"); }, []);
+  return {
+    ...base,
+    revisions: { head: revision, index: revision },
+    async readFile(path) {
+      const [cached] = await indexedFiles(ctx, repo._id, [path]);
+      const stored = cached ? await ctx.storage.get(cached.storageId) : null;
+      if (!stored || stored.size > 200_000) return null;
+      return { path, content: await stored.text(), revision };
+    },
+    pastFindings: async () => [],
+  };
+}

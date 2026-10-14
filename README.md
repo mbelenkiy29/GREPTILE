@@ -101,6 +101,13 @@ Learned team conventions:
 
 Memory management (Dashboard → Memory → Preferences): every learned preference and convention is listed with its provenance (source review, finding, feedback, developer request, or supporting comments), plus search and status filters. Workspace admins can edit the text, set the scope (this repository, its team, or the whole workspace), enable or disable, approve or reject suggestions, and delete. Every change is audit-logged. Viewers have read-only access. A team- or workspace-scoped entry applies to reviews in every repository in that scope, and disabling it takes effect everywhere at once. The guardrails apply to edits too, and a preference can never suppress security findings.
 
+Codebase chat (Dashboard → Chat):
+- **Asking:** ask questions across up to five indexed repositories you can access.
+- **Investigation:** OpenReview uses the same read-only code tools as the agentic reviewer (search, read file, definitions, references, related files), bound to each repository's indexed revision. Investigation steps stream to the page as they happen.
+- **Answers:** an answer is shown only after every `[n]` claim marker maps to a citation whose quote exactly matches lines OpenReview read at that revision. Each citation links to the provider pinned to that commit.
+- **Threads:** threads are private to the member who started them, and follow-ups keep the thread's earlier turns as unverified context. If you lose access to a repository, answers that used it are hidden.
+- **Limits and cost:** questions are rate-limited (6 per member and 30 per workspace per minute), count against the inference budget, and are recorded as `chat` usage.
+
 Repository configuration as code: `.openreview.json`, `.openreview/config.json`, `.openreview/rules.md` and nested per-directory `.openreview.json` files are read from the pull request's base revision. They are applied after workspace, team and repository dashboard settings, except keys an administrator locks. Invalid files produce visible warnings without blocking the review. See [docs/repo-config.md](docs/repo-config.md).
 
 Triggers and filters (GitHub, configurable per workspace, team or repository):

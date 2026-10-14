@@ -22,6 +22,8 @@ import type * as bridge from "../bridge.js";
 import type * as bridgeJobs from "../bridgeJobs.js";
 import type * as budgetModel from "../budgetModel.js";
 import type * as cache from "../cache.js";
+import type * as chat from "../chat.js";
+import type * as chatJobs from "../chatJobs.js";
 import type * as context from "../context.js";
 import type * as conventionJobs from "../conventionJobs.js";
 import type * as conventions from "../conventions.js";
@@ -110,6 +112,8 @@ declare const fullApi: ApiFromModules<{
   bridgeJobs: typeof bridgeJobs;
   budgetModel: typeof budgetModel;
   cache: typeof cache;
+  chat: typeof chat;
+  chatJobs: typeof chatJobs;
   context: typeof context;
   conventionJobs: typeof conventionJobs;
   conventions: typeof conventions;

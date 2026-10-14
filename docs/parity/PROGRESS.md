@@ -76,7 +76,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
   evidence: tested with fakes; tests: tests/fix-command.test.ts (6: parsing incl. rejected look-alikes, apply/stale refusal, branch safety + handoff URL, permission skip without network, new-branch write sequence never naming the PR branch, fork/moved/closed/unsafe/reuse/retry), tests/fix-command.spec.ts (4: stored suggestion without model call, model suggestion validated + sanitized + usage, non-thread/closed finding/no write access, setting off/on/permission missing); commands: lint/typecheck/test (286 Node + 185 vitest; bridge flake rerun once)/build green; commit: see git log feat(C4)
   notes: fix PRs are GitHub-only (Gitea inherits the client but has no permissions record, so it skips). CRLF files never yield suggestions (same as B1). Needs human #14 for Contents: write.
 - Phase C end: `pnpm build` green; `pnpm test:e2e` still blocked on Needs human #10.
-- [ ] D1 Codebase chat (web) — todo
+- [x] D1 Codebase chat (web) — done
+  plan: src/engine/chat.ts reuses the A2 toolbox + loop helpers (wrap/numbered/tokenCost/repoPath) with multi-repo tools, chat budgets (20 tools / 250k tokens / 4 min / 12 turns) and an `answer` tool validated by chatAnswerProblems (selected repo, file read this run, exact complete-line quote at startLine, every citation referenced as [n], no execution claims); chatThreads/chatMessages tables; convex/chat.ts (owner-only threads, visibility re-checked on every read, withheld answers, rate limits, one running answer per thread); chatJobs.answer (budgetModel, usage `chat`, citations pinned to indexedSha with provider line links); chatToolbox reads only the stored index; SSE relay (src/chat-stream.ts + /api/chat/[messageId]/stream) of persisted progress; /dashboard/chat page + Chat nav.
+  evidence: tested with fakes; tests: tests/chat.test.ts (4: citation validation matrix, multi-repo investigation with rejected→revised answer + events + unknown repo, nudge/budget stops, SSE relay events/answer/error/timeout), tests/chat.spec.ts (3: cross-workspace and cross-member isolation incl. team-restricted repos, end-to-end job with pinned citations/URL/events/usage + follow-up context, withholding after access loss + queued job fails without model calls + one-at-a-time + rate limit); scripts/browser.ts Chat page check (Needs human #10); commands: lint/typecheck/test (290 Node + 188 vitest)/build green; commit: see git log feat(D1)
+  notes: answer text arrives as one validated event (investigation steps stream live) — see Decisions. Semantic search inside chat uses embeddings only when A4 is configured.
 - [ ] D2 Public query API — todo
 - [ ] D3 Remote MCP — todo
 - [ ] D4 Slack and notifications — todo
@@ -130,6 +133,10 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 - 2026-10-14 — `@openreview fix this` opens a pull request only when the comment asks for one ("in a new PR") and the repository setting allows it; a plain "fix this" never writes to the repository — least surprise for a command anyone with write access can type.
 - 2026-10-14 — Fix pull requests are opened only for same-repository changes at the exact reviewed head, from a new `openreview/fix-<pr>-<fingerprint>` branch via the Contents API (preserves file mode, one commit) — forks are skipped because the app cannot write to them and opening against a fork branch from the base repository is not possible.
+
+- 2026-10-14 — Chat streaming design: the Convex job persists progress events and the validated answer on the assistant message; a session-authenticated Next.js route (`/api/chat/[messageId]/stream`) polls `chat.progress` with ConvexHttpClient every 500 ms and relays Server-Sent Events. Chosen because model keys and the inference budget live only in Convex and sessions are custom JWTs (no Convex auth on the browser). Investigation steps stream live; answer text is released only after citation validation, so no unvalidated claim ever reaches the browser (token-level streaming would show unverified text).
+- 2026-10-14 — Chat reads files only from the stored index at `indexedSha` (no provider API calls), so every citation is pinned to one revision per repository and chat works without SCM tokens; past findings and custom rules are not exposed to chat.
+- 2026-10-14 — Chat messages order by insertion (`_creationTime`), not `createdAt`, so messages written in the same millisecond keep their order.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

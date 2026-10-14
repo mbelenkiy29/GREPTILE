@@ -442,6 +442,35 @@ export default defineSchema({
     .index("by_fingerprint", ["repositoryId", "prNumber", "fingerprint"])
     .index("by_org_time", ["organizationId", "createdAt"]),
   // Team conventions learned from human review comments (review guidance only).
+  // Codebase chat (web): threads are private to the member who started them.
+  chatThreads: defineTable({
+    organizationId: org,
+    userId: v.id("users"),
+    title: v.string(),
+    repositoryIds: v.array(repo),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_user", ["organizationId", "userId", "updatedAt"]),
+  // Assistant messages stream progress through `events` (persisted deltas read by the SSE route);
+  // `content` and `citations` are written only after citation validation.
+  chatMessages: defineTable({
+    organizationId: org,
+    threadId: v.id("chatThreads"),
+    userId: v.id("users"),
+    role: v.string(), // user | assistant
+    content: v.string(),
+    status: v.string(), // pending | running | completed | failed
+    repositoryIds: v.array(repo),
+    citations: v.optional(v.array(v.object({ repositoryId: repo, repository: v.string(), filePath: v.string(), startLine: v.number(), endLine: v.number(), quote: v.string(), revision: v.string(), url: v.optional(v.string()) }))),
+    events: v.optional(v.array(v.object({ at: v.number(), kind: v.string(), text: v.string() }))),
+    limits: v.optional(v.array(v.string())),
+    error: v.optional(v.string()),
+    inputTokens: v.optional(v.number()),
+    outputTokens: v.optional(v.number()),
+    estimatedCost: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_thread", ["threadId"]), // ordered by insertion (_creationTime)
   learnedRules: defineTable({
     organizationId: org,
     repositoryId: repo,
