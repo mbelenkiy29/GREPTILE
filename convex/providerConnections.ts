@@ -10,7 +10,7 @@ import type {MutationCtx} from "./_generated/server";
 import type {Id} from "./_generated/dataModel";
 export const list=query({args:{token:v.string(),organizationId:v.id("organizations")},handler:async(ctx,a)=>{
  await authorize(ctx,a.token,a.organizationId,true);
- return (await ctx.db.query("providerConnections").withIndex("by_org",q=>q.eq("organizationId",a.organizationId)).collect()).map(c=>({_id:c._id,kind:c.kind,instance:c.instance,name:c.name,active:c.active,suspended:c.suspended,error:c.error,lastEventAt:c.lastEventAt,forgeEventAt:c.forgeEventAt,forgeRefreshAt:c.forgeRefreshAt}));
+ return (await ctx.db.query("providerConnections").withIndex("by_org",q=>q.eq("organizationId",a.organizationId)).collect()).map(c=>({_id:c._id,kind:c.kind,instance:c.instance,name:c.name,active:c.active,suspended:c.suspended,error:c.error,lastEventAt:c.lastEventAt,forgeEventAt:c.forgeEventAt,forgeRefreshAt:c.forgeRefreshAt,apiUrl:c.apiUrl,proxyUrl:c.proxyUrl,caCertificates:c.caBundle?(c.caBundle.match(/-----BEGIN CERTIFICATE-----/g)??[]).length:0}));
 }});
 export const data=internalQuery({args:{id:v.id("providerConnections")},handler:async(ctx,a)=>{const c=await ctx.db.get(a.id);if(!c?.active||c.suspended)throw new Error("Provider connection disabled or suspended");return c;}});
 export const replaceGitCredentials=internalMutation({args:{token:v.string(),id:v.id("providerConnections"),previousCredentials:v.string(),credentials:v.string(),repositories:v.array(v.object({id:v.id("repositories"),externalId:v.string(),fullName:v.string()}))},handler:async(ctx,a)=>{
@@ -35,11 +35,27 @@ export const refreshP4=internalMutation({args:{token:v.string(),id:v.id("provide
  await audit(ctx,c.organizationId,user._id,"p4.bot_ticket_refreshed",c._id);
 }});
 export const access=query({args:{token:v.string(),id:v.id("providerConnections")},handler:async(ctx,a)=>{const c=await ctx.db.get(a.id);if(!c?.active)throw new Error("Connection unavailable");await authorize(ctx,a.token,c.organizationId,true);return {id:c._id,organizationId:c.organizationId};}});
-export const save=mutation({args:{token:v.string(),secret:v.string(),organizationId:v.id("organizations"),kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string()},handler:async(ctx,a)=>{
+// Network settings arrive already validated by the web server (which test-connects with them) and are
+// validated again by every Node action that uses them (connectionNetwork in src/scm-transport.ts).
+const networkArgs={apiUrl:v.optional(v.string()),caBundle:v.optional(v.string()),proxyUrl:v.optional(v.string())};
+function network(kind:string,a:{apiUrl?:string;caBundle?:string;proxyUrl?:string}){
+ if(kind!=="gitlab"&&(a.apiUrl||a.caBundle||a.proxyUrl))throw new Error("Network settings are available for GitLab connections");
+ if((a.apiUrl?.length??0)>500||(a.proxyUrl?.length??0)>500||(a.caBundle?.length??0)>65536)throw new Error("Invalid network settings");
+ return {apiUrl:a.apiUrl||undefined,caBundle:a.caBundle||undefined,proxyUrl:a.proxyUrl||undefined};
+}
+export const save=mutation({args:{token:v.string(),secret:v.string(),organizationId:v.id("organizations"),kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string(),...networkArgs},handler:async(ctx,a)=>{
  service(a.secret);const {user}=await authorize(ctx,a.token,a.organizationId,true);
  if(!["gitlab","github-enterprise","gitea","bitbucket-dc","origin","perforce","azure-devops"].includes(a.kind)||!a.name.trim()||a.name.length>100||a.credentials.length>20000||a.webhookSecret.length>20000)throw new Error("Invalid connection");
- const id=await ctx.db.insert("providerConnections",{organizationId:a.organizationId,kind:a.kind,instance:a.instance,name:a.name,credentials:a.credentials,webhookSecret:a.webhookSecret,active:true,createdAt:Date.now()});
+ const id=await ctx.db.insert("providerConnections",{organizationId:a.organizationId,kind:a.kind,instance:a.instance,name:a.name,credentials:a.credentials,webhookSecret:a.webhookSecret,...network(a.kind,a),active:true,createdAt:Date.now()});
  await audit(ctx,a.organizationId,user._id,"provider.connected",id);return id;
+}});
+// Changing the API URL, CA bundle or proxy of an existing GitLab connection (for example a CA rotation),
+// after providerJobs.updateNetwork validated the settings and reached every selected repository with them.
+export const setNetwork=internalMutation({args:{token:v.string(),id:v.id("providerConnections"),expected:v.string(),...networkArgs},handler:async(ctx,a)=>{
+ const c=await ctx.db.get(a.id);if(!c?.active||c.suspended||c.credentials!==a.expected)throw new Error("Provider connection changed during verification");
+ const {user}=await authorize(ctx,a.token,c.organizationId,true);
+ await ctx.db.patch(c._id,{...network(c.kind,a),error:undefined});
+ await audit(ctx,c.organizationId,user._id,"provider.network_updated",c._id);
 }});
 export const disconnect=mutation({args:{token:v.string(),id:v.id("providerConnections")},handler:async(ctx,a)=>{
  const c=await ctx.db.get(a.id);if(!c)throw new Error("Connection not found");const {user}=await authorize(ctx,a.token,c.organizationId,true);

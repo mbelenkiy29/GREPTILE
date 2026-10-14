@@ -10,8 +10,9 @@ test("GitLab runtime archives require immutable revisions and bound authenticate
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit)=>{
   calls++;const url=new URL(input);assert.equal(url.pathname,"/api/v4/projects/123/repository/archive.tar.gz");
   assert.equal(url.searchParams.get("sha"),sha);assert.equal(url.searchParams.get("include_lfs_blobs"),"false");
-  assert.equal(options.redirect,"error");assert.equal(options.mode,"same-origin");assert.equal((options.headers as Record<string,string>)["PRIVATE-TOKEN"],"fixture-token");
-  if(mode==="redirect")throw new TypeError("redirect rejected");
+  // OpenReview follows only same-origin redirects itself (src/scm-transport.ts), so fetch never follows one.
+  assert.equal(options.redirect,"manual");assert.equal(options.mode,"same-origin");assert.equal((options.headers as Record<string,string>)["PRIVATE-TOKEN"],"fixture-token");
+  if(mode==="redirect")return new Response(null,{status:302,headers:{location:"https://archive.example/download.tar.gz"}});
   if(mode==="denied")return new Response(null,{status:403});
   if(mode==="missing")return new Response(null);
   if(mode==="header")return new Response(gzip,{headers:{"content-length":"20000001"}});
@@ -21,7 +22,7 @@ test("GitLab runtime archives require immutable revisions and bound authenticate
  const client=new Gitlab("https://gitlab.com","fixture-token","123");
  for(const revision of ["main","a".repeat(39),sha+"&sha=main"])await assert.rejects(client.archive("renamed/repo",revision),/exact Git commit/);
  assert.equal(calls,0);assert.deepEqual(await client.archive("renamed/repo",sha),gzip);
- for(const [next,pattern] of [["redirect",/redirect rejected/],["denied",/unavailable/],["missing",/missing/],["header",/too large/],["stream",/exceeds 20 MB/],["html",/not gzip/]] as const){mode=next;await assert.rejects(client.archive("renamed/repo",sha),pattern);}
+ for(const [next,pattern] of [["redirect",/another host \(archive\.example\)/],["denied",/unavailable/],["missing",/missing/],["header",/too large/],["stream",/exceeds 20 MB/],["html",/not gzip/]] as const){mode=next;await assert.rejects(client.archive("renamed/repo",sha),pattern);}
  assert.equal(cancelled,true);
 });
 test("provider credentials are authenticated to scope and operator-authorized HTTPS instances",()=>{
@@ -36,7 +37,7 @@ test("GitLab revision/tree/discovery use native project identities and reject tr
  const called:string[]=[];
  let omitted=true,changed=false,reads=0;
  t.mock.method(globalThis,"fetch",async(url:string,options:RequestInit)=>{
-  called.push(url);assert.equal((options.headers as Record<string,string>)["PRIVATE-TOKEN"],"fixture-token");assert.equal(options.redirect,"error");
+  called.push(url);assert.equal((options.headers as Record<string,string>)["PRIVATE-TOKEN"],"fixture-token");assert.equal(options.redirect,"manual");
   if(url.includes("/projects?"))return Response.json([{id:123,path_with_namespace:"group/repo",default_branch:"main",http_url_to_repo:"https://gitlab.com/group/repo.git"}]);
   if(url.includes("/repository/tree"))return Response.json([{id:"b".repeat(40),path:"src/api.ts",type:"blob"}]);
   if(url.includes("/repository/commits/"))return Response.json({id:"a".repeat(40)});
@@ -58,7 +59,7 @@ test("GitLab follow-ups require effective active write membership and retain nat
  const root={id:10,body:"Finding",author:{username:"openreview"}},question={id:11,body:"@openreview why?",author:{username:"alice"}};
  let notes=[{id:12,body:"<!-- openreview:conversation:11 -->",author:{username:"alice"}}];let posts=0;
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit)=>{
-  const url=new URL(input);assert.equal(options.redirect,"error");
+  const url=new URL(input);assert.equal(options.redirect,"manual");
   if(url.pathname.endsWith("/user"))return Response.json({id:1,username:"openreview"});
   if(url.pathname.endsWith("/users")){assert.equal(url.searchParams.get("without_project_bots"),"true");return Response.json([{id:2,username,state,locked}]);}
   if(url.pathname.endsWith("/members/all/2"))return Response.json({id:2,username:"alice",state,access_level:level,expires_at:expires},{status:memberStatus});
@@ -93,7 +94,7 @@ test("GitLab publication binds bot, run, revision and added line, and resumes a 
  const patch="@@ -1,2 +1,2 @@\n function amount(price) {\n- return price;\n+ return price / 100;";
  let discussions=0,summaries=0,edits=0,failSummary=true,currentHead=head,currentBase=base,reads=0,changeAt=Infinity,omit=false;
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit)=>{
-  const url=new URL(input);assert.equal(options.redirect,"error");
+  const url=new URL(input);assert.equal(options.redirect,"manual");
   if(url.pathname.endsWith("/user"))return Response.json({username:"openreview"});
   if(url.pathname.endsWith("/merge_requests/1")){
    if(++reads===changeAt)currentHead=base;

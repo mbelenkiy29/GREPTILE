@@ -9,7 +9,7 @@ function fixture(t:TestContext){
  const pr={number:1,title:'Label',body:'',draft:false,state:'open',html_url:'https://gitlab.example/o/r/-/merge_requests/1',user:{login:'alice'},head:{sha,ref:'feature'},base:{sha:base,ref:'main'},revisionKey:key,diff:[],comments:[],reviews:[],commits:[],checks:[]};
  t.mock.method(client,'pullRequest',async()=>pr);
  t.mock.method(globalThis,'fetch',async(input:string,options:RequestInit)=>{
-  assert.equal(options.redirect,'error');assert.equal((options.headers as Record<string,string>)['PRIVATE-TOKEN'],'fixture-token');const path=new URL(input).pathname,b=options.body?JSON.parse(String(options.body)):undefined;
+  assert.equal(options.redirect,'manual');assert.equal((options.headers as Record<string,string>)['PRIVATE-TOKEN'],'fixture-token');const path=new URL(input).pathname,b=options.body?JSON.parse(String(options.body)):undefined;
   if(path==='/api/v4/user')return Response.json(bot);
   if(path==='/api/v4/projects/1')return Response.json({id:1,only_allow_merge_if_pipeline_succeeds:state.pipeline,only_allow_merge_if_all_discussions_are_resolved:state.discussions,only_allow_merge_if_all_status_checks_passed:state.external});
   if(path==='/api/v4/projects/1/merge_requests/1')return Response.json({iid:1,project_id:state.projectId,title:'Label',description:'',draft:state.draft,state:'opened',web_url:pr.html_url,author:{username:state.author},source_branch:'feature',target_branch:'main',diff_refs:{head_sha:state.head,base_sha:state.base,start_sha:state.base},detailed_merge_status:state.merge,has_conflicts:false,blocking_discussions_resolved:state.resolved,head_pipeline:{sha:state.head,status:state.pipelineStatus}});

@@ -1,6 +1,6 @@
 "use client";
 import { useActionState,useState,startTransition } from "react";
-import { connectProvider,refreshP4Ticket,replaceGitCredentials,activateBitbucket,authorizeBitbucket,revokeBitbucketAuthorization } from "./actions";
+import { connectProvider,refreshP4Ticket,replaceGitCredentials,activateBitbucket,authorizeBitbucket,revokeBitbucketAuthorization,updateProviderNetwork } from "./actions";
 const permissions:Record<string,string>={
  gitlab:"Use a dedicated bot token with api scope and Developer-or-higher project access. Enable merge request, push, and comment webhooks for reviews and follow-ups.",
  gitea:"Use a dedicated bot token with repository and issue write, organization and user read. Grant repository admin for follow-ups: Gitea requires it to verify another author's permissions. Enable pull request, review, comment, and push webhooks.",
@@ -13,6 +13,19 @@ export function GitCredentialRefreshForm({connectionId,kind}:{connectionId:strin
  const [state,action,pending]=useActionState(replaceGitCredentials,{});
  return <details><summary>Replace provider credential</summary><form action={action} className="form-grid policy-form"><input type="hidden" name="connectionId" value={connectionId}/><p>{permissions[kind]}</p><p>OpenReview verifies access to every selected repository before saving. The existing connection and webhook remain configured.</p><label>Replacement provider credential<input name="credential" type="password" minLength={10} maxLength={20000} autoComplete="new-password" required/></label><button disabled={pending}>{pending?"Verifying access…":"Verify and replace credential"}</button>{state.error&&<p role="alert">{state.error}</p>}{state.saved&&<p role="status">Credential replaced. Retry the failed import, discovery or review when ready.</p>}</form></details>;
 }
+// Self-managed GitLab behind corporate networks: internal API URL, extra CA certificates, HTTPS proxy.
+function NetworkFields({apiUrl,proxyUrl}:{apiUrl?:string;proxyUrl?:string}){
+ return <>
+  <p className="muted">Leave these empty unless OpenReview must reach the GitLab API at a different address than the one people use, through a private certificate authority, or through a proxy. The instance URL above stays the address used in links.</p>
+  <label>Internal API URL (optional)<input name="apiUrl" type="url" defaultValue={apiUrl} placeholder="https://gitlab.internal.example"/></label>
+  <label>Custom CA certificates, PEM (optional; added to the public roots)<textarea name="caBundle" autoComplete="off" spellCheck={false} placeholder="-----BEGIN CERTIFICATE-----"/></label>
+  <label>HTTPS proxy (optional; the operator must allow it in SCM_ALLOWED_PROXIES)<input name="proxyUrl" type="url" defaultValue={proxyUrl} placeholder="http://proxy.internal.example:3128"/></label>
+ </>;
+}
+export function GitlabNetworkForm({connectionId,apiUrl,proxyUrl,caCertificates}:{connectionId:string;apiUrl?:string;proxyUrl?:string;caCertificates:number}){
+ const [state,action,pending]=useActionState(updateProviderNetwork,{});
+ return <details><summary>Network settings</summary><p>{apiUrl?"API URL "+apiUrl:"API calls use the instance URL"} · {caCertificates?caCertificates+" custom CA certificate"+(caCertificates===1?"":"s"):"Public certificate authorities only"} · {proxyUrl?"Proxy "+proxyUrl:"No proxy"}</p><form action={action} className="form-grid policy-form"><input type="hidden" name="connectionId" value={connectionId}/><NetworkFields apiUrl={apiUrl} proxyUrl={proxyUrl}/><p className="muted">Saving replaces all three settings; paste the CA certificates again to keep them. OpenReview checks every selected repository with the new settings first.</p><button disabled={pending}>{pending?"Checking repositories…":"Save network settings"}</button>{state.error&&<p role="alert">{state.error}</p>}{state.saved&&<p role="status">Network settings saved.</p>}</form></details>;
+}
 export function ProviderForm({organizationId}:{organizationId:string}){
  const [state,action,pending]=useActionState(connectProvider,{});
  const [kind,setKind]=useState("gitlab");
@@ -23,6 +36,7 @@ export function ProviderForm({organizationId}:{organizationId:string}){
   <label>Instance URL<input name="instance" type="url" placeholder={kind==="gitlab"?"https://gitlab.com":kind==="bitbucket-dc"?"https://bitbucket.example/bitbucket":kind==="azure-devops"?"https://dev.azure.com/your-organization":"https://git.example"} required/></label>
   <p className="muted" id="provider-permissions">{permissions[kind]} Credentials are encrypted on the server. Self-managed hosts must be authorized by the operator in SCM_ALLOWED_HOSTS.</p>
   <label>Credential<textarea name="credential" required autoComplete="off" spellCheck={false} aria-describedby="provider-permissions"/></label>
+  {kind==="gitlab"&&<details><summary>Network: internal API URL, CA certificates, proxy</summary><NetworkFields/></details>}
   {kind!=="perforce"&&<label>Webhook secret (keep a copy for provider setup)<input name="webhookSecret" type="password" minLength={32} required autoComplete="new-password"/></label>}
   <button disabled={pending}>{pending?"Checking provider…":"Connect provider"}</button>
   {state.error&&<p role="alert">{state.error}</p>}

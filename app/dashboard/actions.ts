@@ -645,13 +645,14 @@ export async function connectProvider(_previous:{error?:string},form:FormData):P
   if(credential.length<10||credential.length>20000||kind!=="perforce"&&webhook.length<32)throw new Error("Credentials required; webhook providers need a secret of at least 32 characters");
   let config:unknown;
   if(["github-enterprise","bitbucket-dc","perforce"].includes(kind)){try{config=JSON.parse(credential);}catch{throw new Error("Credential must be valid JSON with the fields shown in setup");}}
-  if(kind==="gitlab"){const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential).repositories();}
+  let network:{apiUrl?:string;caBundle?:string;proxyUrl?:string}={};
+  if(kind==="gitlab"){const {scmNetwork}=await import("../../src/scm-transport");network=scmNetwork({apiUrl:text(form,"apiUrl"),caBundle:text(form,"caBundle"),proxyUrl:text(form,"proxyUrl")},["gitlab.com"]);const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential,undefined,network).repositories();}
   else if(kind==="gitea"){const {Gitea}=await import("../../src/gitea");await new Gitea(instance,credential).discover();}
   else if(kind==="azure-devops"){if(!/^https:\/\/[^/]+\/[^/]+/.test(instance))throw new Error("Use the organization URL, for example https://dev.azure.com/your-organization");const {AzureDevOps}=await import("../../src/azure-devops");await new AzureDevOps(instance,credential).repositories();}
   else if(kind==="bitbucket-dc"){const {BitbucketDC}=await import("../../src/bitbucket-dc");const c=z.object({token:z.string().min(10),username:z.string().min(1)}).safeParse(config);if(!c.success)throw new Error("Bitbucket credential requires a token (10+ characters) and bot username");await new BitbucketDC(instance,c.data.token,undefined,c.data.username).repositories();}
   else if(kind==="perforce"){const {P4CodeReview,p4Credential}=await import("../../src/perforce");const c=p4Credential.safeParse(config);if(!c.success)throw new Error("P4 credential requires only username and ticket, as shown in setup");await new P4CodeReview(instance,c.data.username,c.data.ticket).projects();}
   else{const {Github}=await import("../../src/github");const c=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).safeParse(config);if(!c.success)throw new Error("Enterprise credential requires appId, privateKey, and a positive installationId");await (await Github.installation(c.data.installationId,{appId:c.data.appId,privateKey:c.data.privateKey,base:instance+(new URL(instance).hostname.endsWith(".ghe.com")?"":"/api/v3")})).repositories();}
-  await backend().mutation(api.providerConnections.save,{token,secret:process.env.SERVICE_SECRET??"",organizationId,kind,instance,name:text(form,"name"),credentials:encryptCredential(credential,organizationId+":"+kind),webhookSecret:kind==="perforce"?"":encryptCredential(webhook,organizationId+":"+kind+":webhook")});
+  await backend().mutation(api.providerConnections.save,{token,secret:process.env.SERVICE_SECRET??"",organizationId,kind,instance,...network,name:text(form,"name"),credentials:encryptCredential(credential,organizationId+":"+kind),webhookSecret:kind==="perforce"?"":encryptCredential(webhook,organizationId+":"+kind+":webhook")});
   revalidatePath("/dashboard","layout");return {};
  }catch(error){return {error:error instanceof Error?error.message:"Connection failed"};}
 }
@@ -677,6 +678,14 @@ export async function refreshP4Ticket(_state:{error?:string;saved?:boolean},form
 export async function replaceGitCredentials(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
  try{const {token}=await current();await backend().action(api.providerJobs.replaceGitCredentials,{token,connectionId:text(form,"connectionId") as Id<"providerConnections">,credential:text(form,"credential")});revalidatePath("/dashboard","layout");return {saved:true};}
  catch{return {error:"Credential replacement failed. Check workspace admin permission and access to every selected repository. The connection may have changed while verification ran."};}
+}
+// Settings are validated here (readable errors) and again in Convex, which test-connects before saving.
+export async function updateProviderNetwork(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
+ let network:{apiUrl?:string;caBundle?:string;proxyUrl?:string};
+ try{const {scmNetwork}=await import("../../src/scm-transport");network=scmNetwork({apiUrl:text(form,"apiUrl"),caBundle:text(form,"caBundle"),proxyUrl:text(form,"proxyUrl")},["gitlab.com"]);}
+ catch(error){return {error:error instanceof Error?error.message:"Invalid network settings"};}
+ try{const {token}=await current();await backend().action(api.providerJobs.updateNetwork,{token,connectionId:text(form,"connectionId") as Id<"providerConnections">,...network});revalidatePath("/dashboard","layout");return {saved:true};}
+ catch{return {error:"Network settings were not saved. Check workspace admin permission, and that every selected repository is reachable through this API URL, CA bundle and proxy."};}
 }
 export async function disconnectProvider(form:FormData) {
  const {token}=await current();await backend().mutation(api.providerConnections.disconnect,{token,id:text(form,"connectionId") as Id<"providerConnections">});revalidatePath("/dashboard","layout");

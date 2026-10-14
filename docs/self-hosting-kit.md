@@ -112,6 +112,9 @@ Hosts that the running services contact, apart from your own web, backend and id
 | `oauth2.googleapis.com`, `openidconnect.googleapis.com` | Google sign-in | off |
 | Client metadata URLs chosen by MCP clients | MCP OAuth client identification | off |
 
+A self-managed GitLab connection can reach its API through an HTTPS proxy that the operator allows in
+`SCM_ALLOWED_PROXIES`, with an internal API URL and a private CA bundle. See [gitlab.md](gitlab.md).
+
 Hosts needed when you build and deploy, but not at runtime:
 
 - **Container registries.** `ghcr.io` for the Convex backend image, and your registry for the web image.

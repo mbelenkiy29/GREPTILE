@@ -27,6 +27,7 @@ backend:
 config:
   appUrl: https://review.example.com
   scmAllowedHosts: ""   # SCM_ALLOWED_HOSTS for self-managed GitLab, Gitea, Bitbucket Data Center
+  scmAllowedProxies: "" # SCM_ALLOWED_PROXIES: host:port of proxies GitLab connections may use
   offline: false        # OPENREVIEW_OFFLINE: only model, embedding, SCM and SSO hosts are contacted
   llmProvider: openai   # openai | anthropic | openrouter | compatible
   llmBaseUrl: ""        # e.g. an internal OpenAI-compatible endpoint

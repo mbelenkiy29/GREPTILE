@@ -10,6 +10,9 @@ data:
   {{- with .Values.config.scmAllowedHosts }}
   SCM_ALLOWED_HOSTS: {{ . | quote }}
   {{- end }}
+  {{- with .Values.config.scmAllowedProxies }}
+  SCM_ALLOWED_PROXIES: {{ . | quote }}
+  {{- end }}
   OPENREVIEW_OFFLINE: {{ ternary "true" "false" .Values.config.offline | quote }}
   LLM_PROVIDER: {{ .Values.config.llmProvider | quote }}
   {{- with .Values.config.llmBaseUrl }}
