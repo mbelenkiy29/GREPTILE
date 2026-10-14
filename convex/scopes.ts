@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories, repositoryAccess, audit } from "./auth";
 import { settingsValidator } from "./schema";
-import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,scopeDefaults } from "../src/review-settings";
+import { defaults,deploymentDefaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,scopeDefaults } from "../src/review-settings";
 import { categories } from "../src/engine/types";
 const keys=Object.keys(defaults);
 export async function providerTeam(ctx:MutationCtx,organizationId:Id<"organizations">,kind:string,instance:string,group:{externalId:string;name:string},userId:Id<"users">){
@@ -20,7 +20,7 @@ export async function providerTeam(ctx:MutationCtx,organizationId:Id<"organizati
  await audit(ctx,organizationId,userId,"team.provider_group_connected",id);return id;
 }
 function resolveSettings(repo:Doc<"repositories">,scopes:Doc<"scopeSettings">[],local:Doc<"repositorySettings">|null) {
- const value=scopeDefaults(scopes,repo.teamId);
+ const value=scopeDefaults(scopes,repo.teamId,deploymentDefaults());
  return local&&!local.inherit?{...value,...local.settings}:value;
 }
 // Where each effective dashboard value comes from (before the repository config file applies).

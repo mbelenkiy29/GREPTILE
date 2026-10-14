@@ -1,5 +1,8 @@
-export const summarySections=["overview","affectedAreas","diagram","findings","score","risk","resolved","skipped","testSource"] as const;
-export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source"};
+export const summarySections=["overview","affectedAreas","diagram","findings","score","risk","resolved","skipped","testSource","tips"] as const;
+export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source",tips:"Feature tips"};
+// Feature tips (a footer line, not a section) are off by default; the hosted cloud turns them on
+// through deploymentDefaults().
+const defaultSummarySections=summarySections.filter(s=>s!=="tips");
 export const validSummarySections=(value:readonly string[]|undefined)=>value===undefined||value.length<=summarySections.length&&new Set(value).size===value.length&&value.every(s=>(summarySections as readonly string[]).includes(s));
 export const defaults = {
   automatic: true,
@@ -44,14 +47,16 @@ export const defaults = {
   // Human replies in threads OpenReview started are answered without an @openreview mention.
   threadReplies: true,
   commentStyle: "concise",
-  summarySections:[...summarySections],
+  summarySections:[...defaultSummarySections] as string[],
 };
+/** Defaults for this deployment: the hosted cloud (BILLING_ENABLED=true) also shows feature tips. */
+export const deploymentDefaults=(env:Record<string,string|undefined>=process.env)=>env.BILLING_ENABLED==="true"?{...defaults,summarySections:[...defaultSummarySections,"tips"]}:defaults;
 type ScopeReviewSettings = Omit<typeof defaults,"targetBranches"|"ignoredBranches"|"ignoredPaths"|"summarySections"|"triggerLabels"|"excludedAuthors"|"lockedKeys"> & {
   targetBranches:string[]; ignoredBranches:string[]; ignoredPaths:string[]; summarySections?:string[]; triggerLabels:string[]; excludedAuthors:string[]; lockedKeys:string[];
 };
 /** Only explicitly selected keys participate; dormant saved values never mask a parent. */
-export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<ScopeReviewSettings>;overrideKeys:readonly string[]}[],teamId?:string) {
-  let value:ScopeReviewSettings={...defaults};
+export function scopeDefaults(scopes:readonly {teamId?:string;settings:Partial<ScopeReviewSettings>;overrideKeys:readonly string[]}[],teamId?:string,base:typeof defaults=defaults) {
+  let value:ScopeReviewSettings={...base};
   for(const scope of [scopes.find(s=>!s.teamId),teamId?scopes.find(s=>s.teamId===teamId):undefined]) {
     if(scope)value={...value,...Object.fromEntries(Object.entries(scope.settings).filter(([key,setting])=>setting!==undefined&&scope.overrideKeys.includes(key)))};
   }

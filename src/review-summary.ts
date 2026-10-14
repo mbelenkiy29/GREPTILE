@@ -4,6 +4,7 @@ import {suggestionBlock,type SuggestionSyntax} from "./suggestions";
 import {changedLines} from "./engine/patch-lines";
 import {reviewVerdict,verdictLine} from "./verdict";
 import {priorityBadge,tagBadges} from "./priority";
+import {tipLine,type TicketKind,type TipKey} from "./feature-tips";
 
 export function runtimeStatus(evidence:ReviewInput["runtimeEvidence"]){
  if(!evidence||evidence.executionStarted!==true)return "execution not confirmed";
@@ -65,11 +66,13 @@ export function reviewSummary(data:Summary,selected:readonly string[]=summarySec
   risk:data.assessment?data.assessment.risk+" · Confidence "+Math.round(data.assessment.confidence*100)+"%\n\n"+data.assessment.reason:"Unknown: no structured risk assessment was recorded.",
   resolved:data.resolved.map(f=>"- "+f.title+" · "+code(f.filePath)).join("\n")||"No previously reported findings were confirmed resolved in this review.",
   skipped:data.skippedFiles?.length?skippedList(data.skippedFiles).replace(/^\n\nSkipped files:\n/,""):"No changed files were skipped.",
+  tips:"",
   testSource:data.files.filter(f=>/(?:^|\/)(?:tests?|__tests__)(?:\/|\.)|\.(?:test|spec)\.[^/]+$/.test(f.path)).map(f=>"- "+code(f.path)).join("\n")||"No changed test source identified by filename. This does not measure test coverage.",
  };
  const runtime=data.runtimeEvidence;
  const verdict=reviewVerdict({score:data.score?.value,findings:data.findings,incomplete:data.incomplete});
- const shown=selected.filter(s=>s!=="diagram"||data.diagram);
+ // Tips are a footer line added at publication (see reviewFooter), not a summary section.
+ const shown=selected.filter(s=>s!=="tips"&&(s!=="diagram"||data.diagram));
  const blocks=shown.map(s=>"### "+summaryLabels[s as keyof typeof summaryLabels]+"\n"+sections[s as keyof typeof sections]);
  // Always shown when present: these findings have no inline comment, so the summary is their only place.
  if(outside.length){
@@ -99,11 +102,11 @@ export function findingComment(f: Finding, style: string = "detailed", suggestio
 // whole-comment native form).
 export type FooterProvider="azure-devops"|"perforce"|"other";
 export const rerunCommand=(provider:FooterProvider)=>provider==="azure-devops"?undefined:provider==="perforce"?"@openreview review again":"@openreview review";
-export function reviewFooter(reviewNumber:number|undefined,provider:FooterProvider){
+export function reviewFooter(reviewNumber:number|undefined,provider:FooterProvider,tip?:{sections:readonly string[];key:TipKey;ticket?:TicketKind}|null){
  if(reviewNumber!==undefined&&(!Number.isSafeInteger(reviewNumber)||reviewNumber<1))throw new Error("Invalid review number");
  const command=rerunCommand(provider);
  const parts=[reviewNumber?"Review "+reviewNumber+" on this pull request":"",command?"Comment `"+command+"` to re-run it":"Re-run it from the dashboard"].filter(Boolean);
- return "\n\n"+parts.join(" · ")+".";
+ return "\n\n"+parts.join(" · ")+"."+(tip&&tip.sections.includes("tips")?tipLine(tip.key,tip.ticket):"");
 }
 export function reviewLinks(reviewId:string,unresolvedCount:number){
  if(!process.env.APP_URL)return "";

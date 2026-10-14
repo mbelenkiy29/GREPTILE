@@ -674,6 +674,10 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_repo", ["repositoryId"]),
+  // Feature tips shown in review footers (one per review); drives the per-repository cooldown.
+  featureTips: defineTable({ organizationId: org, repositoryId: repo, reviewId: review, key: v.string(), ticket: v.optional(v.string()), shownAt: v.number() })
+    .index("by_repo_time", ["repositoryId", "shownAt"])
+    .index("by_review", ["reviewId"]),
   reviewComments: defineTable({
     organizationId: org,
     reviewId: review,

@@ -43,6 +43,13 @@ import {
   type ModelProvider,
 } from "../src/engine/types";
 
+// One feature tip for the summary footer when the Feature tips section is on; the choice is recorded
+// for the per-repository cooldown, and a publish retry reuses it.
+async function chooseTip(ctx: ActionCtx, reviewId: Id<"reviews">, sections: readonly string[] | undefined, signals: { references: string; rules: number; strictness: number; engine: string; agenticAvailable: boolean }) {
+  if (!sections?.includes("tips")) return null;
+  const tip = await ctx.runMutation(internal.featureTips.choose, { reviewId, ...signals });
+  return tip ? { sections, ...tip } : null;
+}
 export const backfillReviewFindings=internalAction({args:{reviewId:v.id("reviews")},handler:async(ctx,a)=>{
  const {review}=await ctx.runQuery(internal.reviews.data,a);
  if(review.findingsRecorded)return {status:"already_recorded"};
@@ -347,7 +354,7 @@ export const review = internalAction({
           repo.fullName,
           pr.number,
           state.review.headSha,
-          result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other"),
+          result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other", await chooseTip(ctx, args.reviewId, settings.summarySections, { references: [pr.title, pr.body ?? "", pr.head.ref].join("\n"), rules: rules.length, strictness: settings.strictness ?? 0, engine: settings.reviewEngine, agenticAvailable: false })),
           inlineFindings(result.findings).slice(0, settings.maxComments),
           args.reviewId,
           settings.commentStyle,
@@ -644,7 +651,7 @@ export const review = internalAction({
         repo.fullName,
         pr.number,
         pr.head.sha,
-        result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other"),
+        result.summary + reviewFooter(await ctx.runMutation(internal.reviews.assignNumber, { reviewId: args.reviewId }), github instanceof AzureDevOps ? "azure-devops" : "other", await chooseTip(ctx, args.reviewId, effective.summarySections, { references: [pr.title, pr.body ?? "", pr.head.ref].join("\n"), rules: rules.length + repoConfig.rules.length, strictness: effective.strictness ?? 0, engine: effective.reviewEngine, agenticAvailable: typeof modelProvider.runTools === "function" })),
         inlineFindings(result.findings).slice(0, effective.maxComments),
         args.reviewId,
         effective.commentStyle,

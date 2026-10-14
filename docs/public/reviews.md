@@ -27,6 +27,10 @@ The score is shown next to the verdict when the confidence-score summary section
 
 The summary ends with a footer such as "Review 3 on this pull request · Comment `@openreview review` to re-run it.", followed by links to the dashboard. The number counts this pull request's published reviews and stays the same when a publication is retried. The command matches what each provider accepts: `@openreview review` on GitHub, GitHub Enterprise, GitLab, Gitea, Bitbucket and Origin, `@openreview review again` on Perforce, and the dashboard on Azure DevOps, which does not accept comment commands.
 
+## Feature tips
+
+With the **Feature tips** summary section on, the footer can end with one 💡 tip when the review's data suggests a feature would help: a referenced Linear or Jira issue whose integration is not connected, many recently dismissed findings (try a higher strictness), no custom rules, or the agentic engine being available but off. A repository gets at most one tip every 3 days and never the same tip twice within 30 days, and a retried publication shows the same tip. Tips are on by default on the hosted cloud (`BILLING_ENABLED=true`) and off on self-hosted installs; turn them on or off under Settings → Review → Summary sections.
+
 ## Priorities and tags
 
 Each finding carries a priority derived from its severity. Badges are text and emoji only, so they render the same on self-hosted installs, in Slack and in email:
