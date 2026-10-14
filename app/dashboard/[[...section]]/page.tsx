@@ -1,3 +1,4 @@
+import { Mark } from "../../ui/logo";
 import { createWorkspace, logout, switchWorkspace, switchTeam } from "../actions";
 import { Live } from "../live";
 import { ProvidersPanel } from "../providers";
@@ -35,7 +36,7 @@ export default async function Dashboard(props: {
     return (
       <main className="onboarding">
         <div className="brand">
-          <span className="mark">⌘</span> OpenReview
+          <Mark /> OpenReview
         </div>
         <h1>Create your workspace</h1>
         <p>

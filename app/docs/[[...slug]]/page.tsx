@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { docBySlug, docPages, resolveDocLink } from "../../../src/docs-manifest";
+import { SiteFooter, SiteHeader } from "../../site-chrome";
 
 // Public documentation, rendered at build time from Markdown in docs/.
 export const dynamicParams = false;
@@ -21,7 +22,7 @@ export default async function DocsPage({ params }: { params: Promise<{ slug?: st
   const source = await fs.readFile(path.join(process.cwd(), "docs", page.file), "utf8");
   const sections = [...new Set(docPages.map((d) => d.section))];
   return <div className="docs-layout">
-    <header className="site-header"><Link className="brand" href="/"><span className="mark">⌘</span> OpenReview</Link><nav aria-label="Site"><Link href="/docs/quickstart">Docs</Link><Link href="/changelog">Changelog</Link><Link href="/dashboard">Dashboard</Link></nav></header>
+    <SiteHeader current="docs" />
     <aside className="docs-nav" aria-label="Documentation">{sections.map((s) => <div key={s}><h2>{s}</h2><ul>{docPages.filter((d) => d.section === s).map((d) => <li key={d.slug}><Link href={`/docs/${d.slug}`} aria-current={d.slug === page.slug ? "page" : undefined}>{d.title}</Link></li>)}</ul></div>)}</aside>
     <main className="docs-content review-markdown">
       <Markdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={["img"]} components={{
@@ -29,5 +30,6 @@ export default async function DocsPage({ params }: { params: Promise<{ slug?: st
         table: ({ children }) => <div className="table-scroll"><table>{children}</table></div>,
       }}>{source}</Markdown>
     </main>
+    <SiteFooter />
   </div>;
 }

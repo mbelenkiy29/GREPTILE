@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { api } from "../../convex/_generated/api";
 import { backend } from "../../src/server";
 import { SignInOptions } from "../sign-in";
+import { Mark } from "../ui/logo";
 import { acceptEmailInvitation } from "../dashboard/actions";
 
 // Email invitation landing: preview the workspace, sign in if needed, then accept (single use).
@@ -13,7 +15,7 @@ export default async function Invite({ searchParams }: { searchParams: Promise<{
   const session = (await cookies()).get("openreview_session")?.value;
   const signedIn = session ? await backend().query(api.identity.sessionValid, { token: session }).catch(() => false) : false;
   return <main className="welcome">
-    <div className="brand"><span className="mark">⌘</span> OpenReview</div>
+    <Link className="brand" href="/"><Mark /> OpenReview</Link>
     {error && <p role="alert" className="error">This invitation could not be accepted. It may have expired, been revoked or already been used.</p>}
     {!preview ? <><h1>Invitation unavailable</h1><p>This invitation link is invalid, expired, revoked or already used. Ask a workspace admin for a new one.</p></> : <>
       <h1>Join {preview.workspace}</h1>

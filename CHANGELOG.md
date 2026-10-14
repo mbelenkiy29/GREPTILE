@@ -14,6 +14,10 @@
 - A Memory page to edit, scope (repository, team or workspace), enable, disable or delete what OpenReview has learned.
 - `@openreview fix this`: validated suggestions, with optional fix pull requests on a new branch.
 
+### Design
+- New look across the site and dashboard: warm parchment and ink, a single ember accent, Inter with JetBrains Mono for code and metadata, and matching light and dark themes.
+- The landing page shows the real dashboard screens: a pull request review with an inline finding, verified evidence, the review summary, chat, agent hand-off and analytics.
+
 ### Product surfaces
 - Codebase chat with cited answers, a public query/search API with scoped API keys, and a remote MCP endpoint.
 - Slack app (notifications, Q&A and `/openreview status`) and verified email notifications.

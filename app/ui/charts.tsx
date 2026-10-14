@@ -2,7 +2,7 @@ import { chartScale, linePoints, segments, type Series } from "../../src/charts"
 
 // Accessible SVG line chart and bar list using theme tokens; each chart also renders its data as
 // a visually hidden table for screen readers.
-const palette = ["var(--accent)", "var(--success)", "var(--warning)", "var(--error)"];
+const palette = ["var(--text)", "var(--ember)", "var(--success)", "var(--warning)"];
 export function LineChart({ title, labels, series, format = (v: number) => String(v), height = 160 }: { title: string; labels: string[]; series: Series[]; format?: (v: number) => string; height?: number }) {
   const width = 640, max = chartScale(series);
   return <figure className="chart">
