@@ -135,6 +135,13 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 
 - Finish — done: full gate green (lint 0 errors/2 pre-existing warnings, typecheck, test 326 Node + 222 vitest, build); `docker build -t openreview:local .` ✓ on the second approach (first: base-image metadata timed out because ~/.docker/config.json uses credsStore "desktop" while Docker Desktop is stopped; second: temporary DOCKER_CONFIG without a credential store + DOCKER_HOST=Colima socket) and the container served /docs/quickstart, /api/health, /robots.txt with 200; README gains a Features section; .env.example documents client-only variables; docs/parity/REPORT.md written (per item, prioritized Needs-human checklist, live eval plan awaiting approval); `pnpm eval --validate` 15 fixtures valid (no model calls).
 
+- Pilot evaluation (2026-10-14, user-approved) — multi-hop-currency, OpenAI gpt-4.1, total spend $0.125 across four runs; reports in reports/eval-*-multi-hop-currency.json.
+  - pipeline: matched (high, src/change.ts:1, cents→dollars, names cart.ts; cannot see payments.ts), 10.4k tokens, $0.031, 18 s. Hand-adjudicated: genuine catch.
+  - agentic run 1 ($0.032): silently ran the pipeline — EvaluationUsage only forwarded generate, so model.runTools was undefined and review.ts fell back (noted only in coverageLimits). Fixed: the wrapper forwards runTools with usage tracking when the source supports it; scripts/eval.ts records engine/agentRun per result and fails (unscored) when agentic was requested but did not run. Test: tests/evaluation-usage.test.ts (+1; fails on the old wrapper).
+  - agentic run 2 ($0.011): engine ran but gpt-4.1 ended turn 1 in prose with 0 tool calls, which the loop treated as "completed" → missed. Fixed: one reportReminder user turn when a turn ends in text before anything is reported (src/engine/agent.ts; optional `reminded` in AgentState, backward compatible). Test: tests/agent.test.ts (+1); existing agent tests unchanged.
+  - agentic run 3 ($0.052): 9 tool calls / 11 turns, 23k tokens, 17 s, but no finding reported → missed. Transcripts aren't kept in eval reports, so whether it reached payments.ts is unknown.
+  - gate after fixes: lint/typecheck/test (328 Node + 222 vitest)/build green.
+
 ## Needs human (ordered, exact steps)
 1. (H2) Create a private Git remote and push: `git remote add origin <private-url> && git push -u origin main parity`.
 2. (H4) Before 2026-11-01: rotate the model key in Convex production (`LLM_API_KEY`) per docs/production-checklist.md §4; optionally switch to `LLM_PROVIDER=anthropic` with empty `LLM_MODEL`.
@@ -148,7 +155,7 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 10. DONE 2026-10-14 (user approved; chromium-1243 installed). (Phase A) Approve installing the Playwright browser so `pnpm test:e2e` can run locally: `pnpm exec playwright install chromium` (downloads Chromium, ~150 MB, from the Playwright CDN into ~/Library/Caches/ms-playwright).
 11. (B6) GitHub App settings → Permissions → Repository permissions → **Checks: Read and write** → Save; each installation owner must accept the updated permissions (GitHub emails them / Settings → Applications → Configure). Until accepted, check runs are skipped silently.
 12. (C1) GitLab connections: in each project's Settings → Webhooks, enable **Emoji events** on the OpenReview hook so 👍/👎 reactions arrive (GitHub reactions are polled automatically).
-13. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
+13. PILOT DONE 2026-10-14 (see "Pilot evaluation" above); full runs still need approval. (A2) Approve and run a live pipeline-vs-agentic evaluation before switching any default: `pnpm eval` and `pnpm eval --engine=agentic` (spends inference budget; compare reports/evaluation*.json, adjudicate by hand).
 14. (C4) Optional, only if fix pull requests are wanted: GitHub App settings → Permissions → Repository permissions → **Contents: Read and write** → Save; installation owners accept the updated permissions. Then a workspace admin enables “Fix pull requests” in repository settings. Without both, `@openreview fix this in a new PR` replies with the suggestion and a note.
 15. (D4) Slack app: at https://api.slack.com/apps → Create New App → From a manifest, paste docs/slack-app-manifest.yml with APP_URL and CONVEX_SITE_URL replaced. Under Basic Information, copy the Client ID, Client Secret and Signing Secret. Set `SLACK_CLIENT_ID` in Vercel (Production) and Convex prod. Set `SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` in Convex prod only (`npx convex env set NAME --prod`, with the value pasted at the prompt and never echoed). Redeploy, then confirm that Event Subscriptions shows the request URL as Verified.
 16. (D4) Email: create a Resend account, verify the sending domain (DNS records), and create an API key. Set `RESEND_API_KEY` and `EMAIL_FROM` (for example `OpenReview <noreply@your-domain>`) in Convex prod.
@@ -254,6 +261,8 @@ Updated: 2026-10-14 · Branch: parity · Baseline: c62023e
 - 2026-10-14 — Docker verification used a scratch DOCKER_CONFIG (no credential store) with DOCKER_HOST pointing at the Colima socket instead of editing ~/.docker/config.json — the user's Docker configuration is theirs to change; the Dockerfile itself needed no change.
 
 - 2026-10-14 — The e2e nav walk reads link names from the rendered main and secondary navigation instead of a fixed list, so adding a settings page doesn't silently go untested; the five main sections stay fixed so a missing one fails.
+
+- 2026-10-14 — The agentic loop sends one reminder ("only report_finding records findings") when a turn ends in prose before anything is reported, instead of ending the review — mirrors the D1 chat nudge; at most one extra turn per review, never after a finding is reported, so budgets and existing runs are unchanged.
 
 ## Baseline (H1 results, test counts)
 - Node 24.7.0, pnpm 11.1.2. `pnpm install --frozen-lockfile` OK.

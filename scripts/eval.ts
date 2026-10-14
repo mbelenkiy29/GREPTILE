@@ -65,6 +65,8 @@ if (process.argv.includes("--validate")) {
     const tracked=new EvaluationUsage(modelFromEnvironment());
     try {
       const result = await reviewChange(fixture.input, tracked, undefined, undefined, engine==="agentic"?{engine,tools:memoryToolbox([...fixture.input.files,...(fixture.repositoryFiles??[])],fixture.input.headSha)}:{});
+      // A silent fallback to the pipeline would be scored as an agentic result; record it as a failure instead.
+      if(engine==="agentic"&&result.metadata.engine!=="agentic")throw new Error("Agentic engine did not run: "+(result.metadata.coverageLimits??[]).join("; "));
       const expected=fixture.expected;
       const matched = expected ? result.findings.filter(
         (f) =>
@@ -77,6 +79,8 @@ if (process.argv.includes("--validate")) {
       ) : [];
       results.push({
         id: fixture.id,
+        engine: result.metadata.engine,
+        agentRun: result.metadata.agentRun,
         truePositives: matched.length ? 1 : 0,
         trueNegatives: !expected && !result.findings.length ? 1 : 0,
         expectedFindings: expected ? 1 : 0,
@@ -156,6 +160,7 @@ if (process.argv.includes("--validate")) {
         ...report,
         results: results.map((r) => ({
           id: r.id,
+          ...("engine" in r ? { engine: r.engine, agentRun: r.agentRun } : {}),
           truePositives: r.truePositives,
           trueNegatives: r.trueNegatives,
           falsePositives: r.falsePositives,

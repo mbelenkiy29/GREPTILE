@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { z } from "zod";
 import { reviewChange } from "../src/engine/review";
-import { AgentSuspended, agentBudgets, agentTools, agentSystem, memoryToolbox, type AgentState } from "../src/engine/agent";
+import { AgentSuspended, agentBudgets, agentTools, agentSystem, memoryToolbox, reportReminder, type AgentState } from "../src/engine/agent";
 import type { Candidate, ModelProvider, ModelRequest, ReviewInput, ToolCall, ToolRequest, ToolTurn } from "../src/engine/types";
 
 const head = "b".repeat(40);
@@ -66,6 +66,25 @@ test("agent follows references across files to a multi-hop defect that the pipel
   assert.ok(!JSON.stringify(model.requests[0].context).includes("provider.charge"), "payments.ts is not in the shared payload");
   // Every request carries the same system prompt and tool set: nothing read can alter them.
   assert.ok(model.requests.every((r) => r.system === agentSystem && JSON.stringify(r.tools) === JSON.stringify(agentTools)));
+});
+
+test("a turn that ends in prose before anything is reported gets one reminder to use the tools", async () => {
+  // Real models often explain their reasoning in text first; that text is never a finding.
+  const model = new ScriptedAgent((turn, request) => {
+    if (turn === 1) return null;
+    if (turn === 2) { assert.deepEqual(request.messages.at(-1), { role: "user", content: reportReminder }); return [call("read_file", { path: "src/payments.ts" })]; }
+    if (turn === 3) return [call("report_finding", finding)];
+    return null;
+  });
+  const result = await reviewChange(input, model, async () => {}, undefined, { engine: "agentic", tools: memoryToolbox(repoFiles, head) });
+  assert.equal(result.findings.length, 1);
+  assert.deepEqual(result.metadata.agentRun, { toolCalls: 2, turns: 4, resumes: 0, stopReason: "completed" }, "no second reminder once a finding is reported");
+  // A model that keeps answering in prose is reminded exactly once, then the run completes with no findings.
+  const prose = new ScriptedAgent(() => null);
+  const quiet = await reviewChange(input, prose, async () => {}, undefined, { engine: "agentic", tools: memoryToolbox(repoFiles, head) });
+  assert.equal(quiet.findings.length, 0);
+  assert.deepEqual(quiet.metadata.agentRun, { toolCalls: 0, turns: 2, resumes: 0, stopReason: "completed" });
+  assert.equal(prose.requests[1].messages.filter((m) => m.role === "user").length, 2);
 });
 
 test("ungrounded or unverifiable agent findings are still suppressed by the shared gates", async () => {

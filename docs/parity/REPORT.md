@@ -112,7 +112,9 @@ Each item lists what shipped, its evidence level, its tests and its known limits
   - `tests/agent.test.ts` (7).
   - `tests/agent-tools.spec.ts`.
   - `tests/agent-toolbox.test.ts`.
-- Limits: there is no live quality comparison yet (see [the evaluation plan](#proposed-live-evaluation-pipeline-vs-agentic)).
+- Limits: in the one-fixture live pilot, the agentic engine investigated but missed a bug that the pipeline caught (see [Pilot results](#pilot-results-october-14-2026)). The pilot also exposed two bugs, both since fixed:
+  - The evaluation script silently ran the pipeline when the agentic engine was requested.
+  - The agent ended its review when the model replied in text without calling any tools.
 
 **A3 Multi-language code graph** (verified locally end-to-end for grammar loading; extraction tested with fakes)
 - Shipped:
@@ -440,7 +442,7 @@ Steps are grouped by when they're needed. The ledger number for each step is in 
 
 ### Turn on review features
 
-11. **Approve and run the live evaluation** [#13]. See the next section. Do this before changing any engine default.
+11. **Approve and run the live evaluation** [#13]. The pilot is done (see the next section). Do this before changing any engine default.
 12. **Run the live runbooks** [#22]. Start with `parity-features.md` on GitHub, then do each provider. Record the results in the acceptance matrix.
 13. **Checks permission** [#11]. In the GitHub App, set Checks to Read and write. Installation owners must accept the change; until they do, check runs are skipped.
 
@@ -484,6 +486,26 @@ The exact sub-steps for each item are in the ledger's "Needs human" section.
   - Both clean changes produced no findings.
   - It cost $0.33 across all runs.
 
+### Pilot results (October 14, 2026)
+
+The pilot ran fixture `multi-hop-currency` with OpenAI `gpt-4.1`. The run was approved, and four runs cost **$0.125** in total. The reports are `reports/eval-*-multi-hop-currency.json`.
+
+| Run | Engine actually used | Result | Cost |
+|---|---|---|---|
+| Pipeline | pipeline | **Caught.** High severity at `src/change.ts:1`, explaining the cents-to-dollars change and naming the `cart.ts` caller. Checked by hand: a genuine catch. Cost 10.4k tokens and 18 s | $0.031 |
+| Agentic, run 1 | pipeline (silent fallback) | Not a real agentic result. The evaluation wrapper didn't pass tool calling through, so the review fell back to the pipeline. **Fixed**, and the eval script now marks a fallback as a failed result | $0.032 |
+| Agentic, run 2 | agentic | **Missed.** gpt-4.1 replied in prose on its first turn, and the loop treated that as the end of the review. **Fixed:** the loop now sends one reminder that only `report_finding` records findings | $0.011 |
+| Agentic, run 3 | agentic | **Missed.** It made 9 tool calls in 11 turns (23k tokens, 17 s) but reported nothing | $0.052 |
+
+**What this shows**
+- On this fixture with gpt-4.1, the pipeline caught the bug and the agentic engine did not. That's one fixture and one run per engine, so it isn't a quality conclusion.
+- Eval reports don't save the agent's tool transcript, so it's unknown whether the agent reached `payments.ts`.
+- A cost per fixture of $0.03–0.05 is far below the estimate below. A full three-pass comparison of both engines on all 15 fixtures would probably cost **under $5**.
+
+**Before the full run**, consider two changes:
+- Save the agent's tool transcript in eval reports, so misses can be diagnosed.
+- Run the agentic engine with the default Claude model as well as gpt-4.1. The engine was designed around Claude's native tool use.
+
 ### Cost estimate
 
 Estimates use the built-in prices for `claude-sonnet-5-5`: $2 per million input tokens and $10 per million output tokens.
@@ -504,7 +526,7 @@ Each step needs approval before it runs.
    - Checklist step 2 (rotated key).
    - Set `LLM_PROVIDER`, `LLM_MODEL` and `LLM_API_KEY` in `.env.local`. Use the same model for both engines.
    - Commit or stash your work. `reports/evaluation.json` is tracked, and a live run overwrites it.
-2. **Pilot (about $1).** Run:
+2. **Pilot (about $1). Done October 14, 2026, for $0.125; see [Pilot results](#pilot-results-october-14-2026).** It ran:
    - `pnpm eval --fixture=multi-hop-currency`
    - `pnpm eval --fixture=multi-hop-currency --engine=agentic`
 
