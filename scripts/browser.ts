@@ -56,6 +56,8 @@ try {
     },
   ]);
   await page.goto(`${url}/dashboard`);
+  // loading.tsx streams first; wait for the real page before choosing the fresh-database branch.
+  await page.waitForLoadState("networkidle");
   if (
     await page.getByRole("heading", { name: "Create your workspace" }).count()
   ) {
@@ -63,9 +65,9 @@ try {
       .getByLabel("Workspace name")
       .fill("Browser verification workspace");
     await page.getByRole("button", { name: "Create workspace" }).click();
-    await page
-      .getByRole("heading", { name: "Repositories", exact: true })
-      .waitFor();
+    // A new workspace lands on the onboarding checklist (E4a); this branch only runs on a fresh database.
+    await page.waitForURL("**/dashboard/onboarding");
+    await page.getByRole("heading", { name: "Workspace setup", level: 1 }).waitFor();
   }
   const me = await backend.query(api.users.me, { token });
   const organizationId = me.organizations[0]._id!;
