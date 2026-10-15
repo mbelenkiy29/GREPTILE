@@ -6,6 +6,12 @@
 - Guided workspace setup: connect a provider, choose repositories, watch the code graph build, then shape the summary, comment scope, triggers and tools with live previews, and invite your team. Automatic reviews wait until you choose when reviews run.
 - Installing the GitHub App now works from any signed-in session (email, Google or GitLab) and returns you to setup.
 
+### Billing
+- Starter plan: unlimited reviews under a monthly fair-use limit (500 per seat by default).
+- When billing is on, guided setup ends with a plan step: add a payment method through Stripe Checkout without being charged before the trial ends, or continue on the trial.
+- The 14-day trial now starts with a workspace's first review instead of its creation date.
+- Restricted Stripe keys (`rk_…`) are accepted, and Stripe requests pin an API version.
+
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.
 - Tree-sitter code graph with resolved cross-file edges, plus optional chunk-level semantic retrieval.

@@ -4,19 +4,19 @@ import { Mark } from "../../ui/logo";
 import { logout } from "../actions";
 import { finishSetup } from "./actions";
 import { ShortcutHint, WizardShortcuts } from "./wizard-client";
-import { configureLabels, configureSteps, previousStep, stepTitles, wizardSteps, type ConfigureStep, type WizardStep } from "../../../src/onboarding-steps";
+import { configureLabels, configureSteps, previousStep, stepsFor, stepTitles, type ConfigureStep, type WizardStep } from "../../../src/onboarding-steps";
 
 /** Full-screen setup frame: identity row, the step body, and a persistent bar with Back / Next. */
-export function WizardFrame({ step, workspace, organizationId, admin, completed, nextLabel, nextHref, centered, children }: {
-  step: WizardStep; workspace?: string; organizationId?: string; admin: boolean; completed?: boolean;
+export function WizardFrame({ step, workspace, organizationId, admin, completed, billing = false, nextLabel, nextHref, centered, children }: {
+  step: WizardStep; workspace?: string; organizationId?: string; admin: boolean; completed?: boolean; billing?: boolean;
   nextLabel: string; nextHref?: string; centered?: boolean; children: ReactNode;
 }) {
-  const back = previousStep(step), position = wizardSteps.indexOf(step) + 1;
+  const steps = stepsFor(billing), back = previousStep(step, billing), position = steps.indexOf(step) + 1;
   return <main className="wizard" data-step={step}>
     <header className="wizard-top">
       <span className="brand"><Mark /> OpenReview</span>
       {workspace && <span className="muted wizard-workspace">{workspace} · setup</span>}
-      <span className="wizard-position">Step {position} of {wizardSteps.length}</span>
+      <span className="wizard-position">Step {position} of {steps.length}</span>
     </header>
     <div className={`wizard-body${centered ? " centered" : ""}`}>{children}</div>
     <footer className="wizard-bar">

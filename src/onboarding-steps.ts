@@ -1,6 +1,6 @@
 // Guided workspace setup: the step registry, the settings each configuration step may change, and
 // the resume/guard rules shared by the wizard pages and the Convex onboarding functions.
-export const wizardSteps = ["workspace", "connect", "indexing", "summary", "comments", "triggers", "tools", "team", "done"] as const;
+export const wizardSteps = ["workspace", "connect", "indexing", "summary", "comments", "triggers", "tools", "team", "plan", "done"] as const;
 export type WizardStep = (typeof wizardSteps)[number];
 export const configureSteps = ["summary", "comments", "triggers", "tools"] as const;
 export type ConfigureStep = (typeof configureSteps)[number];
@@ -14,6 +14,7 @@ export const stepTitles: Record<WizardStep, string> = {
   triggers: "Decide when reviews run",
   tools: "Fixes and safeguards",
   team: "Bring in your team",
+  plan: "Choose your plan",
   done: "Setup complete",
 };
 // Short labels for the configuration progress bar.
@@ -29,8 +30,16 @@ export const stepKeys: Record<ConfigureStep, readonly string[]> = {
 
 export const isWizardStep = (value: string | undefined): value is WizardStep => (wizardSteps as readonly string[]).includes(value ?? "");
 export const isConfigureStep = (value: string): value is ConfigureStep => (configureSteps as readonly string[]).includes(value);
-export function nextStep(step: WizardStep): WizardStep | undefined { return wizardSteps[wizardSteps.indexOf(step) + 1]; }
-export function previousStep(step: WizardStep): WizardStep | undefined { return step === "connect" ? undefined : wizardSteps[wizardSteps.indexOf(step) - 1]; }
+/** The steps a deployment shows: the plan step only when it bills workspaces. */
+export const stepsFor = (billing: boolean): readonly WizardStep[] => billing ? wizardSteps : wizardSteps.filter((s) => s !== "plan");
+export function nextStep(step: WizardStep, billing: boolean): WizardStep | undefined {
+  const at = wizardSteps.indexOf(step);
+  return stepsFor(billing).find((s) => wizardSteps.indexOf(s) > at);
+}
+export function previousStep(step: WizardStep, billing: boolean): WizardStep | undefined {
+  const at = wizardSteps.indexOf(step);
+  return step === "connect" ? undefined : [...stepsFor(billing)].reverse().find((s) => wizardSteps.indexOf(s) < at);
+}
 
 export type Onboarding = { startedAt: number; step?: string; reviewsPaused?: boolean; completedAt?: number; skipped?: boolean };
 /** A workspace created with guided setup that has not finished (or skipped) it yet. */
@@ -38,7 +47,7 @@ export function needsSetup(organization: { onboarding?: Onboarding | null } | nu
   return Boolean(organization?.onboarding?.startedAt && !organization.onboarding.completedAt);
 }
 
-export type SetupState = { hasWorkspace: boolean; connected: boolean; selected: number; indexingStarted: boolean; cursor?: string; completed: boolean };
+export type SetupState = { hasWorkspace: boolean; connected: boolean; selected: number; indexingStarted: boolean; cursor?: string; completed: boolean; billing: boolean };
 /** The step to show for a request: guards send users back to the first step they still need. */
 export function resolveStep(requested: string | undefined, state: SetupState): WizardStep {
   if (!state.hasWorkspace) return "workspace";
@@ -46,11 +55,12 @@ export function resolveStep(requested: string | undefined, state: SetupState): W
   if (requested === undefined) {
     if (!ready) return "connect";
     if (state.completed) return "connect";
-    const after = isWizardStep(state.cursor) ? nextStep(state.cursor) : undefined;
+    const after = isWizardStep(state.cursor) ? nextStep(state.cursor, state.billing) : undefined;
     return after && after !== "workspace" ? after : "indexing";
   }
   if (!isWizardStep(requested) || requested === "workspace") return "connect";
   if (requested !== "connect" && !ready) return "connect";
+  if (requested === "plan" && !state.billing) return "done";
   return requested;
 }
 

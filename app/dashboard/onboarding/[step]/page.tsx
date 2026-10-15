@@ -3,14 +3,15 @@ import { redirect } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { backend } from "../../../../src/server";
 import { emailOnWeb } from "../../../../src/email";
+import { billingConfig, checkoutTrialEnd } from "../../../../src/billing";
 import { installHref } from "../../../../src/github-install";
 import { providerDisplay, providerShort } from "../../../../src/provider-display";
 import { nextStep, resolveStep, type ConfigureStep } from "../../../../src/onboarding-steps";
 import { Live } from "../../live";
 import { reindex } from "../../actions";
 import { WorkspaceInvitations } from "../../invitations";
-import { advanceSetup, createSetupWorkspace, finishSetup, inviteFromSetup, saveSetupStep, selectAndIndex } from "../actions";
-import { IndexGraph, Stage, TeamArt } from "../art";
+import { advanceSetup, checkoutFromSetup, continueOnTrial, createSetupWorkspace, finishSetup, inviteFromSetup, saveSetupStep, selectAndIndex } from "../actions";
+import { IndexGraph, Stage, TeamArt, TrialArt } from "../art";
 import { CommentsStep, SummaryStep, ToolsStep, TriggersStep } from "../configure";
 import { loadSetup } from "../setup";
 import { ConfigureProgress, Heading, ReadOnlyNote, WizardFrame } from "../wizard";
@@ -25,11 +26,11 @@ const ledes: Record<ConfigureStep, string> = {
 
 export default async function SetupStep({ params, searchParams }: { params: Promise<{ step: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
   const [{ step: requested }, query] = await Promise.all([params, searchParams]);
-  const { user, organization, status, state } = await loadSetup();
+  const { user, organization, status, billing, state } = await loadSetup();
   const step = resolveStep(requested, state);
   if (step !== requested) redirect(`/dashboard/onboarding/${step}`);
 
-  if (step === "workspace" || !organization || !status) return <WizardFrame step="workspace" admin nextLabel="Create workspace" centered>
+  if (step === "workspace" || !organization || !status) return <WizardFrame step="workspace" admin billing={billingConfig().enabled} nextLabel="Create workspace" centered>
     <div className="wizard-panel wizard-card">
       <Heading step="workspace">A workspace holds your repositories, review settings, history and team. You can rename it later.</Heading>
       <StepForm action={createSetupWorkspace} pendingLabel="Creating workspace…">
@@ -39,8 +40,8 @@ export default async function SetupStep({ params, searchParams }: { params: Prom
     </div>
   </WizardFrame>;
 
-  const admin = status.admin, organizationId = organization._id, next = nextStep(step);
-  const frame = { workspace: organization.name, organizationId, admin, completed: state.completed, nextHref: next ? `/dashboard/onboarding/${next}` : "/dashboard/analytics" };
+  const admin = status.admin, organizationId = organization._id, next = nextStep(step, state.billing);
+  const frame = { workspace: organization.name, organizationId, admin, completed: state.completed, billing: state.billing, nextHref: next ? `/dashboard/onboarding/${next}` : "/dashboard/analytics" };
   const selected = status.repositories.filter((r) => r.selected);
 
   if (step === "connect") {
@@ -102,6 +103,53 @@ export default async function SetupStep({ params, searchParams }: { params: Prom
     </WizardFrame>;
   }
 
+  if (step === "plan" && billing?.enabled) {
+    const now = Date.now(), subscribed = billing.plan === "starter", confirming = query.checkout === "success" && !subscribed;
+    const trialEnded = billing.trialStarted && billing.trialEndsAt <= now, carries = Boolean(checkoutTrialEnd(billing.trialEndsAt, now));
+    const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { timeZone: "UTC", dateStyle: "medium" });
+    const elapsed = billing.trialStarted ? Math.max(0, Math.min(billing.trialDays, Math.floor((now - billing.trialEndsAt) / 86400000) + billing.trialDays)) : 0;
+    const price = process.env.BILLING_SEAT_PRICE_LABEL;
+    return <WizardFrame step="plan" {...frame} nextLabel={subscribed || confirming ? "Continue" : carries ? "Add payment method" : "Subscribe"}>
+      <div className="wizard-panel">
+        <Heading step="plan">{subscribed ? "Your workspace is on the Starter plan. Seats follow your team, so there is nothing else to set up."
+          : trialEnded ? "The free trial has ended. Subscribe to the Starter plan to keep reviews running."
+          : carries ? `Every workspace starts with ${billing.trialDays} days free. Add a payment method now and nothing is charged until the trial ends, or keep exploring and subscribe later in Settings → Billing.`
+          : `Your trial ends ${day(billing.trialEndsAt)}. Subscribing now starts the Starter plan right away, or keep exploring and subscribe later in Settings → Billing.`}</Heading>
+        <ReadOnlyNote admin={admin} />
+        {confirming && <p role="status" className="setup-note">Payment method saved. Your subscription appears here as soon as Stripe confirms it.</p>}
+        {query.checkout === "cancelled" && <p role="status" className="setup-note">Checkout was cancelled; nothing was charged.</p>}
+        {query.billing === "error" && <p role="alert" className="wizard-error">Stripe Checkout could not be opened. Try again, or continue on the trial and subscribe later in Settings → Billing.</p>}
+        <article className="wizard-plan" aria-labelledby="plan-name">
+          <header><h2 id="plan-name">Starter</h2><p className="price">{price ?? "Per seat, billed monthly"}</p></header>
+          <ul>
+            <li>Unlimited reviews, with a fair-use limit of {billing.reviewsPerSeat} per seat each month</li>
+            <li>Review summaries, inline findings and chat on every pull request</li>
+            <li>Every connected provider and repository</li>
+            <li>Owners, admins and members are seats; viewers are free</li>
+          </ul>
+          <dl className="facts">
+            <dt>Seats</dt><dd>{billing.activeSeats} active</dd>
+            <dt>{subscribed ? "Status" : "Trial"}</dt><dd>{subscribed ? <span className={`badge ${billing.status}`}>{billing.status.replaceAll("_", " ")}</span>
+              : billing.trialStarted ? `${trialEnded ? "Ended" : "Ends"} ${day(billing.trialEndsAt)} · up to ${billing.trialReviews} reviews a month`
+              : `${billing.trialDays} days from your first review · up to ${billing.trialReviews} reviews a month`}</dd>
+          </dl>
+        </article>
+        {admin && (subscribed || confirming
+          ? <StepForm action={advanceSetup}><input type="hidden" name="organizationId" value={organizationId} /><input type="hidden" name="step" value="plan" /></StepForm>
+          : <>
+            <form id="wizard-form" action={checkoutFromSetup}><input type="hidden" name="organizationId" value={organizationId} /></form>
+            <form action={continueOnTrial}><input type="hidden" name="organizationId" value={organizationId} /><button>{trialEnded ? "Continue without subscribing" : "Continue on the trial"}</button></form>
+          </>)}
+        <Live active={confirming} />
+      </div>
+      <Stage caption={subscribed ? `starter plan · ${billing.activeSeats} ${billing.activeSeats === 1 ? "seat" : "seats"}`
+        : !billing.trialStarted ? `${billing.trialDays}-day trial · starts with your first review`
+        : trialEnded ? "trial ended" : `trial · ${billing.trialDays - elapsed} days left · ${billing.used} of ${billing.trialReviews} reviews used`}>
+        <TrialArt days={billing.trialDays} elapsed={elapsed} subscribed={subscribed || confirming} />
+      </Stage>
+    </WizardFrame>;
+  }
+
   // done
   const d = status.defaults, ready = selected.filter((r) => r.ready).length;
   return <WizardFrame step="done" {...frame} nextLabel="Go to dashboard">
@@ -112,6 +160,7 @@ export default async function SetupStep({ params, searchParams }: { params: Prom
         <div><dt>Reviews</dt><dd>{d.automatic ? "Automatic on new pull requests" : "On request or trigger label"}{d.rereview ? ", re-reviewed on new commits" : ""}</dd></div>
         <div><dt>Flagging</dt><dd>{["Custom thresholds", "Quiet", "Balanced", "Thorough"][d.strictness ?? 0]} · up to {d.maxComments} inline comments</dd></div>
         <div><dt>Summary</dt><dd>{(d.summarySections ?? []).filter((s) => s !== "tips").length} sections · {d.commentStyle} comments</dd></div>
+        {billing?.enabled && <div><dt>Plan</dt><dd>{billing.plan === "starter" ? "Starter" : `Free trial · ${billing.trialStarted ? `ends ${new Date(billing.trialEndsAt).toLocaleDateString("en-US", { timeZone: "UTC", dateStyle: "medium" })}` : `${billing.trialDays} days from your first review`}`}</dd></div>}
       </dl>
       <p className="row"><Link href="/dashboard/pulls">Review existing pull requests</Link><Link href="/dashboard/settings/review">Fine-tune per repository</Link></p>
       {admin

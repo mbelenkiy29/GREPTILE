@@ -5,12 +5,15 @@ import { backend, current } from "../../../src/server";
 import type { SetupState } from "../../../src/onboarding-steps";
 import { activeWorkspace } from "../load";
 
-/** The signed-in user, active workspace, setup status and the state the step guards use. */
+/** The signed-in user, active workspace, setup and billing status, and the state the step guards use. */
 export async function loadSetup() {
   const user = await current(), organization = activeWorkspace(user, await cookies());
-  if (!organization?._id) return { user, organization: null, status: null, state: { hasWorkspace: false, connected: false, selected: 0, indexingStarted: false, completed: false } satisfies SetupState };
+  if (!organization?._id) return { user, organization: null, status: null, billing: null, state: { hasWorkspace: false, connected: false, selected: 0, indexingStarted: false, completed: false, billing: false } satisfies SetupState };
   const organizationId = organization._id as Id<"organizations">;
-  const status = await backend().query(api.onboarding.status, { token: user.token, organizationId });
+  const [status, billing] = await Promise.all([
+    backend().query(api.onboarding.status, { token: user.token, organizationId }),
+    backend().query(api.billing.status, { token: user.token, organizationId }),
+  ]);
   const selected = status.repositories.filter((r) => r.selected);
   const state: SetupState = {
     hasWorkspace: true,
@@ -20,6 +23,7 @@ export async function loadSetup() {
     cursor: status.onboarding?.step,
     // Workspaces from before guided setup have no record: treat them as set up (setup reopened).
     completed: !status.onboarding || Boolean(status.onboarding.completedAt),
+    billing: billing.enabled,
   };
-  return { user, organization: { ...organization, _id: organizationId }, status, state };
+  return { user, organization: { ...organization, _id: organizationId }, status, billing, state };
 }

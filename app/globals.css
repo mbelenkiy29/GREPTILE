@@ -2661,6 +2661,63 @@ input.switch:checked::before {
   stroke-dasharray: none;
 }
 
+.art-day {
+  animation: wizard-enter 320ms ease-out both;
+  animation-delay: calc(var(--i) * 24ms);
+}
+.art-day.elapsed .art-node {
+  fill: var(--surface-3);
+}
+.art-day.elapsed .art-label {
+  fill: var(--text);
+}
+.art-day.today .art-node {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+.art-card .art-node {
+  stroke-dasharray: 4 4;
+}
+.art-card.attached .art-node {
+  stroke: var(--text);
+  stroke-dasharray: none;
+  fill: var(--surface-3);
+}
+
+/* Plan step: one plan card */
+.wizard-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.wizard-plan header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.wizard-plan h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.wizard-plan .price {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.wizard-plan ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
 /* Previews: a small window that follows the form */
 .wizard-window {
   width: 100%;

@@ -104,7 +104,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
         <h2 id="pricing-heading">Pricing</h2>
         <div className="feature-grid two">
           <article className="feature-card"><h3>Trial</h3><p className="price">Free for {billing.trialDays} days</p><p>Up to {billing.trialReviews} reviews a month, with every feature included.</p></article>
-          <article className="feature-card"><h3>Team</h3><p className="price">{process.env.BILLING_SEAT_PRICE_LABEL ?? "Per seat, billed monthly"}</p><p>{billing.reviewsPerSeat} reviews per seat each month. Owners, admins and members are seats; viewers are free.</p></article>
+          <article className="feature-card"><h3>Starter</h3><p className="price">{process.env.BILLING_SEAT_PRICE_LABEL ?? "Per seat, billed monthly"}</p><p>Unlimited reviews, with a fair-use limit of {billing.reviewsPerSeat} per seat each month. Owners, admins and members are seats; viewers are free.</p></article>
         </div>
       </section>}
 

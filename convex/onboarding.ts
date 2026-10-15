@@ -9,7 +9,8 @@ import {repositoryIdentity} from "./repositoryIdentity";
 import {settingsValidator} from "./schema";
 import {assertValidSettings} from "./scopes";
 import {deploymentDefaults,scopeDefaults} from "../src/review-settings";
-import {isConfigureStep,isWizardStep,stepKeys} from "../src/onboarding-steps";
+import {isConfigureStep,isWizardStep,nextStep,stepKeys} from "../src/onboarding-steps";
+import {billingConfig} from "../src/billing";
 import type {Infer} from "convex/values";
 
 async function setupAccess(ctx:QueryCtx|MutationCtx,repo:Doc<"repositories">){
@@ -96,6 +97,8 @@ export const advance=mutation({args:{token:v.string(),organizationId:v.id("organ
  const organization=await ctx.db.get(a.organizationId);
  await ctx.db.patch(a.organizationId,{onboarding:{...(organization?.onboarding??{startedAt:Date.now()}),step:a.step}});
  await audit(ctx,a.organizationId,user._id,"onboarding.step_completed",a.step);
+ // The step to show next; the plan step only exists where this deployment bills workspaces.
+ return nextStep(a.step,billingConfig().enabled)??"done";
 }});
 export const complete=mutation({args:{token:v.string(),organizationId:v.id("organizations"),skipped:v.optional(v.boolean())},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true),organization=await ctx.db.get(a.organizationId);

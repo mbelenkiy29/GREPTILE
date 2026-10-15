@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configureSteps, needsSetup, nextStep, previousStep, resolveStep, stepKeys, stepSettingsFromForm, wizardSteps } from "../src/onboarding-steps";
+import { configureSteps, needsSetup, nextStep, previousStep, resolveStep, stepKeys, stepSettingsFromForm, stepsFor, wizardSteps } from "../src/onboarding-steps";
 import { previewComments, pullRequestOutcome, pullRequestSteps, sampleFindings, triggerTimeline } from "../src/onboarding-preview";
 import { graphLayout, litCount } from "../src/onboarding-graph";
 import { installHref, installReturnPath } from "../src/github-install";
 import { pullRequestTrigger } from "../src/triggers";
 import { defaults } from "../src/review-settings";
 
-const ready = { hasWorkspace: true, connected: true, selected: 2, indexingStarted: true, completed: false };
+const ready = { hasWorkspace: true, connected: true, selected: 2, indexingStarted: true, completed: false, billing: false };
 
 test("setup resumes at the first step still needed and guards later steps", () => {
   assert.equal(resolveStep(undefined, { ...ready, hasWorkspace: false }), "workspace");
@@ -22,15 +22,30 @@ test("setup resumes at the first step still needed and guards later steps", () =
   assert.equal(resolveStep("tools", ready), "tools");
   assert.equal(resolveStep("workspace", ready), "connect");
   assert.equal(resolveStep("../settings", ready), "connect");
-  assert.equal(nextStep("tools"), "team");
-  assert.equal(nextStep("done"), undefined);
-  assert.equal(previousStep("connect"), undefined);
-  assert.equal(previousStep("summary"), "indexing");
+  assert.equal(nextStep("tools", false), "team");
+  assert.equal(nextStep("done", true), undefined);
+  assert.equal(previousStep("connect", true), undefined);
+  assert.equal(previousStep("summary", false), "indexing");
   assert.deepEqual([...wizardSteps].slice(3, 7), [...configureSteps]);
   assert.equal(needsSetup({ onboarding: { startedAt: 1 } }), true);
   assert.equal(needsSetup({ onboarding: { startedAt: 1, completedAt: 2 } }), false);
   assert.equal(needsSetup({}), false);
   assert.equal(needsSetup(null), false);
+});
+
+test("the plan step exists only where the deployment bills workspaces", () => {
+  assert.deepEqual(stepsFor(true), wizardSteps);
+  assert.deepEqual(stepsFor(false), wizardSteps.filter((s) => s !== "plan"));
+  assert.equal(nextStep("team", true), "plan");
+  assert.equal(nextStep("team", false), "done");
+  assert.equal(nextStep("plan", false), "done", "a stale plan link still moves forward");
+  assert.equal(previousStep("done", true), "plan");
+  assert.equal(previousStep("done", false), "team");
+  assert.equal(resolveStep("plan", ready), "done");
+  assert.equal(resolveStep("plan", { ...ready, billing: true }), "plan");
+  assert.equal(resolveStep("plan", { ...ready, billing: true, indexingStarted: false }), "connect");
+  assert.equal(resolveStep(undefined, { ...ready, cursor: "team" }), "done");
+  assert.equal(resolveStep(undefined, { ...ready, cursor: "team", billing: true }), "plan");
 });
 
 test("each configuration step owns distinct, real workspace settings and parses only its form", () => {

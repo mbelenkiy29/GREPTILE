@@ -6,7 +6,7 @@ import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { backend, current } from "../../../src/server";
-import { isConfigureStep, nextStep, stepSettingsFromForm, type WizardStep } from "../../../src/onboarding-steps";
+import { isConfigureStep, nextStep, stepSettingsFromForm } from "../../../src/onboarding-steps";
 
 type Result = { error?: string; message?: string };
 const text = (form: FormData, key: string) => z.string().parse(form.get(key) ?? "");
@@ -47,16 +47,32 @@ export async function saveSetupStep(_state: Result, form: FormData): Promise<Res
     if (step === "tools" && form.get("agent")) await backend().mutation(api.bridge.saveWorkspaceAgent, { token, organizationId, agent: z.enum(["codex", "claude", "cursor"]).parse(text(form, "agent")) });
   } catch (error) { return failure(error, "Could not save these settings"); }
   revalidatePath("/dashboard", "layout");
-  redirect(`/dashboard/onboarding/${nextStep(step)}`);
+  redirect(`/dashboard/onboarding/${nextStep(step, false)}`);
 }
 
 export async function advanceSetup(_state: Result, form: FormData): Promise<Result> {
-  const step = text(form, "step") as WizardStep;
+  let next: string;
   try {
     const { token } = await current();
-    await backend().mutation(api.onboarding.advance, { token, organizationId: organizationOf(form), step });
+    next = await backend().mutation(api.onboarding.advance, { token, organizationId: organizationOf(form), step: text(form, "step") });
   } catch (error) { return failure(error, "Could not continue"); }
-  redirect(`/dashboard/onboarding/${nextStep(step) ?? "done"}`);
+  redirect(`/dashboard/onboarding/${next}`);
+}
+
+// The plan step's secondary choice: keep the trial and subscribe later in Settings → Billing.
+export async function continueOnTrial(form: FormData) {
+  const { token } = await current();
+  const next = await backend().mutation(api.onboarding.advance, { token, organizationId: organizationOf(form), step: "plan" });
+  redirect(`/dashboard/onboarding/${next}`);
+}
+
+// Stripe Checkout from setup: collects a card for the Starter plan; the remaining trial carries over.
+export async function checkoutFromSetup(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try { url = await backend().action(api.billingJobs.checkout, { token, organizationId: organizationOf(form), returnTo: "onboarding" }); }
+  catch { redirect("/dashboard/onboarding/plan?billing=error"); }
+  redirect(url);
 }
 
 export async function inviteFromSetup(_state: Result, form: FormData): Promise<Result> {
