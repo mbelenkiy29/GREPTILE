@@ -59,6 +59,8 @@ export class Github {
   // optional features such as check runs without changing the required-permission validation.
   constructor(private token: string, private base = "https://api.github.com", private appSlug?:()=>Promise<string>, readonly permissions?: Record<string, string>) {}
   protected async publisherLogin(){return this.appSlug?(await this.appSlug())+"[bot]":(await this.request("/user",z.object({login:z.string().min(1)}))).login;}
+  // GitHub's per-review comment list reports only the diff position, without line or start_line, so published findings are matched against the pull request's comment list, filtered to the review. Gitea's per-review list carries the new-file line as position.
+  protected readonly positionIsLine: boolean = false;
   sourceUrl(repository:string,revision:string,file:string) {
     const origin=githubWebOrigin(this.base);
     return repositorySourceUrl("github",origin,repository,revision,file);
@@ -660,8 +662,8 @@ export class Github {
   async findingComments(repository: string, number: number, reviewId: number,findings?:Finding[],sha?:string) {
     const publisher=await this.publisherLogin();
     const comments = await this.paginate(
-      `/repos/${repository}/pulls/${number}/reviews/${reviewId}/comments`,
-      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),start_line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number(),in_reply_to_id:z.number().optional() }),
+      this.positionIsLine ? `/repos/${repository}/pulls/${number}/reviews/${reviewId}/comments` : `/repos/${repository}/pulls/${number}/comments`,
+      z.object({ id: z.number(), body: z.string(),user:z.object({login:z.string()}),path:z.string(),line:z.number().nullable().optional(),start_line:z.number().nullable().optional(),position:z.number().nullable().optional(),commit_id:z.string(),pull_request_review_id:z.number().nullable(),in_reply_to_id:z.number().optional() }),
     );
     const mapped=comments.flatMap((c) => {
       if(c.user.login!==publisher||c.pull_request_review_id!==reviewId||c.in_reply_to_id!==undefined||(sha!==undefined&&c.commit_id!==sha))return [];

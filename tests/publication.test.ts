@@ -10,7 +10,7 @@ for(const kind of ["GitHub","Gitea"] as const)test(kind+" publication binds publ
  const finding:Finding={title:"Wrong amount returned",description:"The cents calculation converts the return value into dollars.",severity:"high",confidence:1,category:"correctness",filePath:"price.ts",startLine:2,endLine:2,evidence:[{filePath:"price.ts",startLine:2,quote:"return amount / 100;"}],impact:"The consumer receives one hundredth of the expected amount.",suggestedFix:"Preserve integer cents.",symbol:"total",fingerprint,agent:"correctness",commitSha:head};
  const client=kind==="GitHub"?new Github("fixture",undefined,async()=>"openreview"):new Gitea("https://gitea.example","fixture");
  const reviews=[{id:1,body:tag,user:{login:"alice"},commit_id:head,state},{id:2,body:tag+"\n<!-- openreview:other-run -->",user:{login:publisher},commit_id:head,state},{id:3,body:tag,user:{login:publisher},commit_id:old,state},{id:4,body:tag,user:{login:publisher},commit_id:head,state:"PENDING"}];
- let currentHead=head,prReads=0,changeAt=Infinity,posts=0,missingRoot=false,createdAuthor=publisher,createdHead=head;
+ let currentHead=head,prReads=0,changeAt=Infinity,posts=0,missingRoot=false,createdAuthor=publisher,createdHead=head,perReviewReads=0;
  const issueComments:{id:number;body:string;user:{login:string}}[]=[];
  const patch="@@ -1,2 +1,2 @@\n export function total(amount: number) {\n-return amount;\n+return amount / 100;";
  t.mock.method(globalThis,"fetch",async(input:string,options:RequestInit={})=>{
@@ -26,15 +26,20 @@ for(const kind of ["GitHub","Gitea"] as const)test(kind+" publication binds publ
    const result={id:100,body:body.body,user:{login:createdAuthor},commit_id:createdHead,state};reviews.push(result);return Response.json(result);
   }
   if(path.endsWith("/reviews"))return Response.json(reviews);
-  if(path.endsWith("/reviews/100/comments")){
+  const reviewComments=()=>{
    const root={id:10,body:"Quoted source: <!-- openreview-finding:"+"d".repeat(64)+" -->\n\n"+findingTag,user:{login:publisher},commit_id:head,pull_request_review_id:100,path:"price.ts",...(kind==="GitHub"?{line:2,position:6}:{position:2})};
-   return Response.json([...(missingRoot?[]:[root]),{...root,id:11,user:{login:"alice"}},{...root,id:12,in_reply_to_id:10,body:findingTag+"\n<!-- openreview:conversation:fixture -->"},{...root,id:13,line:3,position:3},{...root,id:14,commit_id:old},{...root,id:15,pull_request_review_id:99},{...root,id:16,body:"<!-- openreview-finding:"+"e".repeat(64)+" -->"},{...root,id:17,line:null,position:2}]);
-  }
+   return [...(missingRoot?[]:[root]),{...root,id:11,user:{login:"alice"}},{...root,id:12,in_reply_to_id:10,body:findingTag+"\n<!-- openreview:conversation:fixture -->"},{...root,id:13,line:3,position:3},{...root,id:14,commit_id:old},{...root,id:15,pull_request_review_id:99},{...root,id:16,body:"<!-- openreview-finding:"+"e".repeat(64)+" -->"},{...root,id:17,line:null,position:2}];
+  };
+  // Like the real API, GitHub's per-review list has no line numbers (only the diff position); its pull request list has them.
+  if(path.endsWith("/reviews/100/comments")){perReviewReads++;return Response.json(kind==="GitHub"?reviewComments().map(c=>({...c,line:undefined})):reviewComments());}
+  // The pull request list also holds other reviews' comments, including legacy ones from before reviews existed (null review id).
+  if(kind==="GitHub"&&path==="/repos/o/r/pulls/1/comments")return Response.json([{id:9,body:"Legacy note",user:{login:"alice"},commit_id:old,pull_request_review_id:null,path:"price.ts",line:null,position:null},...reviewComments()]);
   throw new Error("Unexpected publication endpoint "+path);
  });
  assert.deepEqual(await client.publish("o/r",1,head,"Review summary",[finding],marker),{id:100,reused:false,comments:[{id:10,fingerprint}]});assert.equal(posts,1);
  assert.deepEqual(await client.publish("o/r",1,head,"Review summary",[finding],marker),{id:100,reused:true,comments:[{id:10,fingerprint}]});assert.equal(posts,1);
  if(kind==="GitHub")assert.equal(issueComments.length,1,"one summary comment across the run and its replay");
+ assert.equal(perReviewReads>0,kind==="Gitea","GitHub reads line numbers from the pull request list; Gitea from the review's own list");
  currentHead=old;await assert.rejects(client.publish("o/r",1,head,"Stale",[finding],marker),/changed/);assert.equal(posts,1);
  currentHead=head;prReads=0;changeAt=2;await assert.rejects(client.publish("o/r",1,head,"Changed during retry",[finding],marker),/changed/);assert.equal(posts,1);
  currentHead=head;changeAt=Infinity;missingRoot=true;await assert.rejects(client.publish("o/r",1,head,"Missing native finding",[finding],marker),/publication incomplete/);missingRoot=false;
