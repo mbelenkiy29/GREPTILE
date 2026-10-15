@@ -34,14 +34,26 @@ OpenReview is also open-source software. If you run it on your own infrastructur
 
 Our hosting providers keep server logs that include IP addresses.
 
-**Cookies.** We use only the cookies the service needs to work:
+**Error reports and analytics.** We use Sentry to learn about errors and PostHog to understand how the site is used.
+- **Sentry receives:** error reports with technical details, and performance timings for a sample of page loads.
+- **PostHog receives:** page views, and clicks on public pages such as the home page and documentation.
+- **What identifies you:** after you sign in, both tools identify you only by an internal user ID and workspace ID.
+- **What is never sent:**
+  - the text of what you click or read on signed-in pages;
+  - your code or AI output;
+  - request contents;
+  - session recordings;
+  - private details from page addresses, such as invitation links and sign-in codes.
+- **Do Not Track:** if your browser sends a Do Not Track signal, PostHog does not track you.
+
+**Cookies.** Most of our cookies are needed for the service to work:
 - your sign-in session;
 - your active workspace and team;
 - short-lived security cookies for sign-in and connecting integrations;
 - your theme preference;
 - one-time notices.
 
-We do not use advertising cookies. If we turn on error monitoring or product analytics, those tools identify you only by an internal ID. Before anything is sent, private details are removed from page addresses. On signed-in pages, the text of what you click is never recorded.
+PostHog also stores a random identifier in a cookie and in your browser's local storage. It lets us count visits and see how people use the site. We do not use advertising cookies, and we do not use cookies to track you across other websites.
 
 ## How we use information
 
@@ -50,7 +62,7 @@ We use the information above to:
 - authenticate you, keep accounts and workspaces secure, and prevent abuse;
 - process subscriptions and enforce plan limits;
 - respond to support requests and send service messages, such as sign-in links, invitations and billing notices;
-- keep the service reliable and diagnose problems;
+- keep the service reliable, diagnose problems and understand which features are used;
 - meet legal obligations.
 
 We do not sell personal information, and we do not use it for advertising.
@@ -73,6 +85,8 @@ We share information only as needed to run the service, with:
 | Stripe | Payments and subscriptions |
 | GitHub (and other code hosts you connect) | Sign-in and repository access |
 | OSV.dev | Checking package names and versions from dependency changes for known vulnerabilities (no source code is sent) |
+| Sentry | Error reports and performance monitoring |
+| PostHog | Product analytics |
 | Linear, Atlassian, Notion, Slack | Only when your workspace connects them |
 | An email delivery provider | Only when email sign-in or email notifications are turned on |
 
@@ -92,6 +106,7 @@ Uninstalling the GitHub App or removing a repository stops our access to it. To 
 
 - **Your requests:** you can ask us to access, correct, export or delete your personal information by emailing [mbelenkiy29@gmail.com](mailto:mbelenkiy29@gmail.com). We respond within 30 days.
 - **In the product:** you can sign out of other sessions in **Settings → Account**. Admins can disconnect integrations and remove repositories at any time.
+- **Analytics:** to stop analytics, turn on your browser's Do Not Track setting or block cookies for openreview.tech.
 - **Regional rights:** depending on where you live, for example in the EU, UK or California, you may have additional rights, such as objecting to processing or complaining to a data protection authority. We honor these rights for everyone.
 - **No selling:** we do not sell or share personal information for cross-context behavioral advertising.
 
