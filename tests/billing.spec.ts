@@ -44,6 +44,19 @@ test('trial quota is enforced at enqueue; blocked reviews are recorded with the 
  expect((await reviewOf(t,await enqueue(t,repo._id,5)))?.error).toMatch(/free trial has ended/);
 });
 
+test('the trial starts with the first review, so workspaces created before billing get the full trial',async()=>{
+ const {t,alice,org,repo}=await setup();
+ // A month after the workspace was created, nothing has been billed yet: the trial has not started.
+ vi.setSystemTime(Date.UTC(2026,10,14,12));
+ const before=await t.query(api.billing.status,{token:alice.token,organizationId:org});
+ expect(before).toMatchObject({plan:'trial',allowed:true,trialStarted:false,trialDays:14,trialEndsAt:Date.now()+14*86400000});
+ expect((await reviewOf(t,await enqueue(t,repo._id,1)))?.status).toBe('queued');
+ const started=await t.query(api.billing.status,{token:alice.token,organizationId:org});
+ expect(started).toMatchObject({trialStarted:true,trialEndsAt:Date.UTC(2026,10,28,12),used:1});
+ vi.setSystemTime(Date.UTC(2026,10,28,12));
+ expect((await reviewOf(t,await enqueue(t,repo._id,2)))?.error).toMatch(/free trial has ended/);
+});
+
 test('without BILLING_ENABLED nothing is enforced and the webhook endpoint does not exist',async()=>{
  delete process.env.BILLING_ENABLED;
  const {t,alice,org,repo}=await setup();
@@ -69,15 +82,17 @@ test('signed Stripe webhooks link the workspace, apply once, and ignore replays 
  await deliver(t,subscription('evt_sub_new','customer.subscription.updated','active',3,created+20,org));
  expect(await outcomes()).toEqual([['evt_checkout','linked'],['evt_sub_new','active'],['evt_sub_old','stale']]);
  expect(await t.run(ctx=>ctx.db.query('billingAccounts').collect())).toEqual([expect.objectContaining({organizationId:org,customerId:'cus_1',subscriptionId:'sub_1',subscriptionItemId:'si_1',status:'active',seats:3})]);
- // Team plan: 3 seats × 2 reviews.
+ // Starter plan: unlimited under a fair-use limit of 3 seats × 2 reviews.
  for(let pr=1;pr<=6;pr++)expect((await reviewOf(t,await enqueue(t,repo._id,pr)))?.status).toBe('queued');
- expect((await reviewOf(t,await enqueue(t,repo._id,7)))?.error).toMatch(/used its 6 reviews/);
+ expect((await reviewOf(t,await enqueue(t,repo._id,7)))?.error).toMatch(/fair-use limit of 6 reviews this month \(2 per seat\)/);
+ expect(await t.query(api.billing.status,{token:alice.token,organizationId:org})).toMatchObject({plan:'starter',limit:6,used:6});
  // A subscription for another workspace cannot hijack this customer.
  await deliver(t,subscription('evt_spoof','customer.subscription.updated','active',99,created+30,'k57abc0000000000000000organizations'));
  expect((await t.run(ctx=>ctx.db.query('billingAccounts').collect()))[0].seats).toBe(3);
  // Payment failure: reviews continue through the grace period, then pause; payment restores them.
  vi.setSystemTime(Date.UTC(2026,10,2));
- await deliver(t,{id:'evt_failed',type:'invoice.payment_failed',created:Math.floor(Date.now()/1000),data:{object:{customer:'cus_1',subscription:'sub_1'}}});
+ // Current API versions put the invoice's subscription under parent.subscription_details.
+ await deliver(t,{id:'evt_failed',type:'invoice.payment_failed',created:Math.floor(Date.now()/1000),data:{object:{customer:'cus_1',parent:{subscription_details:{subscription:'sub_1'}}}}});
  expect((await t.query(api.billing.status,{token:alice.token,organizationId:org})).status).toBe('past_due');
  vi.setSystemTime(Date.UTC(2026,10,8));
  expect((await reviewOf(t,await enqueue(t,repo._id,8)))?.status).toBe('queued');
@@ -102,7 +117,12 @@ test('seats follow membership: viewers are free and changes resync the subscript
  await expect(t.action(api.billingJobs.checkout,{token:bob.token,organizationId:org})).rejects.toThrow(/Forbidden/);
  expect(await t.action(api.billingJobs.checkout,{token:alice.token,organizationId:org})).toBe('https://checkout.stripe.com/c/pay/cs_1');
  const session=new URLSearchParams(calls[1].body);
- expect(Object.fromEntries(session)).toMatchObject({mode:'subscription',customer:'cus_1',client_reference_id:org,'line_items[0][price]':'price_seat','line_items[0][quantity]':'2','subscription_data[metadata][organizationId]':org,success_url:'https://review.example.com/dashboard/settings/billing?checkout=success'});
+ // The untouched 14-day trial carries into the subscription, so the card is not charged until it ends.
+ expect(Object.fromEntries(session)).toMatchObject({mode:'subscription',customer:'cus_1',client_reference_id:org,integration_identifier:expect.stringMatching(/^openreview-starter-seats-[a-z]{8}$/),'line_items[0][price]':'price_seat','line_items[0][quantity]':'2','subscription_data[metadata][organizationId]':org,'subscription_data[trial_end]':String(Math.floor((Date.now()+14*86400000)/1000)),success_url:'https://review.example.com/dashboard/settings/billing?checkout=success',cancel_url:'https://review.example.com/dashboard/settings/billing?checkout=cancelled'});
+ expect(session.has('payment_method_types')).toBe(false);
+ // From guided setup, Checkout returns to the plan step.
+ await t.action(api.billingJobs.checkout,{token:alice.token,organizationId:org,returnTo:'onboarding'});
+ expect(Object.fromEntries(new URLSearchParams(calls.at(-1)!.body))).toMatchObject({success_url:'https://review.example.com/dashboard/onboarding/plan?checkout=success',cancel_url:'https://review.example.com/dashboard/onboarding/plan?checkout=cancelled'});
  expect(calls[0].key).toBe(`customer:${org}`);
  expect(await t.action(api.billingJobs.portal,{token:alice.token,organizationId:org})).toBe('https://billing.stripe.com/p/session_1');
  await deliver(t,subscription('evt_sub','customer.subscription.created','active',2,Math.floor(Date.now()/1000),org));

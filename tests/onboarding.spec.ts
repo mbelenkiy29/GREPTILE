@@ -96,8 +96,16 @@ test("leaving setup early releases the review hold; advance only records non-con
   await t.mutation(api.onboarding.start, { token: alice, organizationId, pauseReviews: true });
   await expect(t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "summary" })).rejects.toThrow("Unknown setup step");
   await expect(t.mutation(api.onboarding.advance, { token: bob, organizationId, step: "indexing" })).rejects.toThrow("Forbidden");
-  await t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "indexing" });
+  expect(await t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "indexing" })).toBe("summary");
   expect((await organization())?.onboarding?.step).toBe("indexing");
+  // The plan step only follows the team step where the deployment bills workspaces.
+  expect(await t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "team" })).toBe("done");
+  process.env.BILLING_ENABLED = "true";
+  try {
+    expect(await t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "team" })).toBe("plan");
+    expect(await t.mutation(api.onboarding.advance, { token: alice, organizationId, step: "plan" })).toBe("done");
+  } finally { delete process.env.BILLING_ENABLED; }
+  expect((await organization())?.onboarding?.step).toBe("plan");
   await expect(t.mutation(api.onboarding.complete, { token: bob, organizationId, skipped: true })).rejects.toThrow("Forbidden");
   await t.mutation(api.onboarding.complete, { token: alice, organizationId, skipped: true });
   const org = await organization();

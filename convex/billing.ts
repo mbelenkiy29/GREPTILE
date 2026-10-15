@@ -4,9 +4,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { authorize } from "./auth";
-import { billingConfig, billingDecision, periodKey, seatCount } from "../src/billing";
+import { billingConfig, billingDecision, periodKey, seatCount, trialEndsFrom } from "../src/billing";
 
 // Billing state and the review quota gate. With BILLING_ENABLED unset every check allows.
+// The account row (and with it the trial clock) starts with the first review or checkout, so
+// workspaces created before billing was turned on still get their full trial.
 async function members(ctx: QueryCtx, organizationId: Id<"organizations">) {
   return ctx.db.query("organizationMembers").withIndex("by_org", (q) => q.eq("organizationId", organizationId)).collect();
 }
@@ -16,8 +18,7 @@ async function accountOf(ctx: QueryCtx, organizationId: Id<"organizations">) {
 async function ensureAccount(ctx: MutationCtx, organizationId: Id<"organizations">): Promise<Doc<"billingAccounts">> {
   const existing = await accountOf(ctx, organizationId);
   if (existing) return existing;
-  const organization = await ctx.db.get(organizationId);
-  const id = await ctx.db.insert("billingAccounts", { organizationId, status: "trial", seats: seatCount(await members(ctx, organizationId)), trialEndsAt: (organization?.createdAt ?? Date.now()) + billingConfig().trialDays * 86400000, updatedAt: Date.now() });
+  const id = await ctx.db.insert("billingAccounts", { organizationId, status: "trial", seats: seatCount(await members(ctx, organizationId)), trialEndsAt: trialEndsFrom(Date.now(), billingConfig()), updatedAt: Date.now() });
   return (await ctx.db.get(id))!;
 }
 async function usageOf(ctx: QueryCtx, organizationId: Id<"organizations">, period: string) {
@@ -39,18 +40,18 @@ export const status = query({ args: { token: v.string(), organizationId: v.id("o
   const { member } = await authorize(ctx, a.token, a.organizationId);
   const config = billingConfig();
   if (!config.enabled) return { enabled: false as const };
-  const organization = await ctx.db.get(a.organizationId);
-  const account = await accountOf(ctx, a.organizationId) ?? { status: "trial", seats: 0, trialEndsAt: (organization?.createdAt ?? Date.now()) + config.trialDays * 86400000 } as Pick<Doc<"billingAccounts">, "status" | "seats" | "trialEndsAt"> & Partial<Doc<"billingAccounts">>;
+  const stored = await accountOf(ctx, a.organizationId);
+  const account = stored ?? { status: "trial", seats: 0, trialEndsAt: trialEndsFrom(Date.now(), config) } as Pick<Doc<"billingAccounts">, "status" | "seats" | "trialEndsAt"> & Partial<Doc<"billingAccounts">>;
   const usage = await usageOf(ctx, a.organizationId, periodKey(Date.now()));
   const decision = billingDecision({ status: account.status, seats: account.seats, trialEndsAt: account.trialEndsAt, pastDueSince: account.pastDueSince, subscriptionId: account.subscriptionId }, usage?.reviews ?? 0, Date.now(), config);
-  return { enabled: true as const, admin: ["owner", "admin"].includes(member.role), status: account.status, plan: decision.plan, allowed: decision.allowed, reason: decision.reason ?? null, limit: decision.limit, used: decision.used, blocked: usage?.blocked ?? 0, activeSeats: seatCount(await members(ctx, a.organizationId)), billedSeats: account.subscriptionId ? account.seats : null, trialEndsAt: account.trialEndsAt, currentPeriodEnd: account.currentPeriodEnd ?? null, pastDueSince: account.pastDueSince ?? null, graceDays: config.graceDays, reviewsPerSeat: config.reviewsPerSeat, hasCustomer: Boolean(account.customerId) };
+  return { enabled: true as const, admin: ["owner", "admin"].includes(member.role), status: account.status, plan: decision.plan, allowed: decision.allowed, reason: decision.reason ?? null, limit: decision.limit, used: decision.used, blocked: usage?.blocked ?? 0, activeSeats: seatCount(await members(ctx, a.organizationId)), billedSeats: account.subscriptionId ? account.seats : null, trialEndsAt: account.trialEndsAt, trialStarted: Boolean(stored), trialDays: config.trialDays, trialReviews: config.trialReviews, currentPeriodEnd: account.currentPeriodEnd ?? null, pastDueSince: account.pastDueSince ?? null, graceDays: config.graceDays, reviewsPerSeat: config.reviewsPerSeat, hasCustomer: Boolean(account.customerId) };
 } });
 
 export const checkoutContext = internalQuery({ args: { token: v.string(), organizationId: v.id("organizations") }, handler: async (ctx, a) => {
   await authorize(ctx, a.token, a.organizationId, true);
   if (!billingConfig().enabled) throw new Error("Billing is disabled on this deployment");
   const account = await accountOf(ctx, a.organizationId);
-  return { customerId: account?.customerId ?? null, subscriptionId: account?.subscriptionId ?? null, status: account?.status ?? "trial", seats: Math.max(1, seatCount(await members(ctx, a.organizationId))) };
+  return { customerId: account?.customerId ?? null, subscriptionId: account?.subscriptionId ?? null, status: account?.status ?? "trial", trialEndsAt: account?.trialEndsAt ?? trialEndsFrom(Date.now(), billingConfig()), seats: Math.max(1, seatCount(await members(ctx, a.organizationId))) };
 } });
 export const linkCustomer = internalMutation({ args: { organizationId: v.id("organizations"), customerId: v.string() }, handler: async (ctx, a) => {
   const account = await ensureAccount(ctx, a.organizationId);

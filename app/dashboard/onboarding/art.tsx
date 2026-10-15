@@ -104,3 +104,30 @@ export function TeamArt({ invited }: { invited: number }) {
     })}
   </svg>;
 }
+
+/** The trial as a calendar: elapsed days fill in and the last day carries the ember mark; the
+ *  card below turns solid once a payment method is on file. */
+export function TrialArt({ days, elapsed, subscribed }: { days: number; elapsed: number; subscribed: boolean }) {
+  const shown = Math.max(1, Math.min(days, 35)), cols = Math.min(7, shown), rows = Math.ceil(shown / cols), cell = 28, gap = 8;
+  const width = cols * cell + (cols - 1) * gap, height = rows * cell + (rows - 1) * gap;
+  const x0 = (SIZE - width) / 2, y0 = 40 + Math.max(0, (160 - height) / 2), done = Math.max(0, Math.min(shown, elapsed));
+  const at = (i: number) => ({ x: x0 + (i % cols) * (cell + gap), y: y0 + Math.floor(i / cols) * (cell + gap) }), last = at(shown - 1);
+  return <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className={subscribed ? "connected" : "waiting"}>
+    <Grid />
+    {Array.from({ length: shown }, (_, i) => {
+      const { x, y } = at(i);
+      return <g key={i} className={`art-day${i < done ? " elapsed" : ""}${i === done && !subscribed ? " today" : ""}`} style={{ ["--i" as string]: i }}>
+        <rect className="art-node" x={x} y={y} width={cell} height={cell} rx="4" />
+        <text className="art-label" x={x + cell / 2} y={y + cell / 2 + 3} textAnchor="middle">{i + 1}</text>
+      </g>;
+    })}
+    <circle className="art-ember" cx={last.x + cell} cy={last.y} r="4" />
+    <path className="art-wire" d={`M160 ${y0 + height + 10} L160 220`} pathLength={1} />
+    <g className={`art-card${subscribed ? " attached" : ""}`}>
+      <rect className="art-node" x="106" y="220" width="108" height="66" rx="4" />
+      <rect className="art-faint" x="106" y="234" width="108" height="8" />
+      <rect className="art-ink" x="118" y="256" width="16" height="12" rx="2" />
+      <rect className="art-faint" x="144" y="261" width="56" height="3" />
+    </g>
+  </svg>;
+}
