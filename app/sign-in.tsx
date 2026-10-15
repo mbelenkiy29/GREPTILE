@@ -1,5 +1,6 @@
 // Sign-in choices for the providers this deployment has configured; `next` returns the user to a
 // same-origin page (e.g. an invitation) after signing in.
+import Link from "next/link";
 import { emailOnWeb } from "../src/email";
 
 export function SignInOptions({ next }: { next?: string }) {
@@ -14,5 +15,6 @@ export function SignInOptions({ next }: { next?: string }) {
       <label>Email<input type="email" name="email" required maxLength={254} autoComplete="email" /></label>
       <button>Email me a sign-in link</button>
     </form>}
+    <p className="sign-in-legal">By signing in you agree to the <Link href="/terms">Terms of Service</Link> and <Link href="/privacy">Privacy Policy</Link>.</p>
   </div>;
 }

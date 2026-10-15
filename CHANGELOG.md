@@ -15,6 +15,9 @@
 - The 14-day trial now starts with a workspace's first review instead of its creation date.
 - Restricted Stripe keys (`rk_…`) are accepted, and Stripe requests pin an API version.
 
+### Site
+- Privacy Policy and Terms of Service pages for the hosted service, linked from the footer and the sign-in buttons.
+
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.
 - Tree-sitter code graph with resolved cross-file edges, plus optional chunk-level semantic retrieval.
