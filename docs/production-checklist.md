@@ -3,7 +3,7 @@
 The operator runs these steps. They change hosted accounts or need secret values, so the automated parity work only prepares them. Run them in order and tick each one off. Commands that print secret values are marked; run those only in a private terminal, never in a shared log, ticket or chat.
 
 Current hosted setup (see [deployment.md](deployment.md)):
-- **Web:** Vercel project `openreview`, team `open-review-free`, served at the canonical alias.
+- **Web:** Vercel project `openreview`, team `open-review-free`, served at https://openreview.tech (custom domain; the `.vercel.app` alias redirects to it).
 - **Backend:** Convex deployment `tidy-ocelot-457`.
 - **Build:** the production build runs `convex deploy` (see `vercel.json`).
 

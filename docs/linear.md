@@ -24,6 +24,10 @@ Computer use verified the unconfigured setup and expired-authorization recovery 
 
 Primary API references: [OAuth](https://linear.app/developers/oauth-2-0-authentication), [GraphQL](https://linear.app/developers/graphql), [pagination](https://linear.app/developers/pagination).
 
+## Domain change — October 15, 2026
+
+Production moved to https://openreview.tech, and the OAuth callback is built from `APP_URL`. The Linear OAuth application must list `https://openreview.tech/api/integrations/linear/callback`, alongside or instead of the old `openreview-flame-two.vercel.app` callback. Until it does, the provider rejects the redirect when someone connects.
+
 ## Hosted registration preparation — October 4, 2026
 
 Computer use found the signed-in **Michael Belenkiy** workspace (`michael-belenkiy`) and its **MIC** team. The prior statement that no real workspace was available is superseded. Its API settings had no OAuth applications. A private **OpenReview** application form is prepared with the sole callback `https://openreview-flame-two.vercel.app/api/integrations/linear/callback`; public installation, client-credentials grants and webhooks are unchecked. This paragraph records the earlier prepared form; the registration state below supersedes its pending-creation status.
