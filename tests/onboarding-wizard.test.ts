@@ -96,3 +96,17 @@ test("GitHub installation returns only to allow-listed dashboard paths", () => {
     assert.equal(installReturnPath(bad), "/dashboard/repositories");
   assert.equal(installHref("org1", "/dashboard/onboarding/connect"), "/api/github/install?organization=org1&returnTo=%2Fdashboard%2Fonboarding%2Fconnect");
 });
+
+test("the install callback only accepts state from the same user who still administers the workspace", async () => {
+  const { installTarget, installerGithubId } = await import("../src/github-install");
+  const orgs = [{ _id: "org1", role: "admin" }, { _id: "org2", role: "member" }];
+  assert.deepEqual(installTarget({ userId: "u1", organizationId: "org1", returnTo: "/dashboard/onboarding/connect" }, "u1", orgs), { organizationId: "org1", returnTo: "/dashboard/onboarding/connect" });
+  assert.deepEqual(installTarget({ userId: "u1", organizationId: "org1", returnTo: "//evil" }, "u1", orgs).returnTo, "/dashboard/repositories");
+  assert.throws(() => installTarget({ userId: "u2", organizationId: "org1" }, "u1", orgs), /another session/);
+  assert.throws(() => installTarget({ organizationId: "org1" }, "u1", orgs), /another session/);
+  assert.throws(() => installTarget({ userId: "u1", organizationId: "org2" }, "u1", orgs), /admin required/);
+  assert.throws(() => installTarget({ userId: "u1", organizationId: "org9" }, "u1", orgs), /admin required/);
+  assert.equal(installerGithubId({ githubUserId: 42 }, 7), 42);
+  assert.equal(installerGithubId({ githubUserId: "42" }, 7), 7);
+  assert.equal(installerGithubId({}, undefined), undefined);
+});
