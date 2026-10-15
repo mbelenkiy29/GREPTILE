@@ -20,6 +20,10 @@ Linear and Atlassian share a single 100KB UTF-8 budget in the review requirement
 
 Disconnect removes encrypted credentials and resource selections immediately, advances the scope generation and invalidates cached context. In-flight refresh cannot restore a disconnected grant; in-flight reads fail authorization validation before their context reaches a review. Atlassian 3LO grant revocation is handled in the authorizing user's [Connected Apps](https://id.atlassian.com/manage-profile/apps). OpenReview exposes that action and does not claim to remotely revoke the grant through an undocumented API. The admin should revoke it there after disconnecting; access and refresh failures remain visible.
 
+## Domain change — October 15, 2026
+
+Production moved to https://openreview.tech, and the OAuth callback is built from `APP_URL`. The Atlassian OAuth 3LO app must list `https://openreview.tech/api/integrations/atlassian/callback`, alongside or instead of the old `openreview-flame-two.vercel.app` callback. Until it does, the provider rejects the redirect when someone connects.
+
 ## Live resource discovery — October 4, 2026
 
 Computer use on the canonical hosted portal opened the existing acceptance connection's Select resources page. Direct reload and a subsequent client-navigation round trip both returned the same form: the FUNDLANE Jira project is checked, only mbelenkiy29/openreview-acceptance is checked for repository retrieval, and Confluence reports “No authorized Confluence spaces found.” No browser warnings/errors were captured. Initial DOM snapshots were taken before server navigation completed; waiting for the resource heading confirmed normal client navigation rather than a routing defect.

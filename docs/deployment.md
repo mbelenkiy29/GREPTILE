@@ -4,7 +4,23 @@ Before opening a hosted deployment to users, work through the [production readin
 
 ## Vercel Hobby and Convex Free
 
-The current hosted acceptance deployment is verified on Vercel **Hobby** in team `open-review-free` and Convex **Free** at `tidy-ocelot-457` (2026-10-04). Its canonical URL is https://openreview-flame-two.vercel.app. The Vercel project ID is `prj_jMAK4u6yVJUfW2atnWbiZnF8F7b9`; the existing free Convex resource remains managed by the original Vercel integration team. Do not remove that integration to clean up the frontend transfer: it owns the live backend. Production credentials were copied with the project, and a fresh Hobby deployment proved the combined build/deploy works. The local CLI link now targets the Hobby team. Full evidence and acceptance boundaries are in [acceptance-matrix.md](acceptance-matrix.md).
+The current hosted acceptance deployment is verified on Vercel **Hobby** in team `open-review-free` and Convex **Free** at `tidy-ocelot-457` (2026-10-04). Its canonical URL is https://openreview.tech (since 2026-10-15); the original https://openreview-flame-two.vercel.app and https://www.openreview.tech redirect to it with a 308. The Vercel project ID is `prj_jMAK4u6yVJUfW2atnWbiZnF8F7b9`; the existing free Convex resource remains managed by the original Vercel integration team. Do not remove that integration to clean up the frontend transfer: it owns the live backend. Production credentials were copied with the project, and a fresh Hobby deployment proved the combined build/deploy works. The local CLI link now targets the Hobby team. Full evidence and acceptance boundaries are in [acceptance-matrix.md](acceptance-matrix.md).
+
+### Custom domain and Git deployments (October 15, 2026)
+
+- **Domain.** `openreview.tech` is registered through Vercel in the team `michael-belenkiys-projects`, which also hosts its DNS and pays its renewal. The `openreview` project in `open-review-free` uses it after verification by `_vercel` TXT records in that team's DNS. `www.openreview.tech` and the `.vercel.app` alias redirect to the apex.
+- **Origins.**
+  - `APP_URL` is `https://openreview.tech` in Vercel Production and in Convex `tidy-ocelot-457`.
+  - The GitHub App's callback URLs include `https://openreview.tech/api/auth/callback`; the earlier callbacks are kept.
+  - The App's setup URL is `https://openreview.tech/api/github/callback`.
+  - The webhook is unchanged at `https://tidy-ocelot-457.convex.site/github/webhook`.
+- **Git.** The project deploys from `mbelenkiy29/GREPTILE` with production branch `main`, so merges to `main` deploy automatically.
+  - The Ignored Build Step (`if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`) builds production only, and branch pushes are skipped. This is because the Preview-scoped `CONVEX_DEPLOY_KEY` could not be confirmed to be a Convex preview key. A production key there would deploy unmerged branches to the production backend.
+  - Before enabling previews, set a Convex preview deploy key for Preview and clear the ignore command.
+- **After a domain change.** Anything registered against the old origin needs updating:
+  - The Linear OAuth app needs `https://openreview.tech/api/integrations/linear/callback`.
+  - The Atlassian app needs `https://openreview.tech/api/integrations/atlassian/callback`.
+  - A desktop bridge paired with the old origin must be paired again (`openreview bridge pair --url https://openreview.tech`), because bridge requests refuse redirects.
 
 For a personal test deployment, host the Next.js application on Vercel Hobby and the backend on Convex Free. Vercel Hobby requires personal, non-commercial use. Convex Free has hard usage limits; model API calls are billed separately by the configured model provider. Do not enable a paid plan to bypass these limits without operator approval.
 
