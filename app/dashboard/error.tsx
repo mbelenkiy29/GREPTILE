@@ -1,11 +1,16 @@
 "use client";
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
+import { useEffect } from "react";
 export default function DashboardError({
+  error,
   reset,
 }: {
-  error: Error;
+  error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Server errors (with a digest) were already reported by instrumentation.ts.
+  useEffect(() => { if (!error.digest) Sentry.captureException(error); }, [error]);
   return (
     <main className="onboarding">
       <h1>Unable to load this workspace</h1>

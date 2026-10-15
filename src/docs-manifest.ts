@@ -30,6 +30,7 @@ export const docPages: DocPage[] = [
   { slug: "deployment", title: "Deployment guide", description: "Docker Compose, backups and upgrades.", section: "Operate", file: "deployment.md" },
   { slug: "identity", title: "Sign-in and sessions", description: "Providers, account linking and sessions.", section: "Operate", file: "identity.md" },
   { slug: "billing", title: "Billing (cloud)", description: "Plans, quotas and Stripe setup for hosted deployments.", section: "Operate", file: "billing.md" },
+  { slug: "observability", title: "Error tracking and analytics (cloud)", description: "What Sentry and PostHog collect on the hosted site, and how to configure them.", section: "Operate", file: "observability.md" },
   { slug: "runtime-worker", title: "Runtime worker", description: "Recorded test execution for reviews.", section: "Operate", file: "runtime-worker.md" },
 ];
 export const docBySlug = (slug: string) => docPages.find((d) => d.slug === slug);

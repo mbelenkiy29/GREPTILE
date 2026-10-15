@@ -171,6 +171,8 @@ Requirements context from Notion: connect a Notion workspace in Memory → Integ
 
 Billing (cloud mode only, see [docs/billing.md](docs/billing.md)): when `BILLING_ENABLED=true`, a workspace gets a 14-day trial, then a Stripe per-seat subscription with a monthly review quota, grace for past-due payments, and Settings → Billing with Checkout and the Customer Portal. Self-hosted deployments leave it off and have no quotas.
 
+Error tracking and analytics (hosted deployments only, see [docs/observability.md](docs/observability.md)): Sentry for errors and PostHog for page views and signed-in usage, each off unless its public key is set at build time. No session replays, cookies, request bodies or secret URL parameters are sent, and signed-in pages send page views only.
+
 Sign-in and accounts (see [docs/identity.md](docs/identity.md)): GitHub, GitLab, Google or an emailed magic link. Accounts link only when both sides have the same verified email. Server-side sessions can be revoked individually or all at once. Workspace removal signs the member out and revokes their API keys and bridges for that workspace. Admins can also invite by email with single-use, expiring links.
 
 Azure DevOps (see [docs/azure-devops.md](docs/azure-devops.md)): connect an organization with a PAT or a Microsoft Entra service principal, and add service hooks secured by a shared-secret header. OpenReview computes diffs from the base and head blobs, posts findings as positioned comment threads, keeps one closed summary thread, and reports an `openreview` pull request status. Follow-up commands are not yet supported on Azure DevOps.

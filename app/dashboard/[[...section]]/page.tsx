@@ -1,5 +1,6 @@
 import { createWorkspace, logout, switchWorkspace, switchTeam } from "../actions";
 import { Live } from "../live";
+import { SignOutForm } from "../../telemetry-identity";
 import { ProvidersPanel } from "../providers";
 import { IntegrationsPanel } from "../integrations";
 import { PreferencesPanel } from "../preferences";
@@ -35,7 +36,7 @@ export default async function Dashboard(props: {
   return (
     <div className="shell">
       <PortalNav organization={(organization.name ?? "Workspace")+(selectedTeam?" / "+selectedTeam.name:"")} login={user.user.login} route={route} section={section[1]} team={filters.team} scopeSelector={<><form action={switchWorkspace}><label className="sr-only" htmlFor="workspace">Workspace</label><select key={organization._id} id="workspace" name="organizationId" defaultValue={organization._id}>{user.organizations.map(o => <option key={o._id} value={o._id}>{o.name}</option>)}</select><button className="small">Switch workspace</button></form><form action={switchTeam}><label htmlFor="scope-team">Team</label><select key={organization._id+":"+(selectedTeam?._id??"")} id="scope-team" name="teamId" defaultValue={selectedTeam?._id??""}><option value="">All accessible teams</option>{scopes.teams.map(t=><option key={t._id} value={t._id}>{t.name}</option>)}</select><input type="hidden" name="returnTo" value={"/dashboard/"+(reviewDetailId?"pulls":section.join("/"))}/><button className="small">Apply team</button></form><p className="muted">Team selection filters repository activity. Workspace administration applies across the workspace.</p><form action={createWorkspace}><label>New workspace name<input name="name" required maxLength={100}/></label><button>Create workspace</button></form></>}>
-        <form action={logout}><button className="small">Sign out</button></form>
+        <SignOutForm action={logout} label="Sign out" />
       </PortalNav>
       <main className="content">
         <header>
