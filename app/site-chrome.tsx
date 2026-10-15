@@ -53,7 +53,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
       </nav>)}
     </div>
     <div className="footer-base">
-      <span>OpenReview · MIT licensed</span>
+      <span>OpenReview · MIT licensed · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></span>
       <ThemePicker />
     </div>
   </footer>;

@@ -1342,6 +1342,13 @@ form.catalog-review {
   align-items: flex-end;
   justify-content: center;
 }
+.sign-in-legal {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+}
 .sign-in-options .email-sign-in {
   display: flex;
   flex-wrap: wrap;
@@ -1754,6 +1761,9 @@ form.catalog-review {
 .hero .sign-in-options {
   justify-content: flex-start;
   padding-top: 8px;
+}
+.hero .sign-in-legal {
+  text-align: left;
 }
 .hero .sign-in-options .button,
 .landing .button.large {
