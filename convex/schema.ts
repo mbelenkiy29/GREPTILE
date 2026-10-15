@@ -221,7 +221,9 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_token", ["tokenHash"]).index("by_org", ["organizationId"]),
   loginTokens: defineTable({ email: v.string(), tokenHash: v.string(), expiresAt: v.number(), usedAt: v.optional(v.number()), createdAt: v.number() }).index("by_token", ["tokenHash"]),
-  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), createdAt: v.number() }),
+  // onboarding: guided setup progress for workspaces created with it (absent on older workspaces,
+  // which are never sent to setup). reviewsPaused marks automatic reviews held off while indexing.
+  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), onboarding:v.optional(v.object({startedAt:v.number(),step:v.optional(v.string()),reviewsPaused:v.optional(v.boolean()),completedAt:v.optional(v.number()),completedBy:v.optional(v.id("users")),skipped:v.optional(v.boolean())})), createdAt: v.number() }),
   // Daily analytics rollup per (repository, UTC day, PR author), recomputed from raw tables for
   // recent days by a cron; dashboards read only these rows.
   analyticsDaily: defineTable({

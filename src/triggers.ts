@@ -41,9 +41,5 @@ export function sizeLimitIssue(diff: ChangedFile[], settings: { maxFiles?: numbe
   return undefined;
 }
 
-// Strictness presets map to the confidence and severity thresholds; 0 keeps the custom values.
-export const strictnessPresets = { 1: { minimumConfidence: 0.95, severityThreshold: "high" }, 2: { minimumConfidence: 0.85, severityThreshold: "medium" }, 3: { minimumConfidence: 0.75, severityThreshold: "low" } } as const;
-export function effectiveThresholds(settings: { strictness?: number; minimumConfidence: number; severityThreshold: string }) {
-  const preset = strictnessPresets[settings.strictness as 1 | 2 | 3];
-  return preset ? { ...preset } : { minimumConfidence: settings.minimumConfidence, severityThreshold: settings.severityThreshold };
-}
+// Strictness presets live with the settings defaults (browser-safe); re-exported for existing callers.
+export { strictnessPresets, effectiveThresholds } from "./review-settings";
