@@ -20,9 +20,10 @@ function Shell({ action, organizationId, admin, progress, heading, step, childre
     <StepForm action={action} disabled={!admin}><input type="hidden" name="organizationId" value={organizationId} /><input type="hidden" name="step" value={step} />{children}</StepForm>
   </div>;
 }
-function Toggle({ name, label, hint, checked, onChange }: { name: string; label: string; hint: string; checked: boolean; onChange: (on: boolean) => void }) {
+// value: what a checked switch submits (a list entry such as a summary section); plain flags send "on".
+function Toggle({ name, value, label, hint, checked, onChange }: { name: string; value?: string; label: string; hint: string; checked: boolean; onChange: (on: boolean) => void }) {
   return <li className="wizard-toggle"><label><span><strong>{label}</strong><span className="muted">{hint}</span></span>
-    <input type="checkbox" role="switch" className="switch" name={name} checked={checked} onChange={(e) => onChange(e.target.checked)} /></label></li>;
+    <input type="checkbox" role="switch" className="switch" name={name} value={value} checked={checked} onChange={(e) => onChange(e.target.checked)} /></label></li>;
 }
 function Window({ title, children }: { title: string; children: ReactNode }) {
   return <div className="wizard-window"><div className="wizard-window-bar"><span className="mono">{title}</span></div><div className="wizard-window-body">{children}</div></div>;
@@ -60,7 +61,7 @@ export function SummaryStep(props: Props) {
   const [exact, setExact] = useState(false);
   return <>
     <Shell {...props} step="summary">
-      <ul className="wizard-toggles">{summarySections.map((s) => <Toggle key={s} name="summarySections" label={summaryLabels[s]} hint={sectionHints[s]}
+      <ul className="wizard-toggles">{summarySections.map((s) => <Toggle key={s} name="summarySections" value={s} label={summaryLabels[s]} hint={sectionHints[s]}
         checked={sections.includes(s)} onChange={(on) => setSections(summarySections.filter((x) => x === s ? on : sections.includes(x)))} />)}</ul>
       <fieldset className="wizard-choice"><legend>Inline comment style</legend>
         {["concise", "detailed"].map((v) => <label key={v} className="check"><input type="radio" name="commentStyle" value={v} checked={style === v} onChange={() => setStyle(v)} />{v === "concise" ? "Concise: the problem and the fix" : "Detailed: adds impact and evidence"}</label>)}

@@ -2167,7 +2167,8 @@ form.catalog-review {
   line-height: 1.15;
   letter-spacing: -0.02em;
 }
-.wizard-heading h1:focus:not(:focus-visible) {
+/* The heading takes focus on each step only so screen readers announce it; it is not interactive. */
+.wizard-heading h1:focus {
   outline: none;
 }
 .wizard-lede {
