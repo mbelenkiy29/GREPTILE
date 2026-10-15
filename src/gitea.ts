@@ -17,6 +17,7 @@ export class Gitea extends Github {
  readonly supportsApproval=true;
  constructor(private instance:string,private credential:string){super(credential,instance+"/api/v1");}
  protected override async publisherLogin(){return (await this.request("/user",z.object({login:z.string().min(1)}))).login;}
+ protected override readonly positionIsLine=true;
  override async request<T>(endpoint:string,schema:z.ZodType<T>,options:RequestInit={}):Promise<T>{
   if(!endpoint.startsWith("/")||endpoint.startsWith("//")||endpoint.includes("://"))throw new Error("Invalid Gitea API path");
   const response=await fetch(this.instance+"/api/v1"+endpoint,{...options,redirect:"error",headers:{authorization:"token "+this.credential,"content-type":"application/json",...options.headers},signal:AbortSignal.timeout(60000)});

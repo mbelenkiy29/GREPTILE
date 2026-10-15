@@ -150,6 +150,7 @@ test("GitHub never posts outside-diff findings inline; the summary carrying them
   const head = "a".repeat(40);
   const issueComments: { id: number; body: string; user: { login: string } }[] = [];
   const reviews: { id: number; body: string; commit_id: string; state: string; user: { login: string } }[] = [];
+  const prComments: { pull_request_review_id: number }[] = [];
   let reviewPosts = 0, summaryPosts = 0, summaryEdits = 0, posted: { comments: { body: string; path: string }[] } | undefined;
   t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit = {}) => {
     const path = new URL(url).pathname;
@@ -158,9 +159,11 @@ test("GitHub never posts outside-diff findings inline; the summary carrying them
     if (path === "/repos/o/r/issues/1/comments" && options.method === "POST") { summaryPosts++; const c = { id: 100 + summaryPosts, body: JSON.parse(String(options.body)).body, user: { login: "openreview[bot]" } }; issueComments.push(c); return Response.json(c); }
     if (path === "/repos/o/r/issues/1/comments") return Response.json(issueComments);
     if (/^\/repos\/o\/r\/issues\/comments\/\d+$/.test(path) && options.method === "PATCH") { summaryEdits++; const c = issueComments.find((c) => path.endsWith("/" + c.id))!; c.body = JSON.parse(String(options.body)).body; return Response.json(c); }
-    if (path.endsWith("/reviews") && options.method === "POST") { reviewPosts++; posted = JSON.parse(String(options.body)); const r = { id: 200 + reviewPosts, body: JSON.parse(String(options.body)).body, commit_id: head, state: "COMMENTED", user: { login: "openreview[bot]" } }; reviews.push(r); return Response.json(r); }
+    if (path.endsWith("/reviews") && options.method === "POST") { reviewPosts++; posted = JSON.parse(String(options.body)); const r = { id: 200 + reviewPosts, body: JSON.parse(String(options.body)).body, commit_id: head, state: "COMMENTED", user: { login: "openreview[bot]" } }; reviews.push(r); prComments.push(...posted!.comments.map((c, i) => ({ id: 300 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, line: 2, position: 5, commit_id: head, pull_request_review_id: r.id }))); return Response.json(r); }
     if (path.endsWith("/reviews")) return Response.json(reviews);
-    if (/\/reviews\/\d+\/comments$/.test(path)) return Response.json(posted!.comments.map((c, i) => ({ id: 300 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, line: 2, commit_id: head, pull_request_review_id: Number(path.split("/").at(-2)) })));
+    // GitHub's pull request comment list carries line numbers; its per-review list only has the diff position.
+    if (path === "/repos/o/r/pulls/1/comments") return Response.json(prComments);
+    if (/\/reviews\/\d+\/comments$/.test(path)) return Response.json(prComments.filter((c) => c.pull_request_review_id === Number(path.split("/").at(-2))).map((c) => ({ ...c, line: undefined })));
     throw new Error("Unexpected endpoint " + path);
   });
   const github = new Github("fixture", undefined, async () => "openreview");

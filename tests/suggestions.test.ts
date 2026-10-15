@@ -69,7 +69,8 @@ test("GitHub publication includes a committable suggestion block on the finding'
     if (path.endsWith("/issues/1/comments")) return Response.json([]);
     if (path.endsWith("/reviews") && options.method === "POST") { posted = JSON.parse(String(options.body)); return Response.json({ id: 100, commit_id: head, user: { login: "openreview[bot]" } }); }
     if (path.endsWith("/reviews")) return Response.json([]);
-    if (path.endsWith("/reviews/100/comments")) return Response.json([{ id: 10, body: posted!.comments[0].body, user: { login: "openreview[bot]" }, path: "price.ts", line: 2, commit_id: head, pull_request_review_id: 100 }]);
+    if (path.endsWith("/pulls/1/comments")) return Response.json([{ id: 10, body: posted!.comments[0].body, user: { login: "openreview[bot]" }, path: "price.ts", line: 2, position: 5, commit_id: head, pull_request_review_id: 100 }]);
+    if (path.endsWith("/reviews/100/comments")) return Response.json([{ id: 10, body: posted!.comments[0].body, user: { login: "openreview[bot]" }, path: "price.ts", position: 5, commit_id: head, pull_request_review_id: 100 }]);
     throw new Error("Unexpected endpoint " + path);
   });
   await new Github("fixture", undefined, async () => "openreview").publish("o/r", 1, head, "Summary", [finding], "run", "concise");

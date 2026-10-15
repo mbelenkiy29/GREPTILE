@@ -34,7 +34,9 @@ test("GitHub publishes start_line/start_side for in-hunk ranges, single lines ot
     if (path.endsWith("/issues/1/comments")) return Response.json([]);
     if (path.endsWith("/reviews") && options.method === "POST") { posted = JSON.parse(String(options.body)); return Response.json({ id: 100, commit_id: head, user: { login: "openreview[bot]" } }); }
     if (path.endsWith("/reviews")) return Response.json([]);
-    if (path.endsWith("/reviews/100/comments")) return Response.json(posted!.comments.map((c, i) => ({ id: 10 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, line: c.line, start_line: c.start_line ?? null, commit_id: head, pull_request_review_id: 100 })));
+    // GitHub's pull request comment list carries line/start_line; its per-review list only has the diff position.
+    if (path.endsWith("/pulls/1/comments")) return Response.json(posted!.comments.map((c, i) => ({ id: 10 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, line: c.line, start_line: c.start_line ?? null, position: 4, commit_id: head, pull_request_review_id: 100 })));
+    if (path.endsWith("/reviews/100/comments")) return Response.json(posted!.comments.map((c, i) => ({ id: 10 + i, body: c.body, user: { login: "openreview[bot]" }, path: c.path, position: 4, commit_id: head, pull_request_review_id: 100 })));
     throw new Error("Unexpected endpoint " + path);
   });
   const result = await new Github("fixture", undefined, async () => "openreview").publish("o/r", 1, head, "Summary", [inside, outside], "run", "concise");
