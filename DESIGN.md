@@ -17,6 +17,7 @@ existing classes and tokens; avoid inline colours.
 - **Monospace for machine text.** File paths, SHAs, timestamps, metric labels, badges and code are set in JetBrains Mono.
 - **Square-ish corners.** Use 4px on controls, cards and tiles, and 8px on popovers and windows. No pills.
 - **No gradients, glows, pure white or pure black.**
+- **Motion explains state.** Entrances are short (240–320 ms). Loops are kept for waiting states, such as a provider that isn't connected yet or files that are still indexing. Every illustration is complete without motion, so `prefers-reduced-motion` stops the animation and leaves the final state.
 
 ## Tokens
 
@@ -93,6 +94,12 @@ All of these are global classes in `app/globals.css`.
   - Use the one-colour version (`-mono`) where the accent can't be reproduced.
   - The Open Graph image (`app/opengraph-image.tsx`) uses the master.
 
+- **Guided setup** (`app/dashboard/onboarding/`).
+  - A full-screen `.wizard` sits outside the portal chrome. A step panel on the left faces a `.wizard-stage` illustration on the right, and a sticky `.wizard-bar` holds Back and Next. Next accepts ⌘/Ctrl+Enter, and focus moves to each step's heading.
+  - Illustrations (`art.tsx`) are SVG line work on a dot grid. They use the ink tokens and ember once per panel, never as a fill. Each one is `aria-hidden`, and a mono caption with `aria-live` beside it carries the meaning.
+  - The code graph is driven by real indexing progress and a sample of indexed paths (`src/onboarding-graph.ts`).
+  - Configuration previews follow unsaved form state and reuse the product's own rules (`src/onboarding-preview.ts`). Trigger outcomes are kept in parity with `pullRequestTrigger` by a test.
+
 ## Public site
 
 - **Shared chrome.** `SiteHeader` and `SiteFooter` (`app/site-chrome.tsx`) are shared by the landing page, docs and changelog. The footer carries the Appearance picker.
@@ -109,7 +116,7 @@ All of these are global classes in `app/globals.css`.
 - Focus is always visible: a 2px ember outline, or a 3px ring on inputs.
 - Status is never shown by colour alone: badges always carry their text.
 - Layouts hold at 390px without horizontal page scroll in both themes. Wide tables and diffs scroll inside their own containers. `pnpm test:e2e` checks this.
-- `prefers-reduced-motion` turns off transitions and the skeleton pulse.
+- `prefers-reduced-motion` turns off transitions, the skeleton pulse and every guided-setup animation.
 
 ## Adding UI
 

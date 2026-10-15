@@ -10,3 +10,7 @@ export function repositoryDisplay(repository:{fullName:string;provider?:Provider
  if(!repository)return "Repository unavailable";
  return `${repository.fullName} · ${providerDisplay(repository.provider??null)}`;
 }
+/** Provider and connection name only, for compact lists (the full display stays in a tooltip). */
+export function providerShort(identity:ProviderDisplayIdentity|null){
+ return identity?`${names[identity.kind]??identity.kind} · ${identity.name}`:"Provider identity unavailable";
+}

@@ -18,11 +18,17 @@ export function graphLayout(paths: readonly string[], references: readonly (read
   const placeholder = unique.length === 0;
   const ids = placeholder ? Array.from({ length: 18 }, (_, i) => `node-${i}`) : unique;
   const folders = [...new Set(ids.map(folder))].sort();
-  const center = size / 2, rings = [0.3, 0.55, 0.8].map((r) => r * (center - 16));
+  // Folders map to up to three rings spread across the drawing; files are spaced evenly around
+  // their ring (ordered by hash) so small repositories still read as a balanced constellation.
+  const ringOf = (id: string) => (placeholder ? hash(id) : folders.indexOf(folder(id))) % 3;
+  const used = [...new Set(ids.map(ringOf))].sort(), center = size / 2;
+  const radius = (ring: number) => (center - 20) * (used.length === 1 ? 0.7 : 0.35 + (0.5 * used.indexOf(ring)) / (used.length - 1));
+  const members = new Map<number, string[]>();
+  for (const id of [...ids].sort((a, b) => hash(a) - hash(b))) members.set(ringOf(id), [...(members.get(ringOf(id)) ?? []), id]);
   const nodes = ids.map((id) => {
-    const h = hash(id), ring = rings[(placeholder ? h : folders.indexOf(folder(id))) % rings.length];
-    const angle = ((h % 3600) / 3600) * Math.PI * 2, jitter = ((h >>> 12) % 13) - 6;
-    return { id, label: placeholder ? "" : basename(id), x: Math.round(center + Math.cos(angle) * (ring + jitter)), y: Math.round(center + Math.sin(angle) * (ring + jitter)) };
+    const h = hash(id), ring = ringOf(id), around = members.get(ring)!, phase = ring * 0.7 + 0.3;
+    const angle = (around.indexOf(id) / around.length) * Math.PI * 2 + phase, r = radius(ring) + ((h >>> 12) % 11) - 5;
+    return { id, label: placeholder ? "" : basename(id), x: Math.round(center + Math.cos(angle) * r), y: Math.round(center + Math.sin(angle) * r) };
   });
   const index = new Map(ids.map((id, i) => [id, i]));
   let edges = references.map(([a, b]) => [index.get(a), index.get(b)]).filter((e): e is [number, number] => e[0] !== undefined && e[1] !== undefined && e[0] !== e[1]);

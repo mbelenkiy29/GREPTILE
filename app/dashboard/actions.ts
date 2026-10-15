@@ -59,15 +59,8 @@ export async function createWorkspace(form: FormData) {
     secure: process.env.NODE_ENV === "production",
     path: "/",
   });
-  redirect("/dashboard/onboarding");
-}
-export async function selectOnboardingRepositories(_previous:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
- try{const {token}=await current();await backend().mutation(api.onboarding.select,{token,organizationId:text(form,"organizationId") as Id<"organizations">,repositoryIds:form.getAll("repositoryIds").map(String) as Id<"repositories">[]});revalidatePath("/dashboard/onboarding");return {saved:true};}
- catch(e){return {error:e instanceof Error?e.message:"Could not save repository selection"};}
-}
-export async function startOnboardingIndexing(_previous:{error?:string},form:FormData):Promise<{error?:string}>{
- try{const {token}=await current();await backend().mutation(api.onboarding.start,{token,organizationId:text(form,"organizationId") as Id<"organizations">});revalidatePath("/dashboard/onboarding");return {};}
- catch(e){return {error:e instanceof Error?e.message:"Could not start indexing"};}
+  // New workspaces go through guided setup.
+  redirect("/dashboard/onboarding/connect");
 }
 export async function switchWorkspace(form: FormData) {
   const user = await current(),
