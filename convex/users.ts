@@ -57,6 +57,7 @@ export const createOrganization = mutation({
       throw new Error("Workspace name must be 1–100 characters");
     const organizationId = await ctx.db.insert("organizations", {
       name: args.name.trim(),
+      onboarding: { startedAt: Date.now() },
       createdAt: Date.now(),
     });
     await ctx.db.insert("organizationMembers", {

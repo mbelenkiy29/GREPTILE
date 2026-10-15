@@ -65,9 +65,9 @@ try {
       .getByLabel("Workspace name")
       .fill("Browser verification workspace");
     await page.getByRole("button", { name: "Create workspace" }).click();
-    // A new workspace lands on the onboarding checklist (E4a); this branch only runs on a fresh database.
-    await page.waitForURL("**/dashboard/onboarding");
-    await page.getByRole("heading", { name: "Workspace setup", level: 1 }).waitFor();
+    // A new workspace continues into guided setup; this branch only runs on a fresh database.
+    await page.waitForURL("**/dashboard/onboarding/connect");
+    await page.getByRole("heading", { name: "Connect your code", level: 1 }).waitFor();
   }
   const me = await backend.query(api.users.me, { token });
   const organizationId = me.organizations[0]._id!;
@@ -90,6 +90,49 @@ try {
   await page
     .getByRole("heading", { name: "test-fixture/context-example", exact: true })
     .waitFor();
+  // Guided setup: every step with the keyboard shortcut, live previews, reduced motion, 390 px, finish.
+  await page.goto(`${url}/dashboard/onboarding/connect`);
+  await page.getByRole("heading", { name: "Connect your code", level: 1 }).waitFor();
+  await page.getByLabel("Filter repositories").fill("context-example");
+  await page.getByRole("checkbox", { name: /test-fixture\/context-example/ }).check();
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/indexing");
+  await page.getByRole("heading", { name: "Mapping your repositories", level: 1 }).waitFor();
+  await page.getByRole("button", { name: /^Continue/ }).click();
+  await page.waitForURL("**/dashboard/onboarding/summary");
+  const overviewSwitch = page.getByRole("switch", { name: /^Overview/ });
+  await overviewSwitch.uncheck();
+  assert.equal(await page.locator(".preview-block").first().getAttribute("data-on"), "false", "Summary preview ignores the Overview toggle");
+  await overviewSwitch.check();
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/comments");
+  await page.getByText("Quiet", { exact: true }).click();
+  await page.getByText(/1 of 6 example findings would post inline/i).waitFor();
+  await page.getByText("Balanced", { exact: true }).click();
+  await page.getByText(/4 of 6 example findings would post inline/i).waitFor();
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/triggers");
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/tools");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await page.locator(".wizard-panel").evaluate((e) => getComputedStyle(e).animationName), "none", "Setup animates under reduced motion");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/team");
+  await page.keyboard.press("Control+Enter");
+  await page.waitForURL("**/dashboard/onboarding/done");
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const step of ["connect", "indexing", "summary", "comments", "triggers", "tools", "team", "done"]) {
+    await page.goto(`${url}/dashboard/onboarding/${step}`);
+    await page.locator("[data-wizard-heading]").waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Setup step ${step} overflows at 390 px`);
+  }
+  await page.screenshot({ path: "output/playwright/setup-mobile.png", fullPage: true, caret: "initial" });
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.screenshot({ path: "output/playwright/setup-done.png", fullPage: true, caret: "initial" });
+  await page.getByRole("button", { name: /^Go to dashboard/ }).click();
+  await page.waitForURL("**/dashboard/analytics");
+  assert.ok((await backend.query(api.onboarding.status, { token, organizationId })).onboarding?.completedAt, "Setup completion was not recorded");
   // Walk every page in the main navigation and in each section's secondary navigation.
   const settled = () =>
     page.waitForFunction(
@@ -209,7 +252,7 @@ try {
   await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true, caret: "initial" });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    `Browser verification passed: landing, docs, changelog, onboarding, repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
+    `Browser verification passed: landing, docs, changelog, guided setup (all steps, previews, reduced motion, 390 px), repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
   );
 } finally {
   await browser.close();

@@ -73,6 +73,12 @@ export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:s
  (s.triggerLabels??[]).length<=20&&(s.triggerLabels??[]).every(l=>l.trim().length>0&&l.length<=100)&&
  (s.excludedAuthors??[]).length<=50&&(s.excludedAuthors??[]).every(a=>a.trim().length>0&&a.length<=100)&&
  [s.maxFiles??0,s.maxChangedLines??0].every(n=>Number.isInteger(n)&&n>=0&&n<=1_000_000)&&[0,1,2,3].includes(s.strictness??0);
+// Strictness presets map to the confidence and severity thresholds; 0 keeps the custom values.
+export const strictnessPresets = { 1: { minimumConfidence: 0.95, severityThreshold: "high" }, 2: { minimumConfidence: 0.85, severityThreshold: "medium" }, 3: { minimumConfidence: 0.75, severityThreshold: "low" } } as const;
+export function effectiveThresholds(settings: { strictness?: number; minimumConfidence: number; severityThreshold: string }) {
+  const preset = strictnessPresets[settings.strictness as 1 | 2 | 3];
+  return preset ? { ...preset } : { minimumConfidence: settings.minimumConfidence, severityThreshold: settings.severityThreshold };
+}
 export const checkFailureSeverities=["off","critical","high","medium","low"] as const;
 export const validCheckFailureSeverity=(value:string|undefined)=>value===undefined||(checkFailureSeverities as readonly string[]).includes(value);
 // generatedTests: opt-in reproduction tests for verified findings, run with testCommand ("{test}" is the

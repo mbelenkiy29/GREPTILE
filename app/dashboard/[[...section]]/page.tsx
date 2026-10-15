@@ -1,4 +1,3 @@
-import { Mark } from "../../ui/logo";
 import { createWorkspace, logout, switchWorkspace, switchTeam } from "../actions";
 import { Live } from "../live";
 import { ProvidersPanel } from "../providers";
@@ -11,7 +10,8 @@ import { AccountPanel } from "../account";
 import { EmailInvitations } from "../email-invitations";
 import { ScopePanel, AuditPanel } from "../scopes";
 import { AgentSettings } from "../agents";
-import { Onboarding } from "../onboarding";
+import Link from "next/link";
+import { needsSetup } from "../../../src/onboarding-steps";
 import { RuntimeSettings } from "../runtime";
 import { PortalNav, AnalyticsView, settingsNavigation } from "../portal";
 import { WorkspaceInvitations } from "../invitations";
@@ -31,29 +31,6 @@ export default async function Dashboard(props: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const ctx = await loadDashboard(props);
-  if (ctx.kind === "onboarding") {
-    const { user } = ctx;
-    return (
-      <main className="onboarding">
-        <div className="brand">
-          <Mark /> OpenReview
-        </div>
-        <h1>Create your workspace</h1>
-        <p>
-          Your workspace owns repositories, rules, review history, and team
-          access.
-        </p>
-        <form action={createWorkspace}>
-          <label>
-            Workspace name
-            <input name="name" required maxLength={100} autoFocus />
-          </label>
-          <button className="primary">Create workspace</button>
-        </form>
-        <WorkspaceInvitations invitations={user.invitations}/>
-      </main>
-    );
-  }
   const { active, data, filters, isAdmin, organization, reviewDetailId, route, savedTeam, scopes, section, selectedTeam, user, view } = ctx;
   return (
     <div className="shell">
@@ -64,14 +41,14 @@ export default async function Dashboard(props: {
         <header>
           <div>
             <p className="muted">{organization.name}{selectedTeam&&" / "+selectedTeam.name}</p>
-            <h1>{route === "onboarding" ? "Workspace setup" : view === "overview" ? "Analytics" : view === "reviews" ? "Pull Requests" : route === "memory" ? ({clusters:"Cross-repository context",preferences:"Learned preferences",integrations:"Integrations",rules:"Custom rules",knowledge:"Knowledge Base"}[section[1]??"rules"]??"Memory") : route === "settings" ? settingsNavigation.find(([key])=>key===section[1])?.[1] : navigation.find((n) => n.toLowerCase() === view)}</h1>
+            <h1>{view === "overview" ? "Analytics" : view === "reviews" ? "Pull Requests" : route === "memory" ? ({clusters:"Cross-repository context",preferences:"Learned preferences",integrations:"Integrations",rules:"Custom rules",knowledge:"Knowledge Base"}[section[1]??"rules"]??"Memory") : route === "settings" ? settingsNavigation.find(([key])=>key===section[1])?.[1] : navigation.find((n) => n.toLowerCase() === view)}</h1>
           </div>
           <Live active={active} />
         </header>
         <WorkspaceInvitations invitations={user.invitations}/>
         {savedTeam&&!selectedTeam&&filters.team===undefined&&<p role="status">Your previously selected team is no longer accessible. Showing all accessible repositories; use the workspace menu to select a team.</p>}
-        {route === "onboarding" && <Onboarding token={user.token} organizationId={organization._id} admin={isAdmin} />}
-        {view === "overview" && route !== "onboarding" && <AnalyticsView token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters} />}
+        {view === "overview" && needsSetup(organization) && <section className="setup-banner" aria-label="Workspace setup"><p><strong>Setup isn’t finished.</strong> {organization.onboarding?.reviewsPaused ? "Automatic reviews are paused until you choose when reviews run." : "Finish connecting repositories and choosing review behavior."}</p>{isAdmin ? <Link className="button primary small" href="/dashboard/onboarding">Resume setup</Link> : <p className="muted">A workspace admin is completing setup.</p>}</section>}
+        {view === "overview" && <AnalyticsView token={user.token} organizationId={organization._id} repositories={data.repositories} filters={filters} />}
         {view === "repositories" && <RepositoriesSection ctx={ctx} />}
         {view === "reviews" && <ReviewsSection ctx={ctx} />}
         {view === "findings" && <FindingsSection ctx={ctx} />}

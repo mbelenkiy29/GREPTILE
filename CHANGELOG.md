@@ -2,6 +2,10 @@
 
 ## Unreleased — October 2026
 
+### Setup
+- Guided workspace setup: connect a provider, choose repositories, watch the code graph build, then shape the summary, comment scope, triggers and tools with live previews, and invite your team. Automatic reviews wait until you choose when reviews run.
+- Installing the GitHub App now works from any signed-in session (email, Google or GitLab) and returns you to setup.
+
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.
 - Tree-sitter code graph with resolved cross-file edges, plus optional chunk-level semantic retrieval.

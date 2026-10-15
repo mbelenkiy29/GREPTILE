@@ -6,6 +6,11 @@ import {connectionDigest} from "./indexAuthority";
 import type {QueryCtx,MutationCtx} from "./_generated/server";
 import type {Doc} from "./_generated/dataModel";
 import {repositoryIdentity} from "./repositoryIdentity";
+import {settingsValidator} from "./schema";
+import {assertValidSettings} from "./scopes";
+import {deploymentDefaults,scopeDefaults} from "../src/review-settings";
+import {isConfigureStep,isWizardStep,stepKeys} from "../src/onboarding-steps";
+import type {Infer} from "convex/values";
 
 async function setupAccess(ctx:QueryCtx|MutationCtx,repo:Doc<"repositories">){
  const connection=repo.connectionId?await ctx.db.get(repo.connectionId):null;
@@ -33,7 +38,17 @@ export const status=query({args:{token:v.string(),organizationId:v.id("organizat
  // Progress is derived from current authorized state, including connection revocation.
  const unavailableSelection=selectedIds.some(id=>!rows.some(r=>r._id===id));
  const step=!connected?2:unavailableSelection||!selected.length||selected.some(r=>r.setupError)?3:!configured?4:!selected.every(r=>r.ready)?5:6;
- return {repositories:rows,configured,step,unavailableSelection,admin:["owner","admin"].includes(member.role)};
+ // Bounded code-graph sample for the setup illustration: up to 12 indexed files from each of the
+ // first three selected (visible) repositories, plus module references between sampled files.
+ const graph:{repository:string;files:string[];edges:[string,string][]}[]=[];
+ for(const r of selected.filter(r=>!r.nativeIndex).slice(0,3)){
+  const files=(await ctx.db.query("repositoryFiles").withIndex("by_repo",q=>q.eq("repositoryId",r._id)).take(12)).map(f=>f.path),known=new Set(files),edges:[string,string][]=[];
+  for(const path of files){const refs=await ctx.db.query("graphModuleReferences").withIndex("by_path",q=>q.eq("repositoryId",r._id).eq("path",path)).first();for(const ref of refs?.references??[])if(known.has(ref.resolvedPath)&&ref.resolvedPath!==path)edges.push([path,ref.resolvedPath]);}
+  graph.push({repository:r.fullName,files,edges:edges.slice(0,24)});
+ }
+ return {repositories:rows,configured,step,unavailableSelection,admin:["owner","admin"].includes(member.role),
+  onboarding:organization?.onboarding??null,defaults:scopeDefaults(settings,undefined,deploymentDefaults()),graph,
+  connections:{github:installations.filter(i=>i.active).map(i=>({account:i.account})),providers:connections.filter(c=>c.active&&!c.suspended).map(c=>({_id:c._id,kind:c.kind,name:c.name}))}};
 }});
 export const select=mutation({args:{token:v.string(),organizationId:v.id("organizations"),repositoryIds:v.array(v.id("repositories"))},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true);
@@ -42,14 +57,55 @@ export const select=mutation({args:{token:v.string(),organizationId:v.id("organi
  for(const id of ids){const r=repos.find(r=>r._id===id);if(!r)throw new Error("Repository is outside this workspace");const {setupError}=await setupAccess(ctx,r);if(setupError)throw new Error(setupError);}
  await ctx.db.patch(a.organizationId,{onboardingRepositoryIds:ids});await audit(ctx,a.organizationId,user._id,"onboarding.repositories_selected",a.organizationId);
 }});
-export const start=mutation({args:{token:v.string(),organizationId:v.id("organizations")},handler:async(ctx,a)=>{
+export const start=mutation({args:{token:v.string(),organizationId:v.id("organizations"),pauseReviews:v.optional(v.boolean())},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true),organization=await ctx.db.get(a.organizationId);
  const settings=await ctx.db.query("scopeSettings").withIndex("by_org",q=>q.eq("organizationId",a.organizationId)).collect();
- if(!settings.some(s=>!s.teamId))throw new Error("Save workspace behavior before indexing");
+ if(!settings.some(s=>!s.teamId)){
+  if(!a.pauseReviews)throw new Error("Save workspace behavior before indexing");
+  // Guided setup indexes while behavior is still being configured: hold automatic reviews until the
+  // triggers step (or the end of setup) decides them.
+  await ctx.db.insert("scopeSettings",{organizationId:a.organizationId,settings:{...deploymentDefaults(),automatic:false},overrideKeys:["automatic"]});
+  await ctx.db.patch(a.organizationId,{onboarding:{...(organization?.onboarding??{startedAt:Date.now()}),reviewsPaused:true}});
+  await audit(ctx,a.organizationId,user._id,"onboarding.reviews_paused",a.organizationId);
+ }
  const repos=await visibleRepositories(ctx,a.token,a.organizationId),ids=organization?.onboardingRepositoryIds??repos.filter(r=>r.enabled).map(r=>r._id);
  if(!ids.length)throw new Error("Select repositories before indexing");
  let started=false;
  for(const id of ids){const r=repos.find(r=>r._id===id);if(!r)throw new Error("Selected repository is unavailable");const access=await setupAccess(ctx,r);if(access.setupError)throw new Error(access.setupError);if(!access.nativeIndex){await enableIndexing(ctx,r);started=true;}}
  if(!started)throw new Error("Use native Perforce indexing setup for the selected repositories");
  await audit(ctx,a.organizationId,user._id,"onboarding.indexing_started",a.organizationId);
+}});
+
+// Guided setup: each configuration step writes only its own workspace defaults.
+export const saveDefaults=mutation({args:{token:v.string(),organizationId:v.id("organizations"),step:v.string(),settings:settingsValidator},handler:async(ctx,a)=>{
+ const {user}=await authorize(ctx,a.token,a.organizationId,true);
+ if(!isConfigureStep(a.step))throw new Error("Unknown setup step");
+ const allowed=stepKeys[a.step],rows=await ctx.db.query("scopeSettings").withIndex("by_org",q=>q.eq("organizationId",a.organizationId)).collect(),row=rows.find(s=>!s.teamId);
+ const changes=Object.fromEntries(allowed.map(key=>[key,(a.settings as Record<string,unknown>)[key]]).filter(([,value])=>value!==undefined));
+ const merged={...(row?.settings??deploymentDefaults()),...changes} as Infer<typeof settingsValidator>,overrideKeys=[...new Set([...(row?.overrideKeys??[]),...allowed])];
+ assertValidSettings(merged,overrideKeys);
+ if(row)await ctx.db.patch(row._id,{settings:merged,overrideKeys});else await ctx.db.insert("scopeSettings",{organizationId:a.organizationId,settings:merged,overrideKeys});
+ const organization=await ctx.db.get(a.organizationId);
+ await ctx.db.patch(a.organizationId,{onboarding:{...(organization?.onboarding??{startedAt:Date.now()}),step:a.step,...(a.step==="triggers"?{reviewsPaused:false}:{})}});
+ await audit(ctx,a.organizationId,user._id,"settings.updated",a.organizationId);
+ await audit(ctx,a.organizationId,user._id,"onboarding.step_completed",a.step);
+}});
+export const advance=mutation({args:{token:v.string(),organizationId:v.id("organizations"),step:v.string()},handler:async(ctx,a)=>{
+ const {user}=await authorize(ctx,a.token,a.organizationId,true);
+ if(!isWizardStep(a.step)||isConfigureStep(a.step)||a.step==="done")throw new Error("Unknown setup step");
+ const organization=await ctx.db.get(a.organizationId);
+ await ctx.db.patch(a.organizationId,{onboarding:{...(organization?.onboarding??{startedAt:Date.now()}),step:a.step}});
+ await audit(ctx,a.organizationId,user._id,"onboarding.step_completed",a.step);
+}});
+export const complete=mutation({args:{token:v.string(),organizationId:v.id("organizations"),skipped:v.optional(v.boolean())},handler:async(ctx,a)=>{
+ const {user}=await authorize(ctx,a.token,a.organizationId,true),organization=await ctx.db.get(a.organizationId);
+ const onboarding=organization?.onboarding??{startedAt:Date.now()};
+ if(onboarding.reviewsPaused){
+  // Setup ended before the triggers step: release the hold so automatic reviews follow the defaults.
+  const row=(await ctx.db.query("scopeSettings").withIndex("by_org",q=>q.eq("organizationId",a.organizationId)).collect()).find(s=>!s.teamId);
+  if(row)await ctx.db.patch(row._id,{settings:{...row.settings,automatic:true},overrideKeys:row.overrideKeys.filter(k=>k!=="automatic")});
+  await audit(ctx,a.organizationId,user._id,"onboarding.reviews_resumed",a.organizationId);
+ }
+ await ctx.db.patch(a.organizationId,{onboarding:{...onboarding,step:"done",reviewsPaused:false,completedAt:Date.now(),completedBy:user._id,skipped:a.skipped===true}});
+ await audit(ctx,a.organizationId,user._id,a.skipped?"onboarding.skipped":"onboarding.completed",a.organizationId);
 }});
