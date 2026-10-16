@@ -25,7 +25,8 @@ export async function POST(request: Request) {
       .object({
         repositoryId: z.string(),
         prNumber: z.number().int().positive(),
-        headSha: z.string().regex(/^[a-f0-9]{40}$/),
+        // Optional: defaults to the pull request's current head as last observed.
+        headSha: z.string().regex(/^[a-f0-9]{40}$/).optional(),
         runtimeEvidence: runtimeEvidenceSchema.optional(),
       })
       .parse(await request.json());
@@ -40,10 +41,13 @@ export async function POST(request: Request) {
         { error: "Repository not accessible to this API key" },
         { status: 403 },
       );
+    const headSha = args.headSha ?? (await backend().query(api.mcpApi.prStatus, { token, organizationId, repositoryId: args.repositoryId as Id<"repositories">, prNumber: args.prNumber })).pullRequest?.headSha;
+    if (!headSha) return Response.json({ error: "Pull request not found; pass headSha" }, { status: 404 });
     const reviewId = await backend().mutation(api.reviews.request, {
       token,
-      ...args,
       repositoryId: args.repositoryId as Id<"repositories">,
+      prNumber: args.prNumber,
+      headSha,
     });
     return Response.json({ reviewId }, { status: 202 });
   } catch (error) { const denied = apiDenied(error); if (denied) return denied;

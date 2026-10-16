@@ -37,8 +37,9 @@ test('the daily rollup feeds trends: series, addressed rate, time saved, reposit
  const {t,admin,org,web,hidden}=await setup();
  await roll(t,org);
  const trends=await t.query(api.analytics.trends,{token:admin.token,organizationId:org,...period});
- expect(trends.days).toEqual([{day:'2026-10-10',reviews:3,findings:3,high:2,addressed:1},{day:'2026-10-11',reviews:1,findings:1,high:1,addressed:1}]);
- expect(trends.totals).toEqual({reviews:4,findings:4,high:3,addressed:2});
+ expect(trends.days).toEqual([{day:'2026-10-10',reviews:3,findings:3,high:2,addressed:1,commitAddressed:0,ignored:0},{day:'2026-10-11',reviews:1,findings:1,high:1,addressed:1,commitAddressed:0,ignored:0}]);
+ expect(trends.totals).toEqual({reviews:4,findings:4,high:3,addressed:2,commitAddressed:0,ignored:0});
+ expect(trends.fixRate).toBeNull();
  expect(trends.addressedRate).toBe(0.5);
  expect([trends.minutesPerFinding,trends.hoursSaved]).toEqual([15,0.5]);
  expect(trends.byRepository.map(r=>[r.label,r.findings,r.reviews])).toEqual([['acme/web',3,3],['acme/secret',1,1]]);
@@ -47,7 +48,7 @@ test('the daily rollup feeds trends: series, addressed rate, time saved, reposit
  expect(rows.find(r=>r.repositoryId===web._id&&r.day==='2026-10-10'&&r.author==='ana')).toMatchObject({reviews:2,completed:1,findings:2,useful:1});
  expect(rows.some(r=>r.repositoryId===hidden._id)).toBe(true);
  // Filters narrow the aggregates.
- expect((await t.query(api.analytics.trends,{token:admin.token,organizationId:org,...period,author:'@bo'})).totals).toEqual({reviews:1,findings:1,high:1,addressed:1});
+ expect((await t.query(api.analytics.trends,{token:admin.token,organizationId:org,...period,author:'@bo'})).totals).toEqual({reviews:1,findings:1,high:1,addressed:1,commitAddressed:0,ignored:0});
  expect((await t.query(api.analytics.trends,{token:admin.token,organizationId:org,...period,repositoryId:web._id})).totals.findings).toBe(3);
 });
 
@@ -60,7 +61,7 @@ test('rollups are idempotent, pick up later fixes, and never count repositories 
  await roll(t,org);
  expect((await t.query(api.analytics.trends,{token:admin.token,organizationId:org,...period})).totals.addressed).toBe(3);
  const visible=await t.query(api.analytics.trends,{token:member.token,organizationId:org,...period});
- expect(visible.totals).toEqual({reviews:3,findings:3,high:2,addressed:3});
+ expect(visible.totals).toEqual({reviews:3,findings:3,high:2,addressed:3,commitAddressed:0,ignored:0});
  expect(visible.byRepository.map(r=>r.label)).toEqual(['acme/web']);
  // The sweep schedules one rollup per organization-day.
  expect(await t.mutation(internal.analyticsRollup.sweep,{days:2})).toBe(2);

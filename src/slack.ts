@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertEgress } from "./egress";
 
 // Slack app support. Uses Web Crypto and fetch only, so it runs in Convex HTTP actions, Node
 // actions and tests alike. Request text from Slack is untrusted data.
@@ -25,6 +26,7 @@ export function slackAuthorizeUrl(clientId: string, redirectUri: string, state: 
 }
 const oauthResponse = z.object({ ok: z.literal(true), access_token: z.string().startsWith("xoxb-"), bot_user_id: z.string().regex(/^[UW][A-Z0-9]+$/), team: z.object({ id: z.string().regex(/^T[A-Z0-9]+$/), name: z.string().max(200) }), scope: z.string() });
 export async function exchangeSlackCode(input: { clientId: string; clientSecret: string; code: string; redirectUri: string }, fetchImpl: typeof fetch = fetch) {
+  assertEgress("slack", "Slack");
   const response = await fetchImpl("https://slack.com/api/oauth.v2.access", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: input.clientId, client_secret: input.clientSecret, code: input.code, redirect_uri: input.redirectUri }), redirect: "error", signal: AbortSignal.timeout(15000) });
   const parsed = oauthResponse.safeParse(await response.json().catch(() => null));
   if (!response.ok || !parsed.success) throw new Error("Slack authorization failed");
@@ -37,6 +39,7 @@ export class SlackError extends Error { constructor(readonly code: string) { sup
 export class SlackApi {
   constructor(private token: string, private fetchImpl: typeof fetch = fetch) {}
   private async call<T>(method: string, body: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
+    assertEgress("slack", "Slack");
     const response = await this.fetchImpl(`https://slack.com/api/${method}`, { method: "POST", headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json; charset=utf-8" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(15000) });
     const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
     if (!response.ok || !data?.ok) throw new SlackError(String(data?.error ?? `http_${response.status}`).slice(0, 60));

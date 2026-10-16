@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { authorizeRepository } from "./auth";
+import { applicableRules } from "../src/rule-scopes";
 export const get = query({
   args: {
     token: v.string(),
@@ -54,9 +55,7 @@ export const get = query({
       symbols,
       relationships: edges,
       knowledge,
-      rules: rules.filter(
-        (r) => !r.repositoryId || r.repositoryId === repo._id,
-      ),
+      rules: applicableRules(rules.filter((r) => r.enabled), repo),
       file: file
         ? {
             path: file.path,

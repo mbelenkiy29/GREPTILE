@@ -11,10 +11,12 @@ Documentation is published at `/docs` (Markdown in `docs/public/` plus selected 
 Each feature below has automated tests. The evidence level for each one (tests with fakes, verified locally, or verified live on a provider) is listed in [the acceptance matrix](docs/acceptance-matrix.md) and [the parity report](docs/parity/REPORT.md).
 
 **Reviews**
+- API guidance packs: built-in and repository packs (`.openreview/guides/*.md`) load when a change imports a matching SDK and add review guidance only.
 - Knowledge base entries about the changed files are supplied to reviews as labelled background (never evidence) and listed in the summary's coverage.
-- Repository-aware reviews. A tree-sitter code graph covers 11 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
+- Repository-aware reviews. A tree-sitter code graph covers 12 languages with resolved cross-file calls and imports. Optional 1,536-dimension chunk embeddings add hybrid ranking.
 - Three engines. The default is a specialist pipeline. An optional tool-using agent investigates the codebase across steps and resumes after interruptions, and an optional hypothesis engine plans concrete bug hypotheses and investigates each one in parallel with its own budget.
 - Security checks: deterministic pattern checks on added lines (secrets, SQL concatenation, disabled TLS verification, dynamic evaluation, shell commands, unsafe deserialization) and OSV.dev advisories for changed npm, PyPI, Go, crates.io and Maven dependencies; feedback cannot suppress them.
+- Experimental routing for agent-authored pull requests: explicit signals (agent bot authors, Co-Authored-By trailers, branch prefixes, description markers) can send them to a dedicated review model; the reason is recorded.
 - A requirements check for pull requests that link Linear, Jira or Notion tickets: each acceptance criterion is quoted from the ticket and marked met, not met or unclear with code evidence; grounded "not met" items become findings and block automatic approval.
 - Opt-in generated reproduction tests: for up to three verified findings OpenReview drafts a test, runs it in the isolated runtime sandbox and attaches the recorded outcome to the finding (never committed).
 - Grounded findings. Each finding quotes exact lines from the reviewed revision and passes a second verification before it is posted.
@@ -30,21 +32,29 @@ Each feature below has automated tests. The evidence level for each one (tests w
   - Automatic reviews, label-only reviews, or reviews on `@openreview` mention.
   - Excluded authors and branches, draft handling and size limits.
   - Strictness presets and opt-in comment categories.
-- Configuration as code in `.openreview.json`, read from the base branch, with admin locks that a pull request cannot override.
+- Data controls: workspaces are private by default (opt-in aggregate counts only), configurable retention for reviews and transcripts, and owner-only workspace deletion with a grace period and a complete, resumable purge. See [docs/data-controls.md](docs/data-controls.md).
+- Per-workspace single sign-on with SAML 2.0 or OpenID Connect: DNS-verified domains, optional just-in-time membership and an optional SSO requirement (owners keep a way in). See [docs/sso.md](docs/sso.md).
+- Optional auto-enable for newly installed repositories, per workspace or team, and suggested cross-repository clusters from package references, shared dependencies and repository names. Suggestions wait for an admin's approval.
+- Custom rules scoped to the workspace, a team, repositories matching a name pattern (such as `acme/*-service`) or one repository; the most specific same-titled rule wins.
+- Claude Code and Codex plugins (`plugins/openreview`) with the OpenReview MCP server and a resolve loop that fixes findings, commits locally, asks before pushing (never force-pushes) and re-reviews until clean; `openreview resolve` runs the same loop from the terminal. Install in Claude Code with `/plugin install openreview --marketplace <owner>/<repo>`; see [agent plugins](docs/public/agent-plugins.md).
+- A rule assistant that drafts rules from a description, tightens vague rules, flags conflicting or duplicate rules, and suggests rules from findings fixed on several pull requests and from approved conventions. Every suggestion cites its sources and waits for an admin's approval.
+- Per-pull-request effort: comment `@openreview review fast|standard|deep` or add an `openreview:<tier>` label. An admin can cap the tier, and agent and hypothesis turn and tool-call budgets are configurable within operator hard caps (`AGENT_MAX_TURNS`, `AGENT_MAX_TOOL_CALLS`).
+- Configuration as code in `.openreview.json` and cascading `.openreview/` folders (per-directory categories, strictness, thresholds and ignore/include globs; the highest tier among touched directories), read from the base branch, with admin locks that a pull request cannot override.
 
 **Learning and memory**
 - 👍/👎 reactions and dashboard feedback become learned preferences. Reactions are polled on GitHub and arrive by webhook on GitLab.
+- Learning from commits: findings that a follow-up commit fixed, and findings merged unaddressed, feed a bounded per-category preference that never narrows security review. The Analytics page shows the fixed-before-merge rate over time.
 - Conventions learned from human reviewers' comments on merged pull requests. Each one cites its evidence and is applied only after an admin approves it, unless auto-approve is on.
 - A Memory page where admins can inspect, edit, scope (repository, team or workspace), enable, disable and delete learned rules. Every change is audited, and nothing learned can weaken security review.
 
 **Fixes**
 - `@openreview fix this` replies with a validated suggestion. `… in a new PR` opens a fix pull request from an `openreview/fix-*` branch. This is opt-in, needs Contents write, and never writes to the PR branch.
-- Fix handoff to Codex, Claude Code or Cursor Agent: through the paired local bridge, a copied prompt, or the agents' documented "open with prompt" links.
+- Fix handoff to Codex, Claude Code, Cursor Agent or Conductor: through the paired local bridge, a copied prompt, or the agents' documented "open with prompt" links. Optional **Send to Devin** uses your own Devin API key.
 
 **Ask your codebase**
 - Dashboard chat with streamed investigation steps. Every citation is checked against the indexed source.
 - A public API with read, write and admin key scopes: `POST /api/query` (JSON or SSE), `POST /api/search` and repository enable/status.
-- A remote MCP server at `/api/mcp` (Streamable HTTP) and a local stdio MCP server, both with the same 11 tools.
+- A remote MCP server at `/api/mcp` (Streamable HTTP, OAuth sign-in or API keys) and a local stdio MCP server, both with the same 16 tools, including triggering a review, listing your unresolved comments, review status, adding custom context for approval, and reports.
 - Slack: review and high-severity notifications, `@OpenReview` questions in threads, and `/openreview status`. Email notifications through Resend.
 
 **Context and integrations**
@@ -52,6 +62,7 @@ Each feature below has automated tests. The evidence level for each one (tests w
 
 **Providers**
 - GitHub and GitHub Enterprise, GitLab, Azure DevOps (PAT or Entra service principal), Bitbucket Cloud and Data Center, Gitea and Perforce.
+- Self-managed GitLab behind corporate networks: an internal API URL, a private CA bundle and an operator-approved HTTPS proxy, following only same-host redirects. See [docs/gitlab.md](docs/gitlab.md).
 
 **Workspaces**
 - Sign-in with GitHub, GitLab or Google, or by email link. Identities link only through verified email.
@@ -60,6 +71,11 @@ Each feature below has automated tests. The evidence level for each one (tests w
 - Analytics trends: reviews, findings, addressed rate and estimated time saved.
 - A diff viewer with inline findings.
 - Optional Stripe seat billing with review quotas. It is off unless `BILLING_ENABLED=true`.
+- Self-hosting kit: a Helm chart, AWS Terraform, an offline mode (`OPENREVIEW_OFFLINE=true`) that only contacts your model, embedding, code-host and SSO endpoints, and a checksummed tree-sitter grammar bundle. See [docs/self-hosting-kit.md](docs/self-hosting-kit.md).
+
+**Command line**
+- `openreview onboard` connects a checkout to a workspace, prints the install link, enables repositories and imports rules from CLAUDE.md, AGENTS.md and similar files as suggestions for approval.
+- `openreview review --inline` prints findings next to the code, and `--resume` continues an interrupted agentic review on the same commit.
 
 ## Architecture
 
@@ -132,7 +148,7 @@ The OpenAI and Anthropic adapters request native JSON-schema output (`LLM_STRUCT
 
 Task overrides include `LLM_MODEL_REVIEW`, `LLM_MODEL_VERIFY`, `LLM_MODEL_SUMMARY`, `LLM_MODEL_KNOWLEDGE`, and `LLM_MODEL_CONVERSATION`. Review depth adjusts context budgets: Fast 8k, Standard 16k, Deep 40k estimated tokens. Two simultaneous specialist calls bound inference concurrency. Provider rate limits and transient failures receive bounded backoff. Review cancellation stops between persisted stages; an already-running HTTP model call may finish.
 
-Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++ and Swift use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
+Code graph: TypeScript/JavaScript use the TypeScript compiler, and Python, Go, Java, Kotlin, Rust, Ruby, C#, PHP, C/C++, Swift and Elixir use tree-sitter grammars. Import and call edges resolve to repository files, and reviews and the agentic engine use a ranked two-hop neighbourhood of callers and callees. See [docs/code-graph.md](docs/code-graph.md).
 
 Review summary: each pull request (or GitLab merge request) has exactly one OpenReview summary comment. It is found by a hidden marker and edited in place on every run, while inline findings are posted as review comments; GitHub creates no review when there are no inline findings. Sections can be toggled per scope under Review formatting:
 - overview
@@ -223,6 +239,10 @@ pnpm cli review --base main
 pnpm cli review --json
 pnpm cli review --agent
 pnpm cli review --security --mode deep
+pnpm cli review --inline
+pnpm cli review --engine agentic --resume
+pnpm cli onboard --repositories all
+pnpm cli resolve --pr 42 --fix-agent claude
 ```
 
 To install the `openreview` command from this checkout, run `npm link` (Node.js 24). Then run `openreview review --agent` from your repository. Local review compares committed HEAD with the merge base; commit your working changes first. Configure model credentials through the environment or `.env.local` in that repository. Local indexing respects ignored paths and limits eligible source to 5,000 files / 20 MB; it does not execute repository code.
@@ -253,7 +273,13 @@ Cursor setup supports the official standalone `cursor-agent` CLI and falls back 
 
 Click Fix on an eligible finding or Fix All on the latest completed review. The registered checkout must match the repository and reviewed revision; existing uncommitted changes are preserved. Before releasing fix context, OpenReview checks the provider’s current open revision and rechecks workspace/repository authorization. A changed or closed PR, unavailable provider, revoked access, expired request or replay blocks dispatch. Re-review changed revisions before retrying. The portal shows launch, successful process exit, or failure, including nonzero exits and termination signals. A successful agent exit does not prove a correct fix or passing tests. Inspect the diff and test output, then commit and push yourself; the next review assesses resolution. Pairing credentials expire after 90 days and can be revoked in personal settings. Real macOS CLI dispatch, agent changes and regression checks have been verified for Codex, Claude Code and Cursor Agent; browser/protocol click acceptance is verified for Codex only. The remaining agent/OS acceptance matrix is still outstanding. Agents retain their native permission prompts and use their own authenticated accounts.
 
-Without the bridge, every finding and the Fix page offer **Copy fix prompt**, plus **Open in Cursor**, **Open in Claude Code** and **Open in Codex** links. These use each agent's officially documented prompt deep link: `cursor://anysphere.cursor-deeplink/prompt`, `claude-cli://open` and `codex://new`. A link only pre-fills the prompt (with the repository when the agent supports it), and nothing runs until you send it. Prompts longer than an agent's link limit fall back to copy.
+Without the bridge, every finding and the Fix page offer **Copy fix prompt** plus four links: **Open in Cursor**, **Open in Claude Code**, **Open in Codex** and **Open in Conductor**.
+- Each link uses that agent's officially documented prompt deep link: `cursor://anysphere.cursor-deeplink/prompt`, `claude-cli://open`, `codex://new` and `conductor://prompt=`.
+- A link only pre-fills the prompt (with the repository when the agent supports it), and nothing runs until you send it. Conductor creates nothing until you click Create.
+- The Conductor link leaves out the optional local repository path and branch, because the server does not know where your checkout is.
+- Prompts longer than an agent's link limit fall back to copy.
+
+**Send to Devin** appears only after you save your own Devin API key under Personal agents. Devin documents no deep link, only its API. The key is encrypted on the server (`CREDENTIAL_ENCRYPTION_KEY`) and used only when you click the button, which starts an unlisted Devin session with the same prompt and opens it.
 
 Workspace owners/admins set the default coding agent in Personal agents. Personal preferences inherit it until explicitly overridden; choose “Use workspace default” to reset an override. Review detail, individual findings, Fix All, and authenticated Fix links use the same effective preference. Viewers cannot pair bridges or launch fixes.
 
@@ -265,6 +291,12 @@ API keys are hashed at rest, scoped to one workspace, and revocable. Use `Author
 - **admin:** adds administrator endpoints.
 
 The key owner's role still applies, and keys created before scopes keep full access. The full reference is [docs/openapi.yaml](docs/openapi.yaml).
+
+The Claude Code plugin bundles the remote MCP server with OAuth sign-in and the resolve-loop skills. Install it from the repository that holds this marketplace (Codex steps are in [agent plugins](docs/public/agent-plugins.md)):
+
+```text
+/plugin install openreview --marketplace <owner>/<repo>
+```
 
 * `POST /api/query` with `{question,repositoryIds,threadId?,stream?}`: a codebase answer with sources that exactly match lines at the indexed revision. Returns JSON, or Server-Sent Events when `stream` is true. `GET /api/query/:messageId` fetches a result later.
 * `POST /api/search` with `{query,repositoryIds?,limit?}`: hybrid full-text and semantic search, returning ranked snippets.
@@ -298,7 +330,7 @@ Both servers expose the same tools:
 
 ## Self-hosting
 
-See [deployment documentation](docs/deployment.md). Both web and Convex backend run on your infrastructure. Convex's open-source backend provides persistent scheduling and file storage. Source files use Convex storage blobs; file metadata, symbols, and relationships are indexed in tables.
+See [deployment documentation](docs/deployment.md) for Docker Compose, and the [self-hosting kit](docs/self-hosting-kit.md) for the Helm chart, the AWS Terraform module, offline mode (`OPENREVIEW_OFFLINE=true`, which limits outbound traffic to your model, embedding, code-host and SSO endpoints), the egress list and the bundled tree-sitter grammars. Both web and Convex backend run on your infrastructure. Convex's open-source backend provides persistent scheduling and file storage. Source files use Convex storage blobs; file metadata, symbols, and relationships are indexed in tables.
 
 ## Local demo without GitHub
 

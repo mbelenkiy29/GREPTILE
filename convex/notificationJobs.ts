@@ -15,9 +15,11 @@ import { runChatAgent } from "../src/engine/chat";
 import { repositorySourceUrl } from "../src/source-url";
 import type { ModelUsage } from "../src/engine/types";
 import { service } from "./auth";
+import { egressAllowed } from "../src/egress";
 
 const appOrigin = () => { try { return process.env.APP_URL ? new URL(process.env.APP_URL).origin : undefined; } catch { return undefined; } };
 async function slackClient(ctx: ActionCtx, installationId: Id<"slackInstallations">) {
+  if (!egressAllowed("slack")) return null;
   const install = await ctx.runQuery(internal.notifications.slackCredentials, { installationId });
   return install?.credentials ? new SlackApi(decryptCredential(install.credentials, `${install.organizationId}:slack`)) : null;
 }

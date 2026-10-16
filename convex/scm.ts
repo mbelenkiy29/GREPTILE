@@ -12,6 +12,7 @@ import {forgeRepositories} from "../src/bitbucket-forge";
 import { Origin } from "../src/origin";
 import { Gitlab, type Scm } from "../src/gitlab";
 import { decryptCredential, providerOrigin } from "../src/credentials";
+import { connectionNetwork } from "../src/scm-transport";
 import { z } from "zod";
 export async function provider(ctx:ActionCtx,repo:Doc<"repositories">):Promise<Scm>{
  if(!repo.connectionId){if(!repo.installationId)throw new Error("Repository provider missing");return Github.installation(repo.installationId);}
@@ -23,7 +24,7 @@ export async function provider(ctx:ActionCtx,repo:Doc<"repositories">):Promise<S
  if(c.kind==="gitea")return new Gitea(base,credentials);
  if(c.kind==="azure-devops")return new AzureDevOps(base,credentials,repo.externalId);
  if(c.kind==="bitbucket-dc"){const config=z.object({token:z.string().min(10),username:z.string().min(1)}).parse(JSON.parse(credentials));return new BitbucketDC(base,config.token,repo.externalId,config.username);}
- if(c.kind==="gitlab")return new Gitlab(base,credentials,repo.externalId);
+ if(c.kind==="gitlab")return new Gitlab(base,credentials,repo.externalId,connectionNetwork(c));
  if(c.kind==="github-enterprise"){
   const config=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).parse(JSON.parse(credentials));
   return Github.installation(config.installationId,{appId:config.appId,privateKey:config.privateKey,base:githubEnterpriseEndpoints(c.instance).api});
@@ -38,7 +39,7 @@ export async function discover(c:Doc<"providerConnections">){
  }
  if(c.kind==="origin")return new Origin(JSON.parse(token)).repositories();
  const base=providerOrigin(c.instance,c.kind==="gitlab"?["gitlab.com"]:c.kind==="azure-devops"?["dev.azure.com"]:[]);
- if(c.kind==="gitlab")return new Gitlab(base,token).repositories();
+ if(c.kind==="gitlab")return new Gitlab(base,token,undefined,connectionNetwork(c)).repositories();
  if(c.kind==="gitea")return new Gitea(base,token).discover();
  if(c.kind==="azure-devops")return new AzureDevOps(base,token).repositories();
  if(c.kind==="bitbucket-dc"){const config=z.object({token:z.string().min(10),username:z.string().min(1)}).parse(JSON.parse(token));return new BitbucketDC(base,config.token,undefined,config.username).repositories();}

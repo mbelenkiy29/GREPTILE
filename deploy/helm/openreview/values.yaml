@@ -1,0 +1,52 @@
+# OpenReview Helm values. Secrets come from `secrets.existingSecret` (recommended) or `secrets.values`.
+web:
+  image:
+    repository: ghcr.io/your-org/openreview
+    tag: ""            # defaults to the chart appVersion
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 3000
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 1Gi }
+  env: {}               # extra non-secret environment variables
+backend:
+  # Self-hosted Convex backend (keep pinned by digest).
+  image:
+    repository: ghcr.io/get-convex/convex-backend
+    digest: sha256:d715e9ec088784407ca4ba2d3db592702cd328d02c76cdca3852c0018f2a76b4
+  instanceName: openreview
+  cloudOrigin: https://convex.review.example.com   # public URL of port 3210 (functions)
+  siteOrigin: https://convex-site.review.example.com # public URL of port 3211 (HTTP actions, webhooks)
+  persistence:
+    size: 50Gi
+    storageClass: ""
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { memory: 4Gi }
+config:
+  appUrl: https://review.example.com
+  scmAllowedHosts: ""   # SCM_ALLOWED_HOSTS for self-managed GitLab, Gitea, Bitbucket Data Center
+  scmAllowedProxies: "" # SCM_ALLOWED_PROXIES: host:port of proxies GitLab connections may use
+  offline: false        # OPENREVIEW_OFFLINE: only model, embedding, SCM and SSO hosts are contacted
+  llmProvider: openai   # openai | anthropic | openrouter | compatible
+  llmBaseUrl: ""        # e.g. an internal OpenAI-compatible endpoint
+  # Grammar bundle (scripts/bundle-grammars.ts) mounted into the backend for indexing; empty = packages.
+  grammars:
+    enabled: false
+    image: ""           # an image whose /grammars holds the bundle; copied by an init container
+secrets:
+  existingSecret: ""    # name of a Secret with the keys below
+  values: {}            # or inline (development only): the keys below plus CONVEX_INSTANCE_SECRET
+  # Keys the web pods read from the secret (the Convex instance secret is never given to them).
+  webKeys: [SESSION_SECRET, SERVICE_SECRET, CREDENTIAL_ENCRYPTION_KEY, GITHUB_APP_SLUG, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITLAB_OAUTH_CLIENT_ID, GITLAB_OAUTH_CLIENT_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, RESEND_API_KEY, EMAIL_FROM, SLACK_CLIENT_ID, LINEAR_CLIENT_ID, ATLASSIAN_CLIENT_ID, ATLASSIAN_CLIENT_SECRET, NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, ORIGIN_APP_ID, ORIGIN_APP_PRIVATE_KEY]
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  tls:
+    secretName: openreview-tls
+  hosts:
+    web: review.example.com
+    backend: convex.review.example.com
+    site: convex-site.review.example.com

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openreview": {
+      "type": "http",
+      "url": "${OPENREVIEW_URL}/api/mcp"
+    }
+  }
+}

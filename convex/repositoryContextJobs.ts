@@ -6,6 +6,7 @@ import {provider} from "./scm";
 import {originCredentials,originPersonalIdentity,originUserAccess} from '../src/origin-auth';
 import {revalidateForgePersonalAccess} from "../src/bitbucket-forge";
 import {authenticatedProviderIdentity} from "../src/provider-identity";
+import {connectionNetwork} from "../src/scm-transport";
 import {P4CodeReview,P4Error,p4Credential} from "../src/perforce";
 import {decryptCredential} from "../src/credentials";
 import {parseP4SubmittedInventory} from "../src/p4-index";
@@ -57,7 +58,7 @@ export const retrieve=internalAction({args:{repositoryId:v.id("repositories"),ac
 export const validate=internalAction({args:{receipt:repositoryContextValidator},handler:async(ctx,a)=>{
  await ctx.runQuery(internal.repositoryContext.validate,a);
  if(a.receipt.providerActor){
-  const ref=a.receipt.providerActor,state=await ctx.runQuery(internal.providerIdentities.data,{id:ref.id,repositoryId:a.receipt.repositoryId,generation:ref.generation}),personal=decryptCredential(state.identity.credentials!,state.repo.organizationId+":provider-personal:"+state.connection._id+":"+state.identity.userId),current=state.connection.kind==='bitbucket-cloud'?await revalidateForgePersonalAccess(personal,state.connection.installationId??'',state.connection.namespaceId??'',state.repo.externalId??'',state.repo.fullName):state.connection.kind==='origin'?await originUserAccess(originCredentials.parse(JSON.parse(decryptCredential(state.connection.credentials,state.connection.organizationId+':origin'))),originPersonalIdentity.parse(JSON.parse(personal)),state.repo.externalId??''):await authenticatedProviderIdentity(state.connection.kind,state.connection.instance,personal);
+  const ref=a.receipt.providerActor,state=await ctx.runQuery(internal.providerIdentities.data,{id:ref.id,repositoryId:a.receipt.repositoryId,generation:ref.generation}),personal=decryptCredential(state.identity.credentials!,state.repo.organizationId+":provider-personal:"+state.connection._id+":"+state.identity.userId),current=state.connection.kind==='bitbucket-cloud'?await revalidateForgePersonalAccess(personal,state.connection.installationId??'',state.connection.namespaceId??'',state.repo.externalId??'',state.repo.fullName):state.connection.kind==='origin'?await originUserAccess(originCredentials.parse(JSON.parse(decryptCredential(state.connection.credentials,state.connection.organizationId+':origin'))),originPersonalIdentity.parse(JSON.parse(personal)),state.repo.externalId??''):await authenticatedProviderIdentity(state.connection.kind,state.connection.instance,personal,connectionNetwork(state.connection));
   if(current.externalId!==ref.externalId||current.username!==a.receipt.actor)throw new Error("Native provider author identity changed or revoked");
  }
  await validatePersonalSources(ctx,a.receipt);

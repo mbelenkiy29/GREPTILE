@@ -1,0 +1,7 @@
+OpenReview is installing as {{ .Release.Name }}.
+
+1. Push the Convex functions to the backend (from a checkout, with network access to npm for the two
+   external packages on the first push, or an npm mirror):
+     CONVEX_SELF_HOSTED_URL={{ .Values.backend.cloudOrigin }} CONVEX_SELF_HOSTED_ADMIN_KEY=<admin key> npx convex deploy
+2. Set the backend environment (secrets, OPENREVIEW_OFFLINE={{ .Values.config.offline }}{{ if .Values.config.grammars.enabled }}, OPENREVIEW_GRAMMARS_DIR=/grammars{{ end }}) with `npx convex env set`.
+3. Open {{ .Values.config.appUrl }} and finish setup. See docs/self-hosting-kit.md.

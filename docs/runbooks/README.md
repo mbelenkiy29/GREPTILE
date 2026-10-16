@@ -18,3 +18,4 @@ Record each outcome, with its evidence level, in [the acceptance matrix](../acce
 | [Azure DevOps](azure-devops.md) | Azure Repos connection, service hooks, threads and statuses |
 | [Origin fix loop](origin-fix-loop.md) | Origin review → Fix with agent → human push → re-review |
 | [Parity features](parity-features.md) | Every Phase B–D capability (suggestions → Notion) |
+| [Round 2](round-2.md) | Replies without a mention, three-engine evaluation, OSV advisories, sandbox tests, MCP OAuth, agent plugins, Devin, credits, SSO, cluster and offline mode, GitLab behind a proxy |

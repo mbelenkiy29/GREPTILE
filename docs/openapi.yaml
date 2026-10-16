@@ -228,6 +228,125 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { description: "A repository is not indexed yet.", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
         "429": { description: "Rate limited.", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /api/workspace:
+    get:
+      summary: The API key's workspace and onboarding links (scope read)
+      description: |
+        Returns the workspace the key belongs to, the key owner's other workspaces (each one needs its
+        own key), and dashboard links used by `openreview onboard`, including the provider install
+        link. The install link opens in a browser; this endpoint changes nothing.
+      responses:
+        "200":
+          description: Workspace and links.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspace, workspaces, installUrl, dashboardUrl, keysUrl, rulesUrl]
+                properties:
+                  workspace: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string } } }
+                  workspaces: { type: array, items: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string }, current: { type: boolean } } } }
+                  installUrl: { type: string, format: uri }
+                  dashboardUrl: { type: string, format: uri }
+                  keysUrl: { type: string, format: uri }
+                  rulesUrl: { type: string, format: uri }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/rules/import:
+    post:
+      summary: Import candidate rules as suggestions that an admin approves (scope admin)
+      description: |
+        Used by `openreview onboard` to import AI rule files (CLAUDE.md, AGENTS.md, Cursor, Windsurf,
+        Copilot and Gemini rules). Each candidate passes the rule safety checks; accepted ones are
+        stored as suggestions on the Custom rules page and never become rules without approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [rules]
+              properties:
+                repositoryId: { $ref: "#/components/schemas/Id" }
+                rules:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [title, instructions, source]
+                    properties:
+                      title: { type: string, minLength: 3, maxLength: 120 }
+                      instructions: { type: string, minLength: 20, maxLength: 2000 }
+                      globs: { type: array, maxItems: 20, items: { type: string, maxLength: 200 } }
+                      source: { type: object, required: [path, line], properties: { path: { type: string }, line: { type: integer, minimum: 1 } } }
+      responses:
+        "201":
+          description: Suggestions stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggested: { type: integer }
+                  rejected: { type: array, items: { type: object, properties: { title: { type: string }, reason: { type: string } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/reviews/status:
+    get:
+      summary: Latest review of a pull request (scope read)
+      parameters:
+        - { name: repositoryId, in: query, required: true, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: prNumber, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: "Pull request, latest readable review (status, verdict, coversCurrentHead) and the count of open findings.", content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "Repository not accessible to this key." }
+  /api/findings/unresolved:
+    get:
+      summary: Open findings on the key owner's own open pull requests (scope read)
+      parameters:
+        - { name: repositoryId, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+      responses:
+        "200": { description: "Findings with repository, pull request, file, line, priority and suggested fix.", content: { application/json: { schema: { type: object } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/rules/suggestions:
+    post:
+      summary: Suggest a custom rule for an admin to approve (scope write)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, instructions]
+              properties:
+                title: { type: string, minLength: 3, maxLength: 120 }
+                instructions: { type: string, minLength: 20, maxLength: 2000 }
+                repositoryId: { $ref: "#/components/schemas/Id" }
+      responses:
+        "201": { description: "Suggestion stored.", content: { application/json: { schema: { type: object, properties: { suggestionId: { type: string }, status: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "The rule failed the safety checks (for example it would suppress findings)." }
+  /api/analytics:
+    get:
+      summary: Analytics report for the key's workspace as JSON (scope read)
+      parameters:
+        - { name: since, in: query, required: true, schema: { type: string, format: date } }
+        - { name: until, in: query, required: true, schema: { type: string, format: date } }
+        - { name: team, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: repository, in: query, required: false, schema: { $ref: "#/components/schemas/Id" } }
+        - { name: author, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "Totals, severity, addressed rate, usefulness, cost and a daily series.", content: { application/json: { schema: { type: object } } } }
+        "400": { $ref: "#/components/responses/Invalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   /api/repositories:
     get:
       summary: List repositories visible to the key owner (scope read)
@@ -282,11 +401,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [repositoryId, prNumber, headSha]
+              required: [repositoryId, prNumber]
               properties:
                 repositoryId: { $ref: "#/components/schemas/Id" }
                 prNumber: { type: integer, minimum: 1 }
-                headSha: { type: string, pattern: "^[a-f0-9]{40}$" }
+                headSha: { type: string, pattern: "^[a-f0-9]{40}$", description: "Defaults to the pull request head last observed by OpenReview." }
       responses:
         "202": { description: "Review queued.", content: { application/json: { schema: { type: object, properties: { reviewId: { $ref: "#/components/schemas/Id" } } } } } }
         "400": { $ref: "#/components/responses/Invalid" }

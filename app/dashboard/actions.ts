@@ -8,6 +8,9 @@ import { randomBytes, createHash } from "node:crypto";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { backend, current } from "../../src/server";
+import { decryptCredential, encryptCredential } from "../../src/credentials";
+import { createDevinSession, validDevinKey } from "../../src/devin";
+import { fixHandoffPrompt } from "../../src/fix-handoff";
 import {approvalPolicySchema} from "../../src/approval";
 import {runtimePolicySchema} from "../../src/runtime-policy";
 import {approvalDefaults,runtimeDefaults} from "../../src/review-settings";
@@ -105,6 +108,14 @@ export async function reindex(form: FormData) {
   await notify("Re-index queued.");
   revalidatePath("/dashboard", "layout");
 }
+// Rule scope from the form: "repo:<id>", "team:<id>", "pattern" (with repositoryPattern) or "" (workspace);
+// older forms send repositoryId only.
+function ruleScopeArgs(scope: string, repositoryId: string, pattern: string) {
+  if (scope.startsWith("repo:")) return { repositoryId: scope.slice(5) as Id<"repositories"> };
+  if (scope.startsWith("team:")) return { teamId: scope.slice(5) as Id<"teams"> };
+  if (scope === "pattern") return { repositoryPattern: pattern.trim() };
+  return repositoryId && !scope ? { repositoryId: repositoryId as Id<"repositories"> } : {};
+}
 export async function saveRule(form: FormData) {
   const { token } = await current();
   await backend().mutation(api.dashboard.rules, {
@@ -121,9 +132,7 @@ export async function saveRule(form: FormData) {
       .map((s) => s.trim())
       .filter(Boolean),
     enabled: text(form, "enabled") !== "false",
-    ...(text(form, "repositoryId")
-      ? { repositoryId: text(form, "repositoryId") as Id<"repositories"> }
-      : {}),
+    ...ruleScopeArgs(text(form, "scope"), text(form, "repositoryId"), text(form, "repositoryPattern")),
   });
   await notify("Rule saved.");
   revalidatePath("/dashboard", "layout");
@@ -269,6 +278,9 @@ export async function saveSettings(form: FormData) {
       fixPullRequests: form.has("fixConfigured") ? form.has("fixPullRequests") : previous.settings.fixPullRequests ?? false,
       threadReplies: form.has("threadRepliesConfigured") ? form.has("threadReplies") : previous.settings.threadReplies ?? true,
       securityScan: form.has("securityScanConfigured") ? form.has("securityScan") : previous.settings.securityScan ?? true,
+      aiAuthoredModel: form.has("aiAuthoredModel") ? text(form, "aiAuthoredModel").trim() : previous.settings.aiAuthoredModel ?? "",
+      maxReviewTier: form.has("maxReviewTier") ? text(form, "maxReviewTier") : previous.settings.maxReviewTier ?? "deep",
+      ...Object.fromEntries((["agentTurns", "agentToolCalls", "hypothesisTurns", "hypothesisToolCalls"] as const).map((key) => [key, form.has(key) ? Number(text(form, key) || 0) : previous.settings[key] ?? 0])),
       summarySections:form.has("summaryConfigured")?form.getAll("summarySections").map(String):previous.settings.summarySections,
     },
   });
@@ -341,6 +353,26 @@ export async function editPreference(form: FormData) {
   await notify("Preference updated.");
   revalidatePath("/dashboard", "layout");
 }
+// Rule assistant: requests run in the background; every suggestion waits for an admin decision.
+const backendMessage = (e: unknown, fallback: string) => /Uncaught Error: ([^\n]+?)(?:\s+at |\n|$)/.exec(e instanceof Error ? e.message : "")?.[1] ?? fallback;
+export async function requestRuleAssistant(form: FormData) {
+  const { token } = await current();
+  const kind = z.enum(["draft", "refine", "suggest"]).parse(text(form, "kind"));
+  try {
+    await backend().mutation(api.ruleAssistant.request, { token, organizationId: text(form, "organizationId") as Id<"organizations">, kind, ...(kind === "draft" ? { description: text(form, "description"), ...ruleScopeArgs(text(form, "scope"), "", text(form, "repositoryPattern")) } : {}) });
+    await notify("The rule assistant is working. Refresh in a moment to review its suggestions.");
+  } catch (e) { await notify(backendMessage(e, "The rule assistant could not start."), "error"); }
+  revalidatePath("/dashboard", "layout");
+}
+export async function decideRuleSuggestion(form: FormData) {
+  const { token } = await current();
+  const optional = (key: string) => form.has(key) ? { [key]: text(form, key) } : {};
+  try {
+    const result = await backend().mutation(api.ruleAssistant.decide, { token, suggestionId: text(form, "suggestionId") as Id<"ruleSuggestions">, decision: z.enum(["approved", "rejected"]).parse(text(form, "decision")), ...optional("title"), ...optional("instructions"), ...optional("severity") });
+    await notify(result.status === "stale" ? "That rule changed after the suggestion was made, so the suggestion was closed. Run the assistant again." : result.status === "approved" ? "Rule saved." : "Suggestion dismissed.");
+  } catch (e) { await notify(backendMessage(e, "Could not save this suggestion."), "error"); }
+  revalidatePath("/dashboard", "layout");
+}
 export async function editLearnedRule(form: FormData) {
   const { token } = await current();
   const scope = text(form, "scope"), status = text(form, "status");
@@ -397,6 +429,102 @@ export async function revokeApiKey(form: FormData) {
   });
   await notify("API key revoked.");
   revalidatePath("/dashboard/settings/keys");
+}
+export async function revokeMcpConnection(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.oauth.revoke, { token, grantId: text(form, "grantId") as Id<"oauthGrants"> }); await notify("Connection revoked."); }
+  catch { await notify("Could not revoke this connection.", "error"); }
+  revalidatePath("/dashboard/settings/keys");
+}
+// Devin (opt-in): the developer's own API key, encrypted before it reaches the backend, used only when
+// they send a finding to Devin. Hidden everywhere until a key is saved.
+export async function saveDevinKey(form: FormData) {
+  const { token } = await current();
+  const key = text(form, "devinKey").trim();
+  if (!validDevinKey(key)) { await notify("That does not look like a Devin API key (apk_…).", "error"); return; }
+  try {
+    const { userId } = await backend().query(api.personalCredentials.status, { token });
+    await backend().mutation(api.personalCredentials.set, { token, kind: "devin", ciphertext: encryptCredential(key, `${userId}:devin`) });
+    await notify("Devin API key saved.");
+  } catch { await notify("Could not save the key. The server needs CREDENTIAL_ENCRYPTION_KEY.", "error"); }
+  revalidatePath("/dashboard/settings/agents");
+}
+export async function removeDevinKey() {
+  const { token } = await current();
+  await backend().mutation(api.personalCredentials.set, { token, kind: "devin" });
+  await notify("Devin API key removed.");
+  revalidatePath("/dashboard/settings/agents");
+}
+export async function sendToDevin(form: FormData) {
+  const { token } = await current();
+  let url: string;
+  try {
+    const [{ userId }, ciphertext] = await Promise.all([backend().query(api.personalCredentials.status, { token }), backend().query(api.personalCredentials.ciphertext, { token, kind: "devin" })]);
+    if (!ciphertext) throw new Error("Add your Devin API key in Personal agents first.");
+    const { prompt, title } = await fixHandoffPrompt(token, text(form, "reviewId") as Id<"reviews">, text(form, "finding") || undefined);
+    ({ url } = await createDevinSession(decryptCredential(ciphertext, `${userId}:devin`), prompt, title));
+  } catch (error) {
+    await notify(error instanceof Error && /Devin|finding|review|Personal agents/.test(error.message) ? error.message : "Could not send this to Devin.", "error");
+    return;
+  }
+  redirect(url);
+}
+// Single sign-on (admins). The OIDC client secret is encrypted here before it reaches the backend.
+export async function saveSsoConnection(form: FormData) {
+  const { token } = await current();
+  const organizationId = text(form, "organizationId") as Id<"organizations">, protocol = z.enum(["saml", "oidc"]).parse(text(form, "protocol"));
+  const secret = text(form, "oidcClientSecret").trim();
+  try {
+    await backend().mutation(api.sso.saveConnection, { token, organizationId, protocol, name: text(form, "name"), active: form.get("active") === "on", jitRole: z.enum(["none", "member", "viewer"]).parse(text(form, "jitRole")),
+      ...(protocol === "saml" ? { samlEntryPoint: text(form, "samlEntryPoint").trim(), samlIdpCert: text(form, "samlIdpCert"), ...(text(form, "samlIdpIssuer").trim() ? { samlIdpIssuer: text(form, "samlIdpIssuer").trim() } : {}) }
+        : { oidcIssuer: text(form, "oidcIssuer").trim(), oidcClientId: text(form, "oidcClientId").trim(), ...(secret ? { oidcClientSecret: encryptCredential(secret, `${organizationId}:sso`) } : {}) }) });
+    await notify("SSO connection saved.");
+  } catch (e) { await notify(backendMessage(e, "Could not save the SSO connection."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
+export async function addSsoDomain(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.sso.addDomain, { token, organizationId: text(form, "organizationId") as Id<"organizations">, domain: text(form, "domain") }); await notify("Domain added. Publish the TXT record, then check DNS."); }
+  catch (e) { await notify(backendMessage(e, "Could not add that domain."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
+export async function verifySsoDomain(form: FormData) {
+  const { token } = await current();
+  const ok = await backend().action(api.ssoJobs.verifyDomain, { token, domainId: text(form, "domainId") as Id<"ssoDomains"> }).catch(() => false);
+  await notify(ok ? "Domain verified." : "The TXT record was not found yet. DNS changes can take a while to appear.", ok ? "success" : "error");
+  revalidatePath("/dashboard/settings/people");
+}
+export async function removeSsoDomain(form: FormData) {
+  const { token } = await current();
+  await backend().mutation(api.sso.removeDomain, { token, domainId: text(form, "domainId") as Id<"ssoDomains"> });
+  await notify("Domain removed.");
+  revalidatePath("/dashboard/settings/people");
+}
+export async function setSsoEnforcement(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.sso.setEnforcement, { token, organizationId: text(form, "organizationId") as Id<"organizations">, enforce: text(form, "enforce") === "true" }); await notify("SSO requirement updated."); }
+  catch (e) { await notify(backendMessage(e, "Could not change the SSO requirement."), "error"); }
+  revalidatePath("/dashboard/settings/people");
+}
+// Data controls: sharing, retention and owner-only workspace deletion (with a grace period).
+export async function saveDataSettings(form: FormData) {
+  const { token } = await current();
+  const days = (key: string) => text(form, key).trim() ? Number(text(form, key)) : null;
+  try { await backend().mutation(api.dataControls.saveSettings, { token, organizationId: text(form, "organizationId") as Id<"organizations">, dataSharing: z.enum(["private", "aggregate"]).parse(text(form, "dataSharing")), reviewRetentionDays: days("reviewRetentionDays"), transcriptRetentionDays: days("transcriptRetentionDays") }); await notify("Data settings saved."); }
+  catch (e) { await notify(backendMessage(e, "Could not save data settings."), "error"); }
+  revalidatePath("/dashboard/settings/data");
+}
+export async function requestWorkspaceDeletion(form: FormData) {
+  const { token } = await current();
+  try { const { scheduledFor } = await backend().mutation(api.dataControls.requestDeletion, { token, organizationId: text(form, "organizationId") as Id<"organizations">, confirmName: text(form, "confirmName") }); await notify(`Deletion scheduled for ${new Date(scheduledFor).toUTCString()}. You can cancel until then.`); }
+  catch (e) { await notify(backendMessage(e, "Could not schedule deletion."), "error"); }
+  revalidatePath("/dashboard/settings/data");
+}
+export async function cancelWorkspaceDeletion(form: FormData) {
+  const { token } = await current();
+  try { await backend().mutation(api.dataControls.cancelDeletion, { token, organizationId: text(form, "organizationId") as Id<"organizations"> }); await notify("Deletion cancelled."); }
+  catch (e) { await notify(backendMessage(e, "Could not cancel deletion."), "error"); }
+  revalidatePath("/dashboard/settings/data");
 }
 export async function updateMember(form: FormData) {
   const { token } = await current();
@@ -461,6 +589,26 @@ export async function saveScope(form:FormData) {
 export async function saveCluster(form:FormData) {
  const {token}=await current();await backend().mutation(api.scopes.cluster,{token,organizationId:text(form,"organizationId") as Id<"organizations">,...(text(form,"id")?{id:text(form,"id") as Id<"repositoryClusters">}:{}),name:text(form,"name"),repositoryIds:form.getAll("repositoryIds").map(String) as Id<"repositories">[],remove:text(form,"remove")==="true"});revalidatePath("/dashboard","layout");
 }
+// Repository onboarding automation: auto-enable for newly installed repositories and suggested clusters.
+export async function setAutoEnable(form:FormData) {
+ const {token}=await current(),teamId=text(form,"teamId");
+ try{await backend().mutation(api.repositoryOnboarding.setAutoEnable,{token,organizationId:text(form,"organizationId") as Id<"organizations">,...(teamId?{teamId:teamId as Id<"teams">}:{}),value:z.enum(["on","off","inherit"]).parse(text(form,"value"))});await notify("Auto-enable setting saved.");}
+ catch{await notify("Could not save the auto-enable setting.","error");}
+ revalidatePath("/dashboard","layout");
+}
+export async function requestClusterSuggestions(form:FormData) {
+ const {token}=await current();
+ try{await backend().mutation(api.repositoryOnboarding.requestClusterSuggestions,{token,organizationId:text(form,"organizationId") as Id<"organizations">});await notify("Looking for related repositories. Refresh in a moment to see suggestions.");}
+ catch{await notify("Could not start cluster suggestions (at most three scans per hour).","error");}
+ revalidatePath("/dashboard","layout");
+}
+export async function decideClusterSuggestion(form:FormData) {
+ const {token}=await current();
+ try{const result=await backend().mutation(api.repositoryOnboarding.decideClusterSuggestion,{token,suggestionId:text(form,"suggestionId") as Id<"clusterSuggestions">,decision:z.enum(["approved","dismissed"]).parse(text(form,"decision")),...(form.has("name")?{name:text(form,"name")}:{})});
+  await notify(result.status==="approved"?"Cluster created.":result.status==="stale"?"Those repositories changed; the suggestion was closed.":"Suggestion dismissed.");}
+ catch{await notify("Could not save this suggestion.","error");}
+ revalidatePath("/dashboard","layout");
+}
 export async function saveClusterForm(_previous:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}> {
  const name=text(form,"name").trim(),ids=form.getAll("repositoryIds").map(String);
  if(!name||name.length>100)return {error:"Enter a cluster name of 1–100 characters."};
@@ -479,13 +627,14 @@ export async function connectProvider(_previous:{error?:string},form:FormData):P
   if(credential.length<10||credential.length>20000||kind!=="perforce"&&webhook.length<32)throw new Error("Credentials required; webhook providers need a secret of at least 32 characters");
   let config:unknown;
   if(["github-enterprise","bitbucket-dc","perforce"].includes(kind)){try{config=JSON.parse(credential);}catch{throw new Error("Credential must be valid JSON with the fields shown in setup");}}
-  if(kind==="gitlab"){const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential).repositories();}
+  let network:{apiUrl?:string;caBundle?:string;proxyUrl?:string}={};
+  if(kind==="gitlab"){const {scmNetwork}=await import("../../src/scm-transport");network=scmNetwork({apiUrl:text(form,"apiUrl"),caBundle:text(form,"caBundle"),proxyUrl:text(form,"proxyUrl")},["gitlab.com"]);const {Gitlab}=await import("../../src/gitlab");await new Gitlab(instance,credential,undefined,network).repositories();}
   else if(kind==="gitea"){const {Gitea}=await import("../../src/gitea");await new Gitea(instance,credential).discover();}
   else if(kind==="azure-devops"){if(!/^https:\/\/[^/]+\/[^/]+/.test(instance))throw new Error("Use the organization URL, for example https://dev.azure.com/your-organization");const {AzureDevOps}=await import("../../src/azure-devops");await new AzureDevOps(instance,credential).repositories();}
   else if(kind==="bitbucket-dc"){const {BitbucketDC}=await import("../../src/bitbucket-dc");const c=z.object({token:z.string().min(10),username:z.string().min(1)}).safeParse(config);if(!c.success)throw new Error("Bitbucket credential requires a token (10+ characters) and bot username");await new BitbucketDC(instance,c.data.token,undefined,c.data.username).repositories();}
   else if(kind==="perforce"){const {P4CodeReview,p4Credential}=await import("../../src/perforce");const c=p4Credential.safeParse(config);if(!c.success)throw new Error("P4 credential requires only username and ticket, as shown in setup");await new P4CodeReview(instance,c.data.username,c.data.ticket).projects();}
   else{const {Github}=await import("../../src/github");const c=z.object({appId:z.string(),privateKey:z.string(),installationId:z.number().int().positive()}).safeParse(config);if(!c.success)throw new Error("Enterprise credential requires appId, privateKey, and a positive installationId");await (await Github.installation(c.data.installationId,{appId:c.data.appId,privateKey:c.data.privateKey,base:instance+(new URL(instance).hostname.endsWith(".ghe.com")?"":"/api/v3")})).repositories();}
-  await backend().mutation(api.providerConnections.save,{token,secret:process.env.SERVICE_SECRET??"",organizationId,kind,instance,name:text(form,"name"),credentials:encryptCredential(credential,organizationId+":"+kind),webhookSecret:kind==="perforce"?"":encryptCredential(webhook,organizationId+":"+kind+":webhook")});
+  await backend().mutation(api.providerConnections.save,{token,secret:process.env.SERVICE_SECRET??"",organizationId,kind,instance,...network,name:text(form,"name"),credentials:encryptCredential(credential,organizationId+":"+kind),webhookSecret:kind==="perforce"?"":encryptCredential(webhook,organizationId+":"+kind+":webhook")});
   revalidatePath("/dashboard","layout");return {};
  }catch(error){return {error:error instanceof Error?error.message:"Connection failed"};}
 }
@@ -511,6 +660,14 @@ export async function refreshP4Ticket(_state:{error?:string;saved?:boolean},form
 export async function replaceGitCredentials(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
  try{const {token}=await current();await backend().action(api.providerJobs.replaceGitCredentials,{token,connectionId:text(form,"connectionId") as Id<"providerConnections">,credential:text(form,"credential")});revalidatePath("/dashboard","layout");return {saved:true};}
  catch{return {error:"Credential replacement failed. Check workspace admin permission and access to every selected repository. The connection may have changed while verification ran."};}
+}
+// Settings are validated here (readable errors) and again in Convex, which test-connects before saving.
+export async function updateProviderNetwork(_state:{error?:string;saved?:boolean},form:FormData):Promise<{error?:string;saved?:boolean}>{
+ let network:{apiUrl?:string;caBundle?:string;proxyUrl?:string};
+ try{const {scmNetwork}=await import("../../src/scm-transport");network=scmNetwork({apiUrl:text(form,"apiUrl"),caBundle:text(form,"caBundle"),proxyUrl:text(form,"proxyUrl")},["gitlab.com"]);}
+ catch(error){return {error:error instanceof Error?error.message:"Invalid network settings"};}
+ try{const {token}=await current();await backend().action(api.providerJobs.updateNetwork,{token,connectionId:text(form,"connectionId") as Id<"providerConnections">,...network});revalidatePath("/dashboard","layout");return {saved:true};}
+ catch{return {error:"Network settings were not saved. Check workspace admin permission, and that every selected repository is reachable through this API URL, CA bundle and proxy."};}
 }
 export async function disconnectProvider(form:FormData) {
  const {token}=await current();await backend().mutation(api.providerConnections.disconnect,{token,id:text(form,"connectionId") as Id<"providerConnections">});revalidatePath("/dashboard","layout");

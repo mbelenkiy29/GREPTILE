@@ -18,8 +18,9 @@ import type { Scm } from "../src/gitlab";
 import { hybridRank } from "../src/engine/hybrid";
 import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
+import { addressedFindings } from "../src/commit-signals";
 import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
-import { applyRepoConfig, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
+import { applyRepoConfig, cascadeSummary, fileSettings, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
 import { type CheckConclusion } from "../src/github";
 import { billingNoticeBody, checkOutcome, supersededCheck } from "../src/check-run";
 import { AgentSuspended } from "../src/engine/agent";
@@ -35,6 +36,9 @@ import { inlineFindings, reviewFooter } from "../src/review-summary";
 import { osvClient, osvEnabled } from "../src/osv";
 import { applyGeneratedTests, reproduceSystem, testCandidates, testDraftSchema } from "../src/generated-tests";
 import { knowledgeTokenBudgets, selectKnowledge } from "../src/knowledge-context";
+import { detectAiAuthored, reviewModelFor } from "../src/ai-authored";
+import { resolveTier, tiers } from "../src/review-tier";
+import { repositoryGuidance, selectPacks } from "../src/guidance-packs";
 import { AzureDevOps } from "../src/azure-devops";
 import { semanticChunks, sourceChunks } from "../src/engine/chunks";
 import { Embeddings } from "../src/engine/embeddings";
@@ -458,11 +462,21 @@ export const review = internalAction({
       check = await beginCheck(ctx, github, args.reviewId, repo.fullName, pr.head.sha, pr.number);
       // Repository config as code, read from the BASE revision so a change cannot weaken its own review.
       const repoConfig = await loadRepoConfig(github, repo.fullName, pr.base.sha).catch((error): LoadedRepoConfig => ({ settings: {}, rules: [], files: [], directories: [], warnings: ["Repository config could not be read from the base revision: " + redact(error instanceof Error ? error.message : "unavailable").slice(0, 200)] }));
-      const configured = applyRepoConfig(settings, repoConfig);
+      const configured = applyRepoConfig(settings, repoConfig, pr.diff.map((f) => f.path));
       const effective = configured.settings;
       if (repoConfig.files.length || repoConfig.warnings.length || repo.configFile)
-        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length });
-      const configNotes = [...repoConfig.warnings, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
+        await ctx.runMutation(internal.repositories.recordConfigFile, { repositoryId: repo._id, sha: pr.base.sha, files: repoConfig.files, applied: configured.applied, blocked: configured.blocked, warnings: repoConfig.warnings, values: JSON.stringify(repoConfig.settings).slice(0, 4000), rules: repoConfig.rules.length, ...(repoConfig.levels?.length ? { cascade: JSON.stringify(cascadeSummary(repoConfig.levels)) } : {}) });
+      const guidance = repositoryGuidance(repoConfig.guides ?? []);
+      const directorySettings = (path: string) => {
+        const resolved = fileSettings(repoConfig.levels ?? [], path, settings.lockedKeys ?? []);
+        if (!Object.keys(resolved.settings).length && !resolved.ignored) return undefined;
+        const thresholds = effectiveThresholds({ ...effective, ...resolved.settings });
+        return { ...(resolved.settings.categories ? { categories: resolved.settings.categories } : {}), minimumConfidence: thresholds.minimumConfidence, severityThreshold: z.enum(severities).parse(thresholds.severityThreshold), ignored: resolved.ignored, ...(resolved.ignoredBy ? { ignoredBy: resolved.ignoredBy } : {}) };
+      };
+      // K2: comment > label > configured tier (raised by touched folders); the admin cap applies last.
+      const tier = resolveTier({ configured: z.enum(tiers).parse(effective.mode), requested: state.review.requestedMode ? { mode: state.review.requestedMode, source: state.review.requestedModeSource ?? "comment" } : undefined, cap: z.enum(tiers).catch("deep").parse(effective.maxReviewTier ?? "deep") });
+      const touchedDirectories = pr.diff.flatMap((f) => { const d = directorySettings(f.path); return d && !d.ignored ? [d] : []; });
+      const configNotes = [...repoConfig.warnings, ...guidance.rejected, ...(configured.blocked.length ? [`Repository config values for ${configured.blocked.join(", ")} were not applied because an administrator locked them.`] : [])];
       // Incremental review when the last reviewed head is an ancestor of this head.
       const previousHead = await ctx.runQuery(internal.reviews.previousHead, args);
       const comparison = previousHead && github.compare ? await github.compare(repo.fullName, previousHead, pr.head.sha).catch(() => "unavailable" as const) : undefined;
@@ -546,7 +560,10 @@ export const review = internalAction({
         agent: f.agent,
         commitSha: f.commitSha,
       }));
-      const modelProvider = budgetModel(ctx,settings.model, {
+      // Agent-authored pull requests (explicit signals only) may be routed to a dedicated model.
+      const aiAuthored = detectAiAuthored({ author: pr.user.login, branch: pr.head.ref, body: pr.body, commits: pr.commits });
+      const routed = reviewModelFor({ model: settings.model, aiAuthoredModel: effective.aiAuthoredModel }, aiAuthored);
+      const modelProvider = budgetModel(ctx,routed.model, {
         get: (key) =>
           ctx.runQuery(internal.cache.get, {
             organizationId: repo.organizationId,
@@ -640,7 +657,7 @@ export const review = internalAction({
           ...(scope.incremental ? { fullDiff: pr.diff } : {}),
           skippedFiles: pr.omitted,
           sourceLink: summaryLink(github, repo.fullName, pr.head.sha),
-          mode: z.enum(["fast", "standard", "deep"]).parse(effective.mode),
+          mode: tier.mode,
           rules: [...rules.map((r) => ({
             id: r._id as string,
             instructions: r.instructions,
@@ -650,20 +667,22 @@ export const review = internalAction({
             enabled: r.enabled,
           })), ...repoConfig.rules],
           preferences: [...preferences, ...(await ctx.runQuery(internal.conventions.approvedForRepo, { repositoryId: repo._id }))],
-          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[z.enum(["fast", "standard", "deep"]).parse(effective.mode)]).selected,
+          guidance: selectPacks(guidance.packs, scope.diff, sources).map(({ id, version, title, body, source }) => ({ id, version, title, body, source })),
+          knowledge: selectKnowledge(await ctx.runQuery(internal.knowledge.forReview, { repositoryId: repo._id }), scope.diff.map((f) => f.path), new Set(head.keys()), knowledgeTokenBudgets[tier.mode]).selected,
           existingFindings,
           historicalFindings,
           runtimeEvidence: state.review.runtimeEvidence,
+          // Cascading directory settings: findings are checked per file; the review itself runs with the
+          // union of categories and the least strict thresholds among the changed files.
+          fileSettings: directorySettings,
           settings: {
-            minimumConfidence: effectiveThresholds(effective).minimumConfidence,
-            severityThreshold: z
-              .enum(severities)
-              .parse(effectiveThresholds(effective).severityThreshold),
+            minimumConfidence: Math.min(effectiveThresholds(effective).minimumConfidence, ...touchedDirectories.map((d) => d.minimumConfidence ?? 1)),
+            severityThreshold: severities[Math.max(severities.indexOf(z.enum(severities).parse(effectiveThresholds(effective).severityThreshold)), ...touchedDirectories.map((d) => d.severityThreshold ? severities.indexOf(d.severityThreshold) : 0))],
             maxComments: effective.maxComments,
             ignoredPaths: effective.ignoredPaths,
             categories: state.review.category
               ? [z.enum(categories).parse(state.review.category)]
-              : effective.categories.map((c) => z.enum(categories).parse(c)),
+              : [...new Set([...effective.categories, ...touchedDirectories.flatMap((d) => d.categories ?? [])])].map((c) => z.enum(categories).parse(c)),
             instructions: effective.instructions,
             summarySections:effective.summarySections,
             securityScan: effective.securityScan !== false,
@@ -675,7 +694,7 @@ export const review = internalAction({
         },
         undefined,
         // Hypothesis runs fit in one action and do not suspend; they only honour cancellation.
-        { ...(osvEnabled() ? { advisories: osvClient({ base: process.env.OSV_API_URL || undefined }) } : {}), ...(engine ? { engine, tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: engine === "agentic" ? reviewAgentHooks(ctx, args.reviewId, stepStarted) : { checkpoint: reviewAgentHooks(ctx, args.reviewId, stepStarted).checkpoint } } : {}) },
+        { budgets: { agentTurns: effective.agentTurns, agentToolCalls: effective.agentToolCalls, hypothesisTurns: effective.hypothesisTurns, hypothesisToolCalls: effective.hypothesisToolCalls }, ...(osvEnabled() ? { advisories: osvClient({ base: process.env.OSV_API_URL || undefined }) } : {}), ...(engine ? { engine, tools: reviewToolbox(ctx, repo, pr.head.sha, head, (repository, path, sha) => github.blob(repository, path, sha), sources), agent: engine === "agentic" ? reviewAgentHooks(ctx, args.reviewId, stepStarted) : { checkpoint: reviewAgentHooks(ctx, args.reviewId, stepStarted).checkpoint } } : {}) },
       ),integrationScopes:requirements.scopes,repositoryContext:cross.receipt??undefined};
       const storageId = await ctx.storage.store(
         new Blob([JSON.stringify(result)], { type: "application/json" }),
@@ -690,9 +709,13 @@ export const review = internalAction({
         reviewScore: result.metadata.reviewScore,
         verdict: result.metadata.verdict,
         requirementsNotMet: result.metadata.requirementsNotMet,
+        modeDecision: tier,
+        aiAuthored: aiAuthored ? { ...aiAuthored, ...(routed.routed ? { model: routed.model } : {}) } : undefined,
         coverageLimits: result.metadata.coverageLimits,
         findings: [...result.findings,...(result.metadata.carriedForward??[])],
         resolved: result.metadata.resolvedFingerprints,
+        // K6: fixes attributed to the commits since the last reviewed head (never after a force-push).
+        addressed: addressedFindings(state.findings, result.metadata.resolvedFingerprints, comparison).addressed,
         usage: result.usage,
       }).catch(async(error)=>{await ctx.storage.delete(storageId);throw error;});
       if (await draftGeneratedTests(ctx, { reviewId: args.reviewId, repositoryId: repo._id, findings: result.findings, sources, existing: new Set(head.keys()), model, runtimeEvidence: state.review.runtimeEvidence })) return;
@@ -747,11 +770,11 @@ export const review = internalAction({
   },
 });
 
-export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[];hypotheses:{id:number;claim:string;category:string;filePath:string;startLine:number;status:string;stopReason?:string;toolCalls:number;turns:number;reported:number}[]} | null>=>{
+export const diagnostics=action({args:{token:v.string(),reviewId:v.id("reviews")},handler:async(ctx,a):Promise<{suppressions:{title:string;agent:string;reason:string}[];coverageLimits:string[];skippedFiles:{path:string;reason:string}[];failedSpecialists:{category:string;error:string}[];diagrams:string[];hypotheses:{id:number;claim:string;category:string;filePath:string;startLine:number;status:string;stopReason?:string;toolCalls:number;turns:number;reported:number}[];agentBudget?:{turns:number;toolCalls:number;perHypothesis?:boolean}} | null>=>{
  const {review}=await ctx.runQuery(api.reviews.detail,a);
  if(!review.resultStorageId)return null;
  const blob=await ctx.storage.get(review.resultStorageId);if(!blob||blob.size>2000000)throw new Error("Saved review diagnostics unavailable");
- const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([]),hypotheses:z.array(z.object({id:z.number(),claim:z.string(),category:z.string(),filePath:z.string(),startLine:z.number(),status:z.string(),stopReason:z.string().optional(),toolCalls:z.number(),turns:z.number(),reported:z.number()})).max(30).default([])})}).parse(JSON.parse(await blob.text()));
+ const result=z.object({diagrams:z.array(z.string()).default([]),metadata:z.object({suppressions:z.array(z.object({title:z.string(),agent:z.string(),reason:z.string()})).default([]),coverageLimits:z.array(z.string()).default([]),skippedFiles:z.array(z.object({path:z.string(),reason:z.string()})).default([]),failedSpecialists:z.array(z.object({category:z.string(),error:z.string()})).default([]),hypotheses:z.array(z.object({id:z.number(),claim:z.string(),category:z.string(),filePath:z.string(),startLine:z.number(),status:z.string(),stopReason:z.string().optional(),toolCalls:z.number(),turns:z.number(),reported:z.number()})).max(30).default([]),agentBudget:z.object({turns:z.number(),toolCalls:z.number(),perHypothesis:z.boolean().optional()}).optional()})}).parse(JSON.parse(await blob.text()));
  const evidence=review.runtimeEvidence?.headSha===review.headSha?review.runtimeEvidence:undefined;
  return {...result.metadata,diagrams:result.diagrams.filter(validSequence).slice(0,1),suppressions:result.metadata.suppressions.map(s=>({...s,title:executionExplanation(s.title,evidence),reason:executionExplanation(s.reason,evidence)}))};
 }});

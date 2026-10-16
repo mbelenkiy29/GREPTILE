@@ -36,6 +36,8 @@ Tool output is wrapped as untrusted data. Text inside files cannot add tools, ra
 
 \*Uncached input plus output tokens across all turns.
 
+Turns and tool calls are configurable per workspace, team or repository under Settings → Review → Agent budgets (`agentTurns`, `agentToolCalls` for the agentic engine; `hypothesisTurns`, `hypothesisToolCalls` per hypothesis investigation; 0 keeps the tier's default). Values can lower or raise the defaults but are clamped to the operator's hard caps, `AGENT_MAX_TURNS` (default 60) and `AGENT_MAX_TOOL_CALLS` (default 150), set in the backend environment; the tier default is capped too. Token and wall-clock budgets stay per tier. The review's diagnostics show the budget it used.
+
 When a budget runs out, the loop stops gracefully. Findings already reported are still verified and published, and a coverage note records the early stop.
 
 ## Long investigations

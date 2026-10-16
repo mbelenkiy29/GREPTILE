@@ -2,6 +2,8 @@
 
 Before opening a hosted deployment to users, work through the [production readiness checklist](production-checklist.md).
 
+For Kubernetes (Helm), AWS (Terraform), offline mode and the list of outbound hosts, see the [self-hosting kit](self-hosting-kit.md).
+
 ## Vercel and Convex Free
 
 The hosted deployment runs on Vercel **Pro** in team `michael-belenkiys-projects`, with Convex **Free** at `tidy-ocelot-457`.

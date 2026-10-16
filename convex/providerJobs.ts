@@ -15,9 +15,20 @@ import { BitbucketCloud } from "../src/bitbucket-cloud";
 import { bitbucketEvent } from "../src/bitbucket-events";
 import { Gitlab } from "../src/gitlab";
 import { Gitea } from "../src/gitea";
+import { scmNetwork } from "../src/scm-transport";
 import { P4CodeReview,p4Credential,type P4Project,type P4Review,type P4ApprovalInspection } from "../src/perforce";
 import picomatch from "picomatch";
 const originEnvelope=z.object({deliveryId:z.string(),appId:z.string(),installationId:z.string().optional(),event:z.object({type:z.string(),payload:z.record(z.unknown())})});
+export const updateNetwork=action({args:{token:v.string(),connectionId:v.id("providerConnections"),apiUrl:v.optional(v.string()),caBundle:v.optional(v.string()),proxyUrl:v.optional(v.string())},handler:async(ctx,a):Promise<void>=>{
+ await ctx.runQuery(internal.providerConnections.authorizeAdmin,{token:a.token,connectionId:a.connectionId});
+ const c=await ctx.runQuery(internal.providerConnections.data,{id:a.connectionId});
+ if(c.kind!=="gitlab")throw Error("Network settings are available for GitLab connections");
+ const network=scmNetwork({apiUrl:a.apiUrl,caBundle:a.caBundle,proxyUrl:a.proxyUrl},["gitlab.com"]);
+ const selected=await ctx.runQuery(internal.providerConnections.repositories,{connectionId:c._id});
+ const available=await discoverRepositories({...c,apiUrl:network.apiUrl,caBundle:network.caBundle,proxyUrl:network.proxyUrl});
+ if(selected.some(r=>!r.externalId||!available.some(candidate=>candidate.externalId===r.externalId&&candidate.fullName===r.fullName)))throw Error("With these network settings OpenReview cannot read every selected repository at its registered identity");
+ await ctx.runMutation(internal.providerConnections.setNetwork,{token:a.token,id:c._id,expected:c.credentials,...network});
+}});
 export const replaceGitCredentials=action({args:{token:v.string(),connectionId:v.id("providerConnections"),credential:v.string()},handler:async(ctx,a):Promise<void>=>{
  await ctx.runQuery(internal.providerConnections.authorizeAdmin,{token:a.token,connectionId:a.connectionId});
  const c=await ctx.runQuery(internal.providerConnections.data,{id:a.connectionId});

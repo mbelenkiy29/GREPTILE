@@ -10,6 +10,12 @@ type Fixture = {
 function multiHop(id: string, category: string, before: string, after: string, context: Record<string, string>, repositoryOnly: Record<string, string>, terms: string[]): Fixture {
   return { ...fixture(id, category, before, after, context, terms), repositoryFiles: Object.entries(repositoryOnly).map(([path, content]) => ({ path, content, sha: "d" })) };
 }
+// Requirements check: a linked ticket file with provenance, as the Linear, Jira and Notion integrations
+// supply it, and the identifier in the title.
+function withTicket(f: Fixture, identifier: string, ticket: string): Fixture {
+  const revision = "2026-10-01T00:00:00.000Z";
+  return { ...f, input: { ...f.input, title: `${identifier}: ${f.input.title}`, files: [...f.input.files, { path: `requirements/linear/evaluation/${identifier}.md`, content: ticket, sha: revision, provenance: { repository: "Linear: Evaluation", revision, sourceUrl: `https://linear.app/evaluation/issue/${identifier}` } }] } };
+}
 function fixture(
   id: string,
   category: string,
@@ -205,5 +211,37 @@ export const fixtures: Fixture[] = [
         "import { expiresAt } from './change';\nexport function session() { return { expiresAt:expiresAt(Date.now(),3600) }; }\nexport function valid(s) { return s.expiresAt>Date.now(); }",
     },
     ["milliseconds", "seconds", "1000", "expir"],
+  ),
+  // Hypothesis agents: the off-by-one only matters at the API two hops away, where pages are 1-based.
+  multiHop(
+    "hypothesis-page-offset",
+    "correctness",
+    "export function pageOffset(page, size) { return (page - 1) * size; }",
+    "export function pageOffset(page, size) { return page * size; }",
+    { "src/query.ts": "import { pageOffset } from './change';\nexport function listQuery(page, size) { return { offset: pageOffset(page, size), limit: size }; }" },
+    { "src/api.ts": "import { listQuery } from './query';\n// Pages are 1-based: the first request is page=1.\nexport function listOrders(db, request) { return db.orders.find(listQuery(Number(request.query.page ?? 1), 50)); }" },
+    ["page", "offset", "skip", "first", "1-based"],
+  ),
+  // Security agent: argument-array execFile replaced by a shell string built from request input.
+  fixture(
+    "security-command-injection",
+    "security",
+    "import { execFile } from 'node:child_process';\nexport function branchLog(branch, done) { execFile('git', ['log', '--oneline', branch], done); }",
+    "import { exec } from 'node:child_process';\nexport function branchLog(branch, done) { exec('git log --oneline ' + branch, done); }",
+    { "src/routes.ts": "import { branchLog } from './change';\nexport function handler(request, response) { branchLog(request.query.branch, (error, output) => response.send(output)); }" },
+    ["shell", "inject", "command", "exec"],
+  ),
+  // Requirements check: the change adds the plan column the ticket asks for but drops the soft-delete filter it requires.
+  withTicket(
+    fixture(
+      "requirements-soft-delete",
+      "correctness",
+      "export function exportRows(customers) { return customers.filter((c) => !c.deletedAt).map((c) => [c.id, c.email]); }",
+      "export function exportRows(customers) { return customers.map((c) => [c.id, c.email, c.plan]); }",
+      { "src/export.ts": "import { exportRows } from './change';\nexport function customerCsv(customers) { return exportRows(customers).map((row) => row.join(',')).join('\\n'); }" },
+      ["deleted", "soft", "exclude", "requirement"],
+    ),
+    "PAY-7",
+    "# PAY-7: Add the plan to the customer export\n\nAcceptance criteria:\n- The CSV export includes each customer's plan.\n- Soft-deleted customers (deletedAt set) must never appear in the export.\n",
   ),
 ];

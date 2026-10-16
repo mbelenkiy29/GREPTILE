@@ -15,6 +15,7 @@ Indexing builds a per-repository graph of definitions, imports and calls. Review
 | PHP | tree-sitter | PSR-4 style (`App\X\Y` → `app/X/Y.php`, `src/X/Y.php`) |
 | C, C++ | tree-sitter | Quoted `#include` relative to the file, `include/`, suffix match |
 | C#, Swift | tree-sitter | Definitions and calls; namespaces and modules are not file-resolvable |
+| Elixir (`.ex`, `.exs`) | tree-sitter | `defmodule`/`def`/`defp`/`defmacro` definitions; `alias` (including `{A, B}` and `as:`), `import`, `use` and `require`; remote calls `Mod.fun()` resolve to files by convention (`MyApp.Accounts.User` → `my_app/accounts/user.ex`, umbrella `apps/*/lib` included) |
 
 Other files use a regex fallback for definitions and imports. The fallback also runs if a grammar cannot load, so indexing never fails because of the parser.
 
