@@ -44,7 +44,7 @@ On Vercel, Stripe can also be provisioned from the Vercel Marketplace. The keys 
 
 ## Switching from test to live
 
-1. **Activate payments** on the Stripe account. Then, in live mode, create the same Product and Price, webhook endpoint (same events and API version) and portal configuration as in test mode.
+1. **Activate payments** on the Stripe account (business details and bank account) and fill in **Settings → Public details**: business name, support email and statement descriptor. Then, in live mode, create the same Product and Price, webhook endpoint (same events and API version) and portal configuration as in test mode, with the site's `/privacy` and `/terms` links in the portal.
 2. **Live keys:** create a live restricted key (`rk_live_…`) with the same permissions. Set it as `STRIPE_SECRET_KEY`, and the live endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.
 3. **Convex settings:** set `STRIPE_SEAT_PRICE_ID` to the live price and `BILLING_ALLOW_LIVE=true`.
 4. **Drop test links:** test customers and subscriptions do not exist in live mode, so every workspace must drop its Stripe links. Run this once:
@@ -52,7 +52,7 @@ On Vercel, Stripe can also be provisioned from the Vercel Marketplace. The keys 
    npx convex run billing:forgetStripeLinks '{"confirm":"switch-stripe-mode"}' --prod
    ```
    Each workspace returns to its trial with the same end date, and its next Checkout creates a live customer.
-5. **Old webhook:** disable the test-mode webhook endpoint so its retries stop.
+5. **Old webhook:** cancel the test subscriptions and disable the test-mode webhook endpoint, so the sandbox stops sending events (and retries) that would now fail signature checks.
 
 ## Guarantees
 
