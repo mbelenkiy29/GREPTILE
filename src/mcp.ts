@@ -12,7 +12,7 @@ if (
   !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(url)
 )
   throw new Error("OPENREVIEW_URL must use HTTPS");
-const server = new McpServer({ name: "openreview", version: "0.2.0" });
+const server = new McpServer({ name: "openreview", version: "0.3.0" });
 registerOpenReviewTools(server, async (path, init = {}) => {
   const response = await fetch(new URL(path, url), {
     method: init.method ?? "GET",

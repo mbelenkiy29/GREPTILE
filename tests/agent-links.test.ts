@@ -19,6 +19,7 @@ test("agent links use only the officially documented schemes, encode the prompt 
     "cursor://anysphere.cursor-deeplink/prompt?text=Fix%20this%20%26%20that%0Aline%20two%20%231",
     "claude-cli://open?q=Fix%20this%20%26%20that%0Aline%20two%20%231&repo=acme/shop",
     "codex://new?prompt=Fix%20this%20%26%20that%0Aline%20two%20%231&originUrl=https%3A%2F%2Fgithub.com%2Facme%2Fshop",
+    "conductor://prompt=Fix%20this%20%26%20that%0Aline%20two%20%231",
   ]);
   // Non-GitHub repositories: no Claude repo slug; Codex matches by the HTTPS remote when known.
   assert.deepEqual(agentRepoContext({ fullName: "Retail/shop", connectionId: "c1", remoteUrl: "https://dev.azure.com/fabrikam/Retail/_git/shop" }), { originUrl: "https://dev.azure.com/fabrikam/Retail/_git/shop" });

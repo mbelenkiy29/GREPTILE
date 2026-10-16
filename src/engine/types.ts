@@ -126,6 +126,10 @@ export type ReviewInput = {
   diff: ChangedFile[];
   rules: Rule[];
   preferences?: Preference[];
+  // Per-file values from cascading .openreview/ folders (K1); settings hold the union/least strict.
+  fileSettings?: (path: string) => { categories?: string[]; minimumConfidence?: number; severityThreshold?: (typeof severities)[number]; ignored?: boolean; ignoredBy?: string } | undefined;
+  // API guidance packs matched to the change's imports (guidance only; never suppresses).
+  guidance?: { id: string; version: number; title: string; body: string; source: "built-in" | "repository" }[];
   // Knowledge base entries about the changed code (derived background; never evidence).
   knowledge?: { subsystem: string; description: string; risks: string[]; conventions: string[]; files: string[] }[];
   mode: "fast" | "standard" | "deep";
@@ -174,6 +178,8 @@ export type ReviewResult = {
     skippedFiles?: SkippedFile[];
     failedSpecialists?: { category: string; error: string }[];
     engine?: "pipeline" | "agentic" | "hypotheses";
+    // Effective turn/tool-call budget (per investigation for the hypothesis engine).
+    agentBudget?: { turns: number; toolCalls: number; perHypothesis?: boolean };
     hypotheses?: { id: number; claim: string; category: string; filePath: string; startLine: number; status: string; stopReason?: string; toolCalls: number; turns: number; reported: number }[];
     agentRun?: { toolCalls: number; turns: number; resumes: number; stopReason?: string };
     runtimeEvidence?: z.infer<typeof runtimeEvidenceSchema>;
@@ -187,6 +193,7 @@ export type ReviewResult = {
     carriedForward?: Finding[];
     exploitability?: { fingerprint: string; exploitPath: boolean }[];
     knowledge?: string[];
+    guidance?: { id: string; version: number; source: string }[];
     requirements?: { ticket: string; source?: string; url?: string; ticketLine: number; criterion: string; status: "met" | "not met" | "unclear"; reason: string; code: { filePath: string; startLine: number; quote: string }[] }[];
     // Grounded "not met" acceptance criteria; any blocks automatic approval.
     requirementsNotMet?: number;

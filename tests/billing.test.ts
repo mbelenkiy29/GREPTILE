@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { STRIPE_API_VERSION, billingConfig, billingDecision, checkoutTrialEnd, formEncode, periodKey, seatCount, stripe, stripeKey, trialEndsFrom, verifyStripeSignature } from "../src/billing";
+import { STRIPE_API_VERSION, billingConfig, billingDecision, checkoutTrialEnd, formEncode, openSubscription, periodKey, seatCount, stripe, stripeKey, trialEndsFrom, verifyStripeSignature } from "../src/billing";
 
 const config = billingConfig({ BILLING_ENABLED: "true", BILLING_TRIAL_REVIEWS: "3", BILLING_REVIEWS_PER_SEAT: "10", BILLING_GRACE_DAYS: "7" });
 const now = Date.UTC(2026, 9, 14), day = 86400000;
@@ -32,6 +32,13 @@ test("quota decisions: trial, Starter fair-use limit, past-due grace, and lapsed
   assert.match(billingDecision({ ...team, status: "canceled" }, 0, now, config).reason!, /free trial has ended/);
   assert.equal(billingDecision({ ...team, status: "canceled", trialEndsAt: now + day }, 0, now, config).plan, "trial", "a lapsed subscription falls back to any remaining trial");
   assert.equal(billingDecision({ ...team, seats: 0 }, 9, now, config).limit, 10, "at least one seat");
+});
+
+test("a subscription is open until Stripe ends it", () => {
+  assert.equal(openSubscription(null), false);
+  assert.equal(openSubscription({ status: "trial" }), false);
+  for (const status of ["active", "trialing", "past_due", "unpaid", "paused", "incomplete"]) assert.equal(openSubscription({ subscriptionId: "sub_1", status }), true, status);
+  for (const status of ["canceled", "incomplete_expired"]) assert.equal(openSubscription({ subscriptionId: "sub_1", status }), false, status);
 });
 
 test("the trial clock starts on first use, and Checkout only carries a trial that ends 48+ hours out", () => {

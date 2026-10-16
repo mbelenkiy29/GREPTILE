@@ -2,14 +2,14 @@ import { repositoryDisplay } from "../../../src/provider-display";
 import Link from "next/link";
 
 import { lockableKeys } from "../../../src/review-settings";
-import { saveSettings, revokeApiKey, decideConvention } from "../actions";
+import { saveSettings, revokeApiKey, revokeMcpConnection, decideConvention } from "../actions";
 import { ApiKeyForm } from "../api-key";
 import { SummarySettings } from "../summary-settings";
 
 import type { DashboardContext } from "../load";
 
 export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
-  const { apiKeys, conventions, data, filters, isAdmin, organization, repoLabel, repoSettings, requestedRepository, section, semantic } = ctx;
+  const { apiKeys, mcpConnections, conventions, data, filters, isAdmin, organization, repoLabel, repoSettings, requestedRepository, section, semantic } = ctx;
   return (
 (
           <>
@@ -29,6 +29,20 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                 ))}
               </section>
             ) : <p>Workspace admin access required.</p>)}
+            {section[1] === "keys" && (
+              <section aria-labelledby="mcp-connections">
+                <h2 id="mcp-connections">Connected MCP clients</h2>
+                <p className="muted">Clients connected to <code>/api/mcp</code> with OAuth. Their access is limited to one workspace, the scopes approved at sign-in and your role. Revoking a client ends its access and refresh tokens immediately.</p>
+                {!mcpConnections.length && <p>No MCP clients are connected.</p>}
+                {mcpConnections.map((c) => (
+                  <form action={revokeMcpConnection} key={c._id}>
+                    <p>{c.clientName} · {c.scopes.join(", ")} · connected {new Date(c.createdAt).toLocaleDateString("en-US", { timeZone: "UTC" })}{c.mine ? "" : ` · by @${c.owner}`} · <code>{c.clientId.slice(0, 80)}</code></p>
+                    <input type="hidden" name="grantId" value={c._id} />
+                    <button>Revoke</button>
+                  </form>
+                ))}
+              </section>
+            )}
             {section[1] === "review" && <form method="get" className="filter-bar">{filters.team!==undefined&&<input type="hidden" name="team" value={filters.team}/>}<label>Repository<select name="repository" defaultValue={requestedRepository??""} required><option value="" disabled>Choose a repository</option>{data.repositories.map(r=><option key={r._id} value={r._id}>{repositoryDisplay(r)}</option>)}</select></label><button>View review settings</button></form>}
             {section[1] === "review" && !repoSettings && <p>Select a repository to inspect its effective review settings. <Link href="/dashboard/settings/teams">Manage workspace and team defaults</Link>.</p>}
             {repoSettings && (
@@ -44,6 +58,11 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     const value = fromFile ? fileValues[key] : (repoSettings.settings as Record<string, unknown>)[key];
                     return <tr key={key}><td>{key}</td><td><code>{JSON.stringify(value ?? null).slice(0, 120)}</code></td><td>{fromFile ? "repository file" : (repoSettings.provenance[key] ?? "default") + ((repoSettings.settings.lockedKeys ?? []).includes(key) ? " · locked" : "") + (locked ? " (file value ignored)" : "")}</td></tr>;
                   })}</tbody></table>
+                  {repoSettings.repo.configFile?.cascade && (() => {
+                    const levels = JSON.parse(repoSettings.repo.configFile.cascade) as { directory: string; sources: string[]; keys: string[]; ignore: number; include: number }[];
+                    return <><h3>Directory cascade</h3><p className="muted">Deeper <code>.openreview/</code> folders override shallower ones for files under them (categories, strictness, thresholds, ignore and include); the review tier and comment limit use the highest value among the directories a change touches. Locked settings never change.</p>
+                      <table><thead><tr><th>Directory</th><th>Overrides</th><th>Files</th><th>Sources</th></tr></thead><tbody>{levels.map((l) => <tr key={l.directory}><td><code>{l.directory}</code></td><td>{l.keys.length ? l.keys.join(", ") : "—"}</td><td>{l.ignore || l.include ? `${l.ignore} ignore · ${l.include} include` : "—"}</td><td>{l.sources.map((s) => <code key={s}>{s} </code>)}</td></tr>)}</tbody></table></>;
+                  })()}
                 </details>
                 {semantic && <p className="muted" aria-label="Semantic retrieval status">{semantic.configured ? <>Semantic retrieval: <strong>on</strong> · {semantic.model} · {semantic.chunks}{semantic.more ? "+" : ""} chunks across {semantic.files} files{semantic.stale ? ` · ${semantic.stale} chunks from another model are replaced on the next re-index` : ""}{!semantic.chunks ? " · re-index to build chunk embeddings" : ""}</> : <>Semantic retrieval: <strong>off</strong>. Set <code>EMBEDDING_MODEL</code> (an OpenAI-compatible 1,536-dimension endpoint) in the backend environment and re-index; full-text and code-graph retrieval run either way.</>}</p>}
                 <form action={saveSettings}><fieldset className="form-grid" disabled={!isAdmin}><legend>Repository review settings</legend>
@@ -171,6 +190,24 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     <legend>Fix pull requests</legend>
                     <input type="hidden" name="fixConfigured" value="true" />
                     <label className="check"><input type="checkbox" name="fixPullRequests" defaultChecked={repoSettings.settings.fixPullRequests ?? false} /> Allow “@openreview fix this in a new PR” to open a fix pull request on a new branch (GitHub, needs the Contents: Read and write permission; the pull request’s own branch is never written)</label>
+                  </fieldset>
+                  <fieldset className="wide">
+                    <legend>Agent budgets</legend>
+                    <label>Agentic engine turns<input type="number" name="agentTurns" min={0} max={1000} defaultValue={repoSettings.settings.agentTurns ?? 0} /></label>
+                    <label>Agentic engine tool calls<input type="number" name="agentToolCalls" min={0} max={1000} defaultValue={repoSettings.settings.agentToolCalls ?? 0} /></label>
+                    <label>Turns per hypothesis<input type="number" name="hypothesisTurns" min={0} max={1000} defaultValue={repoSettings.settings.hypothesisTurns ?? 0} /></label>
+                    <label>Tool calls per hypothesis<input type="number" name="hypothesisToolCalls" min={0} max={1000} defaultValue={repoSettings.settings.hypothesisToolCalls ?? 0} /></label>
+                    <p className="muted">0 uses the review tier&apos;s default. Values are clamped to the operator&apos;s hard caps (AGENT_MAX_TURNS, AGENT_MAX_TOOL_CALLS); token and time budgets stay per tier. The review page shows the budget a review used.</p>
+                  </fieldset>
+                  <fieldset className="wide">
+                    <legend>Per-pull-request review tier</legend>
+                    <label>Highest tier a request may use<select name="maxReviewTier" defaultValue={repoSettings.settings.maxReviewTier ?? "deep"}><option value="deep">deep (no cap)</option><option value="standard">standard</option><option value="fast">fast</option></select></label>
+                    <p className="muted">People with write access can comment <code>@openreview review fast</code>, <code>standard</code> or <code>deep</code>, or add an <code>openreview:fast|standard|deep</code> label. A comment wins over a label, a label over the configured tier (which touched <code>.openreview/</code> folders can raise). This cap applies to all of them.</p>
+                  </fieldset>
+                  <fieldset className="wide">
+                    <legend>Agent-authored pull requests (experimental)</legend>
+                    <label>Review model for agent-authored pull requests<input name="aiAuthoredModel" maxLength={200} defaultValue={repoSettings.settings.aiAuthoredModel ?? ""} placeholder="Leave empty to use the usual model" /></label>
+                    <p className="muted">Detection uses explicit signals only: a known agent bot author, a Co-Authored-By trailer naming a coding agent, an agent branch prefix (claude/, copilot/, cursor/, codex/, devin/, jules/) or a marker the agent adds to the description. The reason is shown on the review.</p>
                   </fieldset>
                   <fieldset className="wide">
                     <legend>Security checks</legend>

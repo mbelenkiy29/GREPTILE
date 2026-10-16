@@ -193,6 +193,9 @@ try {
     0.92,
   );
   await page.goto(`${url}/dashboard/rules`);
+  // Admins see the rule assistant; without a model run it has no suggestions to approve.
+  await page.getByRole("heading", { name: "Rule assistant" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Draft rule" }).count(), 1);
   await page
     .getByLabel("Title", { exact: true })
     .first()

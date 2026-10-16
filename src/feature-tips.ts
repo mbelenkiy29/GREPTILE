@@ -1,3 +1,4 @@
+import { egressAllowed } from "./egress";
 // One optional "Tip" line in the summary footer when a review's data suggests a feature would help.
 // At most one tip per review, chosen in this priority order; the cooldown lives in convex/featureTips.ts.
 export const tipKeys = ["ticket", "strictness", "rules", "agentic"] as const;
@@ -23,6 +24,7 @@ export function ticketReference(text: string, connected: TipSignals["connected"]
   return undefined;
 }
 export function eligibleTips(s: TipSignals): { key: TipKey; ticket?: TicketKind }[] {
+  if (!egressAllowed("tips")) return [];
   const tips: { key: TipKey; ticket?: TicketKind }[] = [];
   const ticket = ticketReference(s.references, s.connected);
   if (ticket) tips.push({ key: "ticket", ticket });

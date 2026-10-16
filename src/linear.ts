@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertEgress } from "./egress";
 import { z } from "zod";
 
 const endpoint="https://api.linear.app";
@@ -17,7 +18,7 @@ export function linearAuthorization(clientId:string,redirectUri:string,state:str
 export async function linearToken(clientId:string,grant:{code:string;verifier:string;redirectUri:string}|{refreshToken:string}):Promise<LinearCredentials>{
  if(!clientId)throw new Error("Configure LINEAR_CLIENT_ID");
  const body:Record<string,string>="code" in grant?{grant_type:"authorization_code",code:grant.code,code_verifier:grant.verifier,redirect_uri:grant.redirectUri}:{grant_type:"refresh_token",refresh_token:grant.refreshToken};
- const response=await fetch(endpoint+"/oauth/token",{method:"POST",redirect:"error",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({...body,client_id:clientId}),signal:AbortSignal.timeout(30000)});
+ assertEgress("integrations","Linear");const response=await fetch(endpoint+"/oauth/token",{method:"POST",redirect:"error",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({...body,client_id:clientId}),signal:AbortSignal.timeout(30000)});
  if(!response.ok)throw new LinearError("Linear token request failed ("+response.status+")",response.status);
  const value=tokenResponse.parse(await response.json()),scopes=typeof value.scope==="string"?value.scope.split(/[ ,]+/).filter(Boolean):value.scope;
  if(scopes.length!==1||scopes[0]!=="read"){await revokeLinear({accessToken:value.access_token,refreshToken:value.refresh_token,expiresAt:Date.now()+value.expires_in*1000});throw new Error("Linear authorization must grant only read scope");}
@@ -25,7 +26,7 @@ export async function linearToken(clientId:string,grant:{code:string;verifier:st
 }
 export async function revokeLinear(credentials:LinearCredentials){
  for(const [hint,token] of [["refresh_token",credentials.refreshToken],["access_token",credentials.accessToken]]){
-  const response=await fetch(endpoint+"/oauth/revoke",{method:"POST",redirect:"error",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({token,token_type_hint:hint}),signal:AbortSignal.timeout(30000)});
+  assertEgress("integrations","Linear");const response=await fetch(endpoint+"/oauth/revoke",{method:"POST",redirect:"error",headers:{"content-type":"application/x-www-form-urlencoded"},body:new URLSearchParams({token,token_type_hint:hint}),signal:AbortSignal.timeout(30000)});
   if(![200,400,401].includes(response.status))throw new LinearError("Linear revocation failed ("+response.status+")",response.status);
  }
 }
@@ -38,7 +39,7 @@ const issueSchema=issueIdentity.extend({title:z.string().max(2000),description:z
 export class Linear {
  constructor(private accessToken:string){if(!accessToken)throw new Error("Linear access token required");}
  private async query<T>(query:string,variables:Record<string,unknown>,schema:z.ZodType<T>):Promise<T>{
-  const response=await fetch(endpoint+"/graphql",{method:"POST",redirect:"error",headers:{authorization:"Bearer "+this.accessToken,"content-type":"application/json"},body:JSON.stringify({query,variables}),signal:AbortSignal.timeout(30000)});
+  assertEgress("integrations","Linear");const response=await fetch(endpoint+"/graphql",{method:"POST",redirect:"error",headers:{authorization:"Bearer "+this.accessToken,"content-type":"application/json"},body:JSON.stringify({query,variables}),signal:AbortSignal.timeout(30000)});
   if(!response.ok)throw new LinearError("Linear API request failed ("+response.status+")",response.status);
   const result=z.object({data:z.unknown().optional(),errors:z.array(z.unknown()).optional()}).parse(await response.json());
   if(result.errors?.length)throw new LinearError("Linear GraphQL returned incomplete data",response.status);

@@ -15,7 +15,7 @@ import { setMinutesPerFinding } from "./actions";
 const settingsGroups = [
   { label: "Repositories", links: [["repositories", "Add/Remove Repos"], ["providers", "Code Providers"]] },
   { label: "Agent Config", links: [["review", "Code Review"], ["agents", "Personal agents"], ["automation", "Runtime & Approval"]] },
-  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"]] },
+  { label: "Admin", links: [["teams", "Teams & Inheritance"], ["people", "People"], ["usage", "Usage"], ["billing", "Billing"], ["notifications", "Notifications"], ["data", "Data & deletion"]] },
   { label: "Developer", links: [["keys", "API Keys"], ["audit", "Audit Log"]] },
   { label: "Personal", links: [["account", "Account & sessions"]] },
 ];
@@ -49,13 +49,16 @@ async function Trends({token,organizationId,period,filters}:{token:string;organi
   const labels=t.days.map(d=>d.day.slice(5));
   let cumulative=0,addressedSoFar=0;
   const rate=t.days.map(d=>{cumulative+=d.findings;addressedSoFar+=d.addressed;return cumulative?Math.round(addressedSoFar/cumulative*100):null;});
+  let outcomes=0,fixedSoFar=0;
+  const fixRate=t.days.map(d=>{outcomes+=d.commitAddressed+d.ignored;fixedSoFar+=d.commitAddressed;return outcomes?Math.round(fixedSoFar/outcomes*100):null;});
   return <section className="trends" aria-labelledby="trends-heading">
     <h2 id="trends-heading">Trends</h2>
-    <div className="metrics"><div><span>Estimated time saved</span><strong>{t.hoursSaved} h</strong></div><div><span>Addressed rate</span><strong>{t.addressedRate===null?"—":`${Math.round(t.addressedRate*100)}%`}</strong></div><div><span>High-severity findings</span><strong>{t.totals.high}</strong></div><div><span>Addressed findings</span><strong>{t.totals.addressed}</strong></div></div>
-    <p className="muted">Time saved = addressed findings × {t.minutesPerFinding} minutes per finding. Trends come from a daily rollup refreshed hourly{t.updatedAt?`, last updated ${new Date(t.updatedAt).toLocaleString("en-US",{timeZone:"UTC",dateStyle:"medium",timeStyle:"short"})} UTC`:""}.</p>
+    <div className="metrics"><div><span>Estimated time saved</span><strong>{t.hoursSaved} h</strong></div><div><span>Addressed rate</span><strong>{t.addressedRate===null?"—":`${Math.round(t.addressedRate*100)}%`}</strong></div><div><span>High-severity findings</span><strong>{t.totals.high}</strong></div><div><span>Addressed findings</span><strong>{t.totals.addressed}</strong></div><div><span>Fixed before merge</span><strong>{t.fixRate===null?"—":`${Math.round(t.fixRate*100)}%`}</strong></div></div>
+    <p className="muted">Time saved = addressed findings × {t.minutesPerFinding} minutes per finding. “Fixed before merge” counts findings a later commit fixed against findings merged while still open with no feedback. Trends come from a daily rollup refreshed hourly{t.updatedAt?`, last updated ${new Date(t.updatedAt).toLocaleString("en-US",{timeZone:"UTC",dateStyle:"medium",timeStyle:"short"})} UTC`:""}.</p>
     <div className="analytics-grid">
       <section><LineChart title="Reviews and findings per day" labels={labels} series={[{label:"Reviews",values:t.days.map(d=>d.reviews)},{label:"Findings",values:t.days.map(d=>d.findings)},{label:"Addressed",values:t.days.map(d=>d.addressed)}]}/></section>
       <section><LineChart title="Addressed rate over time (cumulative %)" labels={labels} series={[{label:"Addressed %",values:rate}]} format={v=>`${v}%`}/></section>
+      <section><LineChart title="Fixed by a follow-up commit vs merged unaddressed" labels={labels} series={[{label:"Fixed by commit",values:t.days.map(d=>d.commitAddressed)},{label:"Merged unaddressed",values:t.days.map(d=>d.ignored)},{label:"Fixed before merge %",values:fixRate}]}/></section>
       <section><BarList title="Top repositories by findings" items={t.byRepository.map(r=>({label:r.label,value:r.findings,detail:`${r.reviews} reviews · ${r.addressed} addressed`}))}/></section>
       <section><BarList title="Top authors by findings" items={t.byAuthor.map(r=>({label:r.label,value:r.findings,detail:`${r.reviews} reviews · ${r.addressed} addressed`}))}/></section>
     </div>

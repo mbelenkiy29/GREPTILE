@@ -24,11 +24,12 @@ import { classifyChanges, riskScore } from "./classify";
 import {reviewSummary} from "../review-summary";
 import {executionClaimIssues} from "../execution-claims";
 import {validSummarySections} from "../review-settings";
-import { runReviewAgent, type AgentHooks, type AgentToolbox } from "./agent";
-import { runHypotheses, type HypothesesResult } from "./hypotheses";
+import { agentBudgets, configuredBudget, runReviewAgent, type AgentHooks, type AgentToolbox, type BudgetSettings } from "./agent";
+import { hypothesisBudgets, runHypotheses, type HypothesesResult } from "./hypotheses";
 import { deterministicAgents, deterministicGrounded, deterministicSecurity, exploitSchema, exploitSystem } from "./security";
 import type { AdvisoryLookup } from "../osv";
 import { knowledgeNote } from "../knowledge-context";
+import { guidanceNote } from "../guidance-packs";
 import { blockingRequirements, groundRequirements, isRequirementSource, requirementsSchema, requirementsSystem, type RequirementResult } from "../requirements-check";
 import { loadGrammars } from "./treesitter";
 import { suggestionProblem } from "../suggestions";
@@ -45,6 +46,8 @@ export type ReviewOptions = {
   agent?: AgentHooks;
   // OSV advisory lookups for changed dependency versions (network; absent = not checked, with a note).
   advisories?: AdvisoryLookup;
+  // Configured turn and tool-call budgets for the agentic and hypothesis engines (K3).
+  budgets?: BudgetSettings;
 };
 
 const specialties = {
@@ -142,10 +145,20 @@ export async function reviewChange(
   const ignored = picomatch(input.settings?.ignoredPaths ?? []);
   const skippedFiles: SkippedFile[] = [...(input.skippedFiles ?? [])];
   const included = input.diff.filter((f) => {
-    if (!ignored(f.path)) return true;
-    skippedFiles.push({ path: f.path, reason: "Excluded by the ignored paths setting" });
+    const directory = input.fileSettings?.(f.path);
+    if (!ignored(f.path) && !directory?.ignored) return true;
+    skippedFiles.push({ path: f.path, reason: directory?.ignored ? `Excluded by ${directory.ignoredBy ?? "a directory's .openreview/files.json"}` : "Excluded by the ignored paths setting" });
     return false;
   });
+  // A finding must also pass its own file's directory settings (categories and thresholds).
+  const directoryReason = (f: Candidate) => {
+    const d = input.fileSettings?.(f.filePath);
+    if (!d) return "";
+    if (d.categories && !d.categories.includes(f.category)) return "Category disabled for this file's directory";
+    if (d.minimumConfidence !== undefined && f.confidence < d.minimumConfidence) return "Below this directory's confidence threshold";
+    if (d.severityThreshold && severities.indexOf(f.severity) > severities.indexOf(d.severityThreshold)) return "Below this directory's severity threshold";
+    return "";
+  };
   // Degrade instead of failing on oversized changes: review the riskiest files within budget.
   const ranked = included.map((file, order) => ({ file, order, score: riskScore(file) })).sort((a, b) => b.score - a.score || a.order - b.order);
   const fileLimit = reviewFileLimits[input.mode];
@@ -182,6 +195,7 @@ export async function reviewChange(
     rules,
     preferences: input.preferences ?? [],
     ...(input.knowledge?.length ? { knowledgeBase: { note: knowledgeNote, entries: input.knowledge } } : {}),
+    ...(input.guidance?.length ? { apiGuidance: { note: guidanceNote, packs: input.guidance.map(({ id, version, title, body, source }) => ({ id, version, title, source, body })) } } : {}),
     historicalFindings: input.historicalFindings ?? [],
     runtimeEvidence,
     instructions: input.settings?.instructions ?? "",
@@ -222,8 +236,10 @@ export async function reviewChange(
   let hypothesisRun: HypothesesResult | undefined;
   // Files read through tools come from the reviewed revision; they can back evidence quotes.
   const addSources = (sources: typeof index.files) => { safeInput.files = [...safeInput.files, ...sources.filter((source) => !safeInput.files.some((f) => f.path === source.path))]; };
+  const agentBudget = configuredBudget(agentBudgets[input.mode], options.budgets?.agentTurns, options.budgets?.agentToolCalls);
+  const hypothesisBudget = { ...hypothesisBudgets[input.mode], each: configuredBudget(hypothesisBudgets[input.mode].each, options.budgets?.hypothesisTurns, options.budgets?.hypothesisToolCalls) };
   if (engineUsed === "agentic") {
-    agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent });
+    agentRun = await runReviewAgent({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: options.agent, budget: agentBudget });
     usage.push(...agentRun.usage);
     candidates.push(...agentRun.candidates);
     engineLimits.push(...agentRun.limits);
@@ -231,7 +247,7 @@ export async function reviewChange(
   }
   if (engineUsed === "hypotheses") {
     try {
-      hypothesisRun = await runHypotheses({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: { checkpoint: options.agent?.checkpoint } });
+      hypothesisRun = await runHypotheses({ input, payload, model, tools: options.tools!, categories: selected, rules, signal, hooks: { checkpoint: options.agent?.checkpoint }, budget: hypothesisBudget });
       usage.push(...hypothesisRun.usage);
       candidates.push(...hypothesisRun.candidates);
       engineLimits.push(...hypothesisRun.limits);
@@ -321,6 +337,7 @@ export async function reviewChange(
       : severities.indexOf(f.severity) > threshold ? "Below severity threshold"
       : !grounded(f, safeInput) && !groundedOutside(f, safeInput) ? "Evidence or changed-line location does not match source"
       : f.ruleId && !rules.some((r) => r.id === f.ruleId) ? "Unknown or inapplicable rule"
+      : directoryReason(f) ? directoryReason(f)
       : f.category === "security" && deterministic.findings.some((d) => d.filePath === f.filePath && f.startLine <= d.endLine && d.startLine <= f.endLine) ? "Duplicate of a deterministic security check" : "";
     if (reason) suppress(f, reason);
     return !reason;
@@ -365,6 +382,7 @@ export async function reviewChange(
         !f ||
         !decision.publish ||
         decision.confidence < minimum ||
+        (f && directoryReason({ ...f, confidence: Math.min(f.confidence, decision.confidence) }) !== "") ||
         findings.some((x) => overlaps(x, f))
       ) {
         if (f) suppress(f, decision.reason || "Verifier rejected candidate");
@@ -395,6 +413,7 @@ export async function reviewChange(
   // dedupe and carry-forward still apply.
   for (const f of deterministic.findings) {
     const reason = severities.indexOf(f.severity) > threshold ? "Below severity threshold"
+      : directoryReason(f) ? directoryReason(f)
       : !deterministicGrounded(f, diff, input.fullDiff) ? "Evidence or changed-line location does not match the diff"
       : findings.some((x) => overlaps(x, f)) ? "Duplicate candidate" : "";
     if (reason) { suppress(f, reason); continue; }
@@ -483,7 +502,7 @@ export async function reviewChange(
   );
   usage.push(summary.usage);
   return {
-    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete,knowledgeUsed:input.knowledge?.map(k=>k.subsystem),requirements},input.settings?.summarySections),
+    summary: reviewSummary({overview:summary.value.summary,files:input.fullDiff?input.fullDiff.filter((f)=>!ignored(f.path)):diff,findings:[...findings,...carriedForward],resolved:previous.filter(f=>resolvedFingerprints.includes(f.fingerprint)),score:summary.value.reviewScore,assessment:summary.value.approvalAssessment,runtimeEvidence,coverageLimits,contextCount:context.length,candidates:candidates.length+deterministic.findings.length,suppressed:suppressions.length,requirementsContext:context,skippedFiles,fileSummaries:summary.value.files,sourceLink:input.sourceLink,diagram,incomplete:coverageIncomplete,knowledgeUsed:input.knowledge?.map(k=>k.subsystem),guidanceUsed:input.guidance?.map(g=>g.id+"@"+g.version),requirements},input.settings?.summarySections),
     findings,
     diagrams: diagram ? [diagram] : [],
     metadata: {
@@ -496,6 +515,7 @@ export async function reviewChange(
       ...(skippedFiles.length ? { skippedFiles } : {}),
       ...(failedSpecialists.length ? { failedSpecialists } : {}),
       engine: engineUsed,
+      ...(engineUsed === "agentic" ? { agentBudget: { turns: agentBudget.turns, toolCalls: agentBudget.toolCalls } } : engineUsed === "hypotheses" ? { agentBudget: { turns: hypothesisBudget.each.turns, toolCalls: hypothesisBudget.each.toolCalls, perHypothesis: true } } : {}),
       ...(hypothesisRun ? { hypotheses: hypothesisRun.runs.map(({ id, claim, category, filePath, startLine, status, stopReason, toolCalls, turns, reported }) => ({ id, claim, category, filePath, startLine, status, ...(stopReason ? { stopReason } : {}), toolCalls, turns, reported })) } : {}),
       ...(agentRun ? { agentRun: { toolCalls: agentRun.state.toolCalls, turns: agentRun.state.turns, resumes: agentRun.state.resumes, ...(agentRun.state.stopReason ? { stopReason: agentRun.state.stopReason } : {}) } } : {}),
       baseSha: input.baseSha,
@@ -506,6 +526,7 @@ export async function reviewChange(
       suppressed: candidates.length + deterministic.findings.length - findings.length,
       ...(exploitability.length ? { exploitability } : {}),
       ...(input.knowledge?.length ? { knowledge: input.knowledge.map((k) => k.subsystem) } : {}),
+      ...(input.guidance?.length ? { guidance: input.guidance.map(({ id, version, source }) => ({ id, version, source })) } : {}),
       ...(requirements ? { requirements, requirementsNotMet: blockingRequirements(requirements) } : {}),
       suppressions,
       carriedForward,

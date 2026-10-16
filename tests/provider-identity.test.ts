@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {authenticatedProviderIdentity} from '../src/provider-identity';
 test('personal provider verification pins account ID and rejects bots, inactive users, redirects and unapproved hosts',async t=>{
  process.env.SCM_ALLOWED_HOSTS='gitea.fixture';let body:unknown={id:42,username:'same-name',state:'active'},status=200,calls=0;
- t.mock.method(globalThis,'fetch',async(input:string,options:RequestInit)=>{calls++;assert.equal(options.redirect,'error');assert.ok(input.endsWith('/user'));assert.ok(options.headers);return new Response(JSON.stringify(body),{status});});
+ // GitLab follows only same-origin redirects itself (src/scm-transport.ts); other providers refuse all redirects.
+ t.mock.method(globalThis,'fetch',async(input:string,options:RequestInit)=>{calls++;assert.equal(options.redirect,input.includes('/api/v4/')?'manual':'error');assert.ok(input.endsWith('/user'));assert.ok(options.headers);if(status===302)return new Response(null,{status,headers:{location:'https://foreign.fixture/api/v4/user'}});return new Response(JSON.stringify(body),{status});});
  assert.deepEqual(await authenticatedProviderIdentity('gitlab','https://gitlab.com','personal-token'),{externalId:'42',username:'same-name'});
  body={id:42,username:'same-name',state:'active',bot:true};await assert.rejects(authenticatedProviderIdentity('gitlab','https://gitlab.com','personal-token'),/personal account/);
  body={id:42,username:'same-name',state:'blocked'};await assert.rejects(authenticatedProviderIdentity('gitlab','https://gitlab.com','personal-token'));
  body={id:77,login:'same-name',active:true,prohibit_login:false,type:'User'};assert.deepEqual(await authenticatedProviderIdentity('gitea','https://gitea.fixture','personal-token'),{externalId:'77',username:'same-name'});
  body={id:77,login:'same-name',active:true,prohibit_login:true,type:'User'};await assert.rejects(authenticatedProviderIdentity('gitea','https://gitea.fixture','personal-token'));
+ status=302;await assert.rejects(authenticatedProviderIdentity('gitlab','https://gitlab.com','personal-token'),/another host \(foreign\.fixture\)/);
  status=401;await assert.rejects(authenticatedProviderIdentity('gitlab','https://gitlab.com','personal-token'),/authenticated/);
  const before=calls;await assert.rejects(authenticatedProviderIdentity('gitlab','https://foreign.fixture','personal-token'),/authorize/);await assert.rejects(authenticatedProviderIdentity('origin','https://gitea.fixture','personal-token'),/unavailable/);await assert.rejects(authenticatedProviderIdentity('gitlab','https://gitlab.com','token\r\nheader'),/Invalid/);assert.equal(calls,before);
 });

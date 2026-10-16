@@ -16,6 +16,9 @@ import type { Rule, SourceFile } from "./engine/types";
 import { runtimeEvidenceSchema } from "./engine/types";
 import { findingTags, priorityOf, tagLabels } from "./priority";
 import { validateRuntime } from "../scripts/sandbox";
+import { memoryToolbox } from "./engine/agent";
+import { cacheDirectory, localAgentState, stateFile } from "./local-review-state";
+import { inlineReport } from "./inline-output";
 
 try {
   loadEnvFile(".env.local");
@@ -49,12 +52,24 @@ async function main() {
       url: { type: "string" },
       token: { type: "string" },
       help: { type: "boolean" },
+      yes: { type: "boolean" },
+      workspace: { type: "string" },
+      "create-workspace": { type: "string" },
+      repositories: { type: "string" },
+      "no-rules": { type: "boolean" },
+      engine: { type: "string" },
+      resume: { type: "boolean" },
+      inline: { type: "boolean" },
+      pr: { type: "string" },
+      max: { type: "string", default: "3" },
+      push: { type: "boolean" },
+      "fix-agent": { type: "string", default: "claude" },
     },
   });
   const command = positionals[0];
   if (values.help || !command) {
     console.log(
-      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview review [--base main] [--json | --agent] [--security] [--mode fast|standard|deep]\nopenreview status\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
+      "OpenReview\n\nopenreview login --url https://review.example.com --token <api-key>\nopenreview onboard [--url <server> --token <admin-api-key>] [--repositories all|owner/name,...] [--no-rules] [--workspace <name>] [--yes --json]\nopenreview review [--base main] [--json | --agent | --inline] [--security] [--mode fast|standard|deep] [--engine pipeline|agentic] [--resume]\nopenreview status\nopenreview resolve --pr <number> [--max 3] [--push] [--fix-agent claude|codex]\nopenreview p4 index --help\nopenreview runtime --image <image@sha256:digest> --command <test-command> [--timeout 120]\n\nLocal review uses LLM_PROVIDER, LLM_MODEL, LLM_API_KEY (or a configured compatible endpoint).",
     );
     return;
   }
@@ -81,6 +96,71 @@ async function main() {
     console.log(
       "Authenticated. Configuration saved with owner-only permissions.",
     );
+    return;
+  }
+  if (command === "onboard") {
+    // Uses the saved login, or --url/--token (validated and saved like `openreview login`).
+    let config;
+    if (values.url || values.token) {
+      config = cliConfig.parse({ url: values.url, apiKey: values.token });
+      if (!config.url.startsWith("https://") && !/^http:\/\/(localhost|127\.0\.0\.1)(:|\/)/.test(config.url)) throw new Error("API URL must use HTTPS");
+      await mkdir(configDirectory, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(configDirectory, "config.json"), JSON.stringify(config), { mode: 0o600 });
+    } else {
+      try { config = cliConfig.parse(JSON.parse(await readFile(path.join(configDirectory, "config.json"), "utf8"))); }
+      catch { throw new Error("Not logged in. Run openreview onboard --url <server> --token <admin-api-key> (create the key in dashboard Settings → API keys)."); }
+    }
+    const { onboard, httpApi } = await import("./onboard");
+    const root = (await git("rev-parse", "--show-toplevel").catch(() => process.cwd())).trim() || process.cwd();
+    const remote = (await git("-C", root, "remote", "get-url", "origin").catch(() => "")).trim() || undefined;
+    const { readdir } = await import("node:fs/promises");
+    const inside = (relative: string) => { const full = path.resolve(root, relative); if (full !== root && !full.startsWith(root + path.sep)) throw new Error("outside repository"); return full; };
+    const files = { read: (relative: string) => readFile(inside(relative), "utf8").catch(() => null), list: (relative: string) => readdir(inside(relative)).catch(() => [] as string[]) };
+    const readline = values.yes ? undefined : (await import("node:readline/promises")).createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const summary = await onboard(httpApi(config.url, config.apiKey), { ask: (q) => readline ? readline.question(q) : Promise.reject(new Error("No prompts in --yes mode")), print: (line) => console.log(line) }, files, { yes: Boolean(values.yes), json: Boolean(values.json), workspace: values.workspace, createWorkspace: values["create-workspace"], repositories: values.repositories, rules: !values["no-rules"], remote });
+      if (values.json) console.log(JSON.stringify(summary, null, 2));
+      if (summary.stopped || summary.repositories.failed.length) process.exitCode = 1;
+    } finally { readline?.close(); }
+    return;
+  }
+  if (command === "resolve") {
+    // Fix open findings on a pull request with a local coding agent until a re-review is clean.
+    let config;
+    try { config = cliConfig.parse(JSON.parse(await readFile(path.join(configDirectory, "config.json"), "utf8"))); }
+    catch { throw new Error("Not logged in. Run openreview login --url <server> --token <api-key> with a write-scoped key."); }
+    const prNumber = Number(values.pr);
+    if (!Number.isInteger(prNumber) || prNumber < 1) throw new Error("Pass --pr <number>");
+    const maxIterations = Number(values.max);
+    if (!Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > 10) throw new Error("--max must be between 1 and 10");
+    const agent = z.enum(["claude", "codex"]).parse(values["fix-agent"]);
+    const root = (await git("rev-parse", "--show-toplevel")).trim();
+    const { repositoryFromRemote } = await import("./onboard");
+    const { runResolveLoop } = await import("./resolve-loop");
+    const { fixCommand, fixInstructions, localGit, mcpCaller } = await import("./resolve-cli");
+    const local = localGit(root);
+    if (!(await local.clean())) throw new Error("Commit or stash your changes first; the loop commits only the agent's fixes.");
+    const remote = repositoryFromRemote((await git("remote", "get-url", "origin").catch(() => "")).trim());
+    const mcp = await mcpCaller(config.url, config.apiKey);
+    try {
+      const repos = await mcp.call("list_repositories", {}) as { _id: string; fullName: string }[];
+      const repo = repos.find((r) => remote && r.fullName.toLowerCase() === remote.toLowerCase());
+      if (!repo) throw new Error(`This checkout's origin (${remote ?? "unknown"}) is not a repository visible to your API key.`);
+      const readline = process.stdin.isTTY ? (await import("node:readline/promises")).createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+      try {
+        const result = await runResolveLoop(mcp.call, local, {
+          repositoryId: repo._id, prNumber, maxIterations,
+          push: values.push ? "always" : readline ? "ask" : "never",
+          ask: async (q) => /^y(es)?$/i.test((await readline!.question(`${q} [y/N] `)).trim()),
+          fix: async (findings) => { const { file, args } = fixCommand(agent, fixInstructions(repo.fullName, prNumber, findings)); await promisify(execFile)(file, args, { cwd: root, maxBuffer: 64 * 1024 * 1024 }); },
+          wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          log: (line) => console.log(line),
+        });
+        const messages: Record<string, string> = { clean: "No open findings remain.", "max-iterations": `Stopped after ${result.iterations} rounds with ${result.remaining} open findings.`, "no-changes": "The agent made no changes; stopping.", "push-required": "Committed locally. Push the branch (or rerun with --push), then run openreview resolve again.", "push-declined": "Committed locally and not pushed.", "review-timeout": "The re-review did not finish in time; check the pull request.", "review-failed": "The re-review failed; check the pull request." };
+        console.log(messages[result.outcome] + (result.commits.length ? ` Commits: ${result.commits.map((c) => c.slice(0, 7)).join(", ")}.` : ""));
+        if (result.outcome !== "clean") process.exitCode = 1;
+      } finally { readline?.close(); }
+    } finally { await mcp.close(); }
     return;
   }
   if (command === "runtime") {
@@ -184,6 +264,11 @@ async function main() {
   }, root, baseSha);
   for (const warning of repoConfig.warnings) process.stderr.write(`OpenReview config: ${warning}\n`);
   const rules: Rule[] = repoConfig.rules;
+  // --resume continues an interrupted agentic review of this checkout (same base and HEAD only).
+  const engine = z.enum(["pipeline", "agentic"]).parse(values.engine ?? (values.resume ? "agentic" : "pipeline"));
+  if (values.resume && engine !== "agentic") throw new Error("--resume applies to the agentic engine");
+  if ([values.json, values.agent, values.inline].filter(Boolean).length > 1) throw new Error("Choose one output format: --json, --agent or --inline");
+  const saved = localAgentState(stateFile(cacheDirectory(), root, baseSha), { resume: Boolean(values.resume), headSha });
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
   const result = await reviewChange(
@@ -215,7 +300,15 @@ async function main() {
         process.stderr.write(`${stage.replaceAll("_", " ")}\n`);
     },
     controller.signal,
-  );
+    engine === "agentic" ? { engine, tools: memoryToolbox(files, headSha), agent: saved.hooks } : undefined,
+  ).catch((error) => {
+    if (engine === "agentic" && controller.signal.aborted) throw new Error("Interrupted. Run the same command with --resume to continue from the last completed step.");
+    throw error;
+  });
+  if (engine === "agentic") {
+    await saved.clear();
+    if (saved.outcome() !== "fresh" && !values.json && !values.agent) process.stderr.write(saved.outcome() === "resumed" ? "Resumed the interrupted review.\n" : "HEAD moved since the interrupted review; started over.\n");
+  }
   if (values.json) console.log(JSON.stringify(result, null, 2));
   else if (values.agent)
     console.log(
@@ -235,6 +328,7 @@ async function main() {
         summary: result.summary,
       }),
     );
+  else if (values.inline) console.log(inlineReport(result.findings, files));
   else {
     console.log(result.summary);
     for (const f of result.findings)

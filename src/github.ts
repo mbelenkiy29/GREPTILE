@@ -342,9 +342,10 @@ export class Github {
           state: z.string(),
         }),
       ),
+      // Commit messages are kept (trimmed) for explicit Co-Authored-By trailers.
       this.paginate(
         `${prefix}/pulls/${number}/commits`,
-        z.object({ sha: z.string() }),
+        z.object({ sha: z.string(), commit: z.object({ message: z.string() }).optional() }).transform((c) => ({ sha: c.sha, ...(c.commit ? { message: c.commit.message.slice(0, 4000) } : {}) })),
       ),
       this.request(
         `${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`,

@@ -17,7 +17,8 @@ export async function NotificationsPanel({ token, organizationId, repositories, 
     {filters.email === "invalid" && <p role="alert">That verification link is invalid or expired. Set your email again to get a new link.</p>}
     {s.admin && <section aria-labelledby="slack-heading">
       <h2 id="slack-heading">Slack</h2>
-      {!s.slackConfigured ? <p className="muted">Slack is not configured for this deployment. An operator must create the Slack app from docs/slack-app-manifest.yml and set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET.</p>
+      {s.offline ? <p className="muted">Offline mode is on (OPENREVIEW_OFFLINE=true), so Slack is turned off for this deployment.</p>
+        : !s.slackConfigured ? <p className="muted">Slack is not configured for this deployment. An operator must create the Slack app from docs/slack-app-manifest.yml and set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET.</p>
         : !s.slack ? <p><a className="button" href={`/api/slack/install?organization=${organizationId}`}>Add to Slack</a></p>
         : <>
           <p>Connected to <strong>{s.slack.teamName}</strong>. In linked channels, members can mention @OpenReview with a question about the linked repositories, and run <code>/openreview status</code>.</p>
@@ -39,7 +40,7 @@ export async function NotificationsPanel({ token, organizationId, repositories, 
     </section>}
     <section aria-labelledby="email-heading">
       <h2 id="email-heading">Email</h2>
-      {!s.emailConfigured && <p className="muted">Email delivery is not configured for this deployment (RESEND_API_KEY and EMAIL_FROM). Preferences are saved but nothing is sent.</p>}
+      {!s.emailConfigured && <p className="muted">{s.offline ? "Offline mode is on (OPENREVIEW_OFFLINE=true), so email is turned off." : "Email delivery is not configured for this deployment (RESEND_API_KEY and EMAIL_FROM)."} Preferences are saved but nothing is sent.</p>}
       <form action={setNotificationEmail} className="form-grid">
         <input type="hidden" name="organizationId" value={organizationId} />
         <label>Notification email<input name="email" type="email" required maxLength={254} defaultValue={s.preferences.email ?? ""} /></label>

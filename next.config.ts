@@ -6,18 +6,25 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: process.cwd(),
   poweredByHeader: false,
-  // PostHog through this site's own origin, only when analytics is configured (src/telemetry.ts).
-  ...(posthogToken ? {
-    skipTrailingSlashRedirect: true,
-    async rewrites() {
-      const hosts = posthogHosts();
-      return [
-        { source: `${posthogProxyPath}/static/:path*`, destination: `${hosts.assets}/static/:path*` },
-        { source: `${posthogProxyPath}/array/:path*`, destination: `${hosts.assets}/array/:path*` },
-        { source: `${posthogProxyPath}/:path*`, destination: `${hosts.api}/:path*` },
-      ];
-    },
-  } : {}),
+  // PostHog proxying needs exact paths, only when analytics is configured (src/telemetry.ts).
+  ...(posthogToken ? { skipTrailingSlashRedirect: true } : {}),
+  async rewrites() {
+    // OAuth discovery documents for the remote MCP endpoint (RFC 9728 and RFC 8414 well-known paths).
+    const oauth = [
+      { source: '/.well-known/oauth-protected-resource', destination: '/api/oauth/metadata/protected-resource' },
+      { source: '/.well-known/oauth-protected-resource/api/mcp', destination: '/api/oauth/metadata/protected-resource' },
+      { source: '/.well-known/oauth-authorization-server', destination: '/api/oauth/metadata/authorization-server' },
+    ];
+    if (!posthogToken) return oauth;
+    // PostHog through this site's own origin.
+    const hosts = posthogHosts();
+    return [
+      ...oauth,
+      { source: `${posthogProxyPath}/static/:path*`, destination: `${hosts.assets}/static/:path*` },
+      { source: `${posthogProxyPath}/array/:path*`, destination: `${hosts.assets}/array/:path*` },
+      { source: `${posthogProxyPath}/:path*`, destination: `${hosts.api}/:path*` },
+    ];
+  },
 };
 
 // Sentry wraps the build only when error tracking is configured. Source maps upload when

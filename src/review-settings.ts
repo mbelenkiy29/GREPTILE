@@ -48,6 +48,16 @@ export const defaults = {
   threadReplies: true,
   // Deterministic security checks on added lines and OSV advisories for changed dependencies.
   securityScan: true,
+  // Model for pull requests detected as written by a coding agent ("" = use the usual model).
+  aiAuthoredModel: "",
+  // Highest review tier any request may use (comment, label or directory); "deep" means no cap.
+  maxReviewTier: "deep",
+  // Agent budgets (0 = the review tier's default), clamped to AGENT_MAX_TURNS / AGENT_MAX_TOOL_CALLS:
+  // the agentic engine's whole investigation, and each hypothesis investigation.
+  agentTurns: 0,
+  agentToolCalls: 0,
+  hypothesisTurns: 0,
+  hypothesisToolCalls: 0,
   commentStyle: "concise",
   summarySections:[...defaultSummarySections] as string[],
   // GitHub: the summary goes in the pull request description ("description") or one comment ("comment").
@@ -72,7 +82,8 @@ export const reviewEngines=["pipeline","agentic","hypotheses"] as const;
 export const validReviewEngine=(value:string|undefined)=>value===undefined||(reviewEngines as readonly string[]).includes(value);
 // Optional trigger/limit settings stay valid when absent (older saved settings).
 export const lockableKeys=["mode","minimumConfidence","severityThreshold","maxComments","categories","ignoredPaths","instructions","commentStyle","summarySections","strictness","reviewEngine"] as const;
-export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:string[];maxFiles?:number;maxChangedLines?:number;strictness?:number;lockedKeys?:string[]})=>
+export const validTriggerSettings=(s:{triggerLabels?:string[];excludedAuthors?:string[];maxFiles?:number;maxChangedLines?:number;strictness?:number;lockedKeys?:string[];agentTurns?:number;agentToolCalls?:number;hypothesisTurns?:number;hypothesisToolCalls?:number})=>
+ [s.agentTurns??0,s.agentToolCalls??0,s.hypothesisTurns??0,s.hypothesisToolCalls??0].every(n=>Number.isInteger(n)&&n>=0&&n<=1000)&&
  (s.lockedKeys??[]).every(k=>(lockableKeys as readonly string[]).includes(k))&&
  (s.triggerLabels??[]).length<=20&&(s.triggerLabels??[]).every(l=>l.trim().length>0&&l.length<=100)&&
  (s.excludedAuthors??[]).length<=50&&(s.excludedAuthors??[]).every(a=>a.trim().length>0&&a.length<=100)&&

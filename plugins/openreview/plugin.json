@@ -1,0 +1,32 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "openreview",
+  "version": "0.3.0",
+  "description": "OpenReview MCP server and skills to check a pull request's review and fix its findings until a re-review is clean.",
+  "author": {
+    "name": "OpenReview contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "code-review",
+    "mcp",
+    "pull-requests"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "OpenReview",
+        "shortDescription": "Fix OpenReview findings and re-review",
+        "developerName": "OpenReview contributors",
+        "category": "Coding",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Fix the open OpenReview findings on this pull request and request a re-review."
+        ]
+      }
+    }
+  }
+}

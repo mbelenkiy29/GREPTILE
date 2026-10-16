@@ -2,7 +2,7 @@
 
 When a pull request opens or updates, OpenReview:
 
-1. **Builds context.** It combines the diff with indexed callers, callees, imports and tests, related past findings, repository rules and learned preferences. It also adds requirements from linked Linear, Jira, Confluence or Notion pages, and the knowledge base entries about the changed files (ranked, bounded by a per-mode token budget and labelled as background: they guide what to check but never count as evidence, and entries about deleted files are skipped). The summary's Coverage section lists the entries that were used.
+1. **Builds context.** It combines the diff with indexed callers, callees, imports and tests, related past findings, repository rules and learned preferences. It also adds requirements from linked Linear, Jira, Confluence or Notion pages, and the knowledge base entries about the changed files (ranked, bounded by a per-mode token budget and labelled as background: they guide what to check but never count as evidence, and entries about deleted files are skipped). The summary's Coverage section lists the entries that were used. Changes that import a supported API also get matching guidance packs (webhook signatures, idempotency keys, SDK retries and timeouts, or the repository's own packs in `.openreview/guides/`); packs add checks to look for and never suppress findings.
 2. **Investigates.** The default pipeline runs specialists for correctness, security, data, compatibility, testing and performance. The optional agentic engine instead follows the code with read-only tools, and the optional hypothesis engine plans specific suspected bugs and investigates each one in parallel.
 3. **Verifies.** Every finding must quote exact source lines at the reviewed revision, and an independent verification pass drops anything it cannot support. Findings never claim tests ran unless runtime evidence was recorded.
 4. **Publishes:**
@@ -62,6 +62,10 @@ A review that stops because a newer commit arrived ends neutral as "Superseded b
 
 On the hosted cloud, if the workspace's plan does not cover another review, OpenReview posts one short comment on that pull request. The comment names no plan details and points admins to Settings → Billing. Later blocked reviews on the same pull request stay quiet, and reviews requested from the dashboard never post one.
 
+## Agent-authored pull requests (experimental)
+
+OpenReview recognises pull requests written by coding agents from explicit signals only, never from code style: a known agent bot author (for example `copilot-swe-agent[bot]` or `devin-ai-integration[bot]`), a `Co-Authored-By` trailer naming an agent with its address (Claude, Cursor Agent, Codex, Copilot, Devin, Aider), an agent branch prefix (`claude/`, `copilot/`, `cursor/`, `codex/`, `devin/`, `jules/`), or a marker the agent writes into the description. Set **Review model for agent-authored pull requests** (`aiAuthoredModel`, empty by default) to review those pull requests with a different model; it inherits from workspace and team settings like other review settings. The review page shows which signal matched and the model used. On GitHub, commit trailers are read from the pull request's commits; other providers use the author, branch and description.
+
 ## Requirements check
 
 When a pull request references a Linear, Jira or Notion ticket that OpenReview can read, the summary gets a **Requirements** section. Each acceptance criterion is quoted exactly from the ticket and marked ✅ met, ❌ not met or ❔ unclear, with the code lines it relied on. Criteria the model cannot quote from the ticket are dropped, and "met" without matching code becomes "unclear". A "not met" criterion whose evidence includes a changed line becomes a finding, after the usual verification. Any "not met" criterion backed by code blocks automatic approval, and unclear criteria add a coverage note (which also blocks it). Turn the check off by unchecking the Requirements summary section.
@@ -99,6 +103,10 @@ Findings in the security category also carry a separate 🔒 Security tag. Prior
 
 A change can break code it did not touch, such as a caller in another file that still expects the old behavior. OpenReview keeps such a finding only when its evidence quotes, exactly, a line the pull request changed that causes the problem. These findings are listed in an **Outside the changed code** section of the summary (always shown when there are any) and on the review page. They are never posted as inline comments, because providers only accept those on changed lines, and they carry no committable suggestion.
 
+## Review tier per pull request
+
+The tier (fast, standard or deep) comes from, in order: an `@openreview review fast|standard|deep` comment for that run, an `openreview:fast|standard|deep` label on the pull request (several labels: the highest wins; a tier label also starts reviews of labelled pull requests even when automatic reviews are off), then the configured tier, which touched `.openreview/` folders can raise. Admins can cap the tier with **Highest tier a request may use** (`maxReviewTier`); the cap applies to every source. The review page shows the tier used and where it came from.
+
 ## Commands in pull requests
 
 Collaborators with write access can mention `@openreview`:
@@ -107,6 +115,7 @@ Collaborators with write access can mention `@openreview`:
 | --- | --- |
 | `@openreview review again` | Re-review the current revision |
 | `@openreview review security` | Run a security-focused review |
+| `@openreview review fast` / `standard` / `deep` | Re-review at that tier for this run (an admin cap may lower it) |
 | `@openreview explain this` | Explain a finding or code, citing current source |
 | `@openreview what code depends on this` | Show callers and dependents |
 | `@openreview fix this` | In a finding thread: reply with a validated suggestion and a fix-with-your-agent link |
@@ -130,3 +139,21 @@ When a change's intent is unclear, a finding can end with one short **Question f
 ## Learning
 
 Reactions (👍/👎) on findings, dashboard feedback and conventions learned from human review comments become memory. Memory is guidance that admins can inspect, edit, scope or disable. It never weakens security review.
+
+### Learning from commits
+
+OpenReview also learns from what authors do with findings:
+
+- **Addressed:** a later commit changed the flagged lines (within two lines), and the next review verified the fix against the new code. The commits are compared with the last reviewed commit. After a force-push or rebase, or when that comparison is unavailable or incomplete, fixes still count as resolved, but no commit is credited with them.
+- **Ignored:** the pull request merged while a finding was still open and nobody had given feedback on it. This is recorded only when the last review covered the merged commit. If commits landed after that review, nothing is recorded, because they may have fixed the finding.
+
+Each finding records at most one outcome. For each repository and category, OpenReview keeps one learned preference, built from the last 50 outcomes of the past 180 days:
+
+- It needs at least five outcomes, and at least 70% of them must point the same way.
+- When most findings in a category were fixed, the preference tells reviews to keep reporting that kind of issue.
+- When most were merged unaddressed, it asks for a concrete defect and its impact before reporting. It never asks for silence.
+- Security findings are never narrowed this way.
+- The preference is withdrawn when the outcomes stop pointing clearly one way.
+- An admin who disables it on the Memory page keeps it disabled, even as the counts update.
+
+On the Analytics page, **Fixed before merge** shows the share of findings with an outcome that were fixed by a follow-up commit, with a daily chart of both counts.

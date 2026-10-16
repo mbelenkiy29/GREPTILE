@@ -7,11 +7,12 @@ import { feedback } from "../actions";
 import { Copy } from "../live";
 import { FixButton } from "../fix-button";
 import { AgentLinks } from "../agent-links";
+import { devinHandoff } from "../../../src/agent-links";
 import { status, priority, Empty } from "./shared";
 import type { DashboardContext } from "../load";
 
 export function FindingsSection({ ctx }: { ctx: DashboardContext }) {
-  const { data, filters, findingsPage, personalAgent, repoName, visibleFindings } = ctx;
+  const { data, devinConfigured, filters, findingsPage, personalAgent, repoName, visibleFindings } = ctx;
   return (
 (
           <>
@@ -149,7 +150,7 @@ export function FindingsSection({ ctx }: { ctx: DashboardContext }) {
                   {f.canFix && <FixButton reviewId={f.reviewId} agent={personalAgent} findingId={f._id} />}
                   {f.status === "open" && !f.canFix && data.writableRepositoryIds.includes(f.repositoryId) && <p className="muted">Fix requires this finding to belong to the latest completed review, meet the current confidence threshold, and have current repository access.</p>}
                   <Copy value={prompt} />
-                  <AgentLinks prompt={prompt} repo={data.repositories.find((r) => r._id === f.repositoryId)} />
+                  <AgentLinks prompt={prompt} repo={data.repositories.find((r) => r._id === f.repositoryId)} devin={devinHandoff(devinConfigured, f.canFix, f.reviewId, f.fingerprint)} />
                   <details>
                     <summary>
                       Portable prompt for Codex, Claude Code, or Cursor

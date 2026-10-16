@@ -46,7 +46,8 @@ export const list=query({args:{token:v.string(),organizationId:v.id("organizatio
   const local=await ctx.db.query("repositorySettings").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique();
   return {...repo,provider:await repositoryIdentity(ctx,repo),settingsInheritance:{mode:local&&!local.inherit?"overrides" as const:"inherited" as const,effective:resolveSettings(repo,settings,local)}};
  }));
- return {teams:teams.filter(t=>allowed.has(t._id)),members:members.filter(m=>allowed.has(m.teamId)),settings:settings.filter(s=>!s.teamId||allowed.has(s.teamId)),clusters:clusters.filter(c=>c.repositoryIds.every(id=>repoIds.has(id))),repositories:configuredRepositories};
+ const organization=await ctx.db.get(a.organizationId);
+ return {autoEnableRepositories:organization?.autoEnableRepositories??false,teams:teams.filter(t=>allowed.has(t._id)),members:members.filter(m=>allowed.has(m.teamId)),settings:settings.filter(s=>!s.teamId||allowed.has(s.teamId)),clusters:clusters.filter(c=>c.repositoryIds.every(id=>repoIds.has(id))),repositories:configuredRepositories};
 }});
 export const createTeam=mutation({args:{token:v.string(),organizationId:v.id("organizations"),name:v.string()},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true);if(!a.name.trim()||a.name.length>100)throw new Error("Team name must be 1–100 characters");const id=await ctx.db.insert("teams",{organizationId:a.organizationId,name:a.name.trim(),createdAt:Date.now()});await audit(ctx,a.organizationId,user._id,"team.created",id);return id;
