@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import {cookies} from "next/headers";
 import {ThemeProvider} from "./theme";
+import {ConsentBanner} from "./consent";
 // Fonts are bundled from npm so builds never fetch them: Inter for UI, JetBrains Mono for code
 // and metadata, EB Garamond for editorial subheads.
 import "@fontsource-variable/inter";
@@ -25,7 +26,7 @@ export default async function RootLayout({
   const theme=preference==="light"||preference==="dark"?preference:"system";
   return (
     <html lang="en" data-theme={theme}>
-      <body><ThemeProvider initial={theme}>{children}</ThemeProvider></body>
+      <body><ThemeProvider initial={theme}>{children}<ConsentBanner /></ThemeProvider></body>
     </html>
   );
 }
