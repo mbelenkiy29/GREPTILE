@@ -21,8 +21,8 @@ export function SiteHeader({ home = false, current }: { home?: boolean; current?
       <Link href="/changelog" aria-current={current === "changelog" ? "page" : undefined}>Changelog</Link>
     </nav>
     <div className="site-actions">
-      {home ? <a href="#sign-in">Sign in</a> : <Link href="/dashboard">Dashboard</Link>}
-      <Link className="button primary small" href={home ? "#sign-in" : "/#sign-in"}>Get started</Link>
+      {home ? <Link href="/login">Sign in</Link> : <Link href="/dashboard">Dashboard</Link>}
+      <Link className="button primary small" href="/signup">Get started</Link>
     </div>
   </header>;
 }

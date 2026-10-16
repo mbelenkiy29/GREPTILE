@@ -1,6 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { SignInOptions } from "./sign-in";
 import { SiteFooter, SiteHeader } from "./site-chrome";
 import { AgentReplica, AnalyticsReplica, ChatReplica, FindingReplica, ReviewReplica, SummaryReplica } from "./landing/replicas";
 import { Copy } from "./dashboard/live";
@@ -36,7 +36,9 @@ const faq = [
 const commands = ["pnpm install", "CONVEX_AGENT_MODE=anonymous pnpm exec convex dev --once", "pnpm setup:local", "pnpm backend", "pnpm dev"];
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ error?: string; email?: string; signedout?: string }> }) {
-  const { error, email, signedout } = await searchParams;
+  // Sign-in results used to land here; older links and bookmarks now go to the sign-in page.
+  const query = Object.entries(await searchParams).filter(([k, v]) => ["error", "email", "signedout"].includes(k) && typeof v === "string") as [string, string][];
+  if (query.length) redirect(`/login?${new URLSearchParams(query)}`);
   const billing = billingConfig();
   return <div className="landing">
     <SiteHeader home />
@@ -44,11 +46,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
       <section className="hero" aria-labelledby="hero-heading">
         <h1 id="hero-heading">Review the change.<br />Understand the codebase.</h1>
         <p className="lede">OpenReview reviews pull requests using your whole repository, not only the diff. Every finding quotes the code it depends on, and nothing is posted until it has been verified.</p>
-        {error && <p role="alert" className="error">{error === "link" ? "That sign-in link is invalid, expired or already used. Request a new one." : error === "sso" ? "Single sign-on is not set up for that email domain, or the sign-in could not be verified. Ask your workspace admin." : "Sign-in failed. Check the OAuth callback URL and server configuration, then try again."}</p>}
-        {email === "sent" && <p role="status">Check your inbox for a sign-in link. It expires in 15 minutes.</p>}
-        {email === "error" && <p role="alert" className="error">The sign-in link could not be sent. Check the address, or try again in a few minutes.</p>}
-        {signedout && <p role="status">You have been signed out.</p>}
-        <div id="sign-in"><SignInOptions /></div>
+        <div className="hero-actions">
+          <Link className="button primary large" href="/signup">Get started</Link>
+          <Link className="button large" href="/login">Sign in</Link>
+        </div>
         <p className="hero-links"><Link href="/docs/quickstart">Read the quickstart →</Link><Link href="/docs/self-hosting">Self-host it →</Link></p>
       </section>
       <div className="stage"><ReviewReplica /></div>
@@ -116,7 +117,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ e
       <section className="cta" aria-labelledby="cta-heading">
         <h2 id="cta-heading">Try OpenReview now.</h2>
         <div className="cta-actions">
-          <a className="button primary large" href="#sign-in">Get started</a>
+          <Link className="button primary large" href="/signup">Get started</Link>
           <Link className="button large" href="/docs/quickstart">Read the quickstart →</Link>
         </div>
       </section>

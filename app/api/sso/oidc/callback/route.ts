@@ -25,6 +25,6 @@ export async function GET(request: Request) {
     return NextResponse.redirect(base + safeNext(saved.next));
   } catch (error) {
     console.error(JSON.stringify({ event: "sso.failed", protocol: "oidc", error: error instanceof Error ? error.message.slice(0, 200) : "failed" }));
-    return NextResponse.redirect(`${base}/?error=sso`);
+    return NextResponse.redirect(`${base}/login?error=sso`);
   }
 }

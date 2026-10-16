@@ -195,7 +195,7 @@ export async function signOutEverywhere() {
   const { token } = await current();
   await backend().mutation(api.identity.signOutEverywhere, { token });
   (await cookies()).delete("openreview_session");
-  redirect("/?signedout=1");
+  redirect("/login?signedout=1");
 }
 export async function revokeSession(form: FormData) {
   const { token } = await current();

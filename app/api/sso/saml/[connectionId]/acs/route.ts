@@ -27,6 +27,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ con
     return NextResponse.redirect(base + safeNext(typeof relay === "string" ? relay : null), 303);
   } catch (error) {
     console.error(JSON.stringify({ event: "sso.failed", protocol: "saml", error: error instanceof Error ? error.message.slice(0, 200) : "failed" }));
-    return NextResponse.redirect(`${base}/?error=sso`, 303);
+    return NextResponse.redirect(`${base}/login?error=sso`, 303);
   }
 }

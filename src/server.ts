@@ -37,7 +37,7 @@ export async function signSession(userId: string, sid?: string) {
 }
 export async function session() {
   const token = (await cookies()).get("openreview_session")?.value;
-  if (!token) redirect("/");
+  if (!token) redirect("/login");
   try {
     await jwtVerify(token, secret(), {
       issuer: "openreview",
@@ -45,10 +45,10 @@ export async function session() {
       algorithms: ["HS256"],
     });
   } catch {
-    redirect("/");
+    redirect("/login");
   }
   // Server-side check: revoked or expired sessions (sign-out elsewhere, removal) end here.
-  if (!(await backend().query(api.identity.sessionValid, { token }).catch(() => false))) redirect("/?signedout=1");
+  if (!(await backend().query(api.identity.sessionValid, { token }).catch(() => false))) redirect("/login?signedout=1");
   return token;
 }
 export async function current() {

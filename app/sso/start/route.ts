@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const next = safeNext(url.searchParams.get("next"));
   try {
     const c = await loginConnection({ ...(email ? { email } : {}), ...(connectionId ? { connectionId } : {}) });
-    if (!c) return NextResponse.redirect(`${base}/?error=sso`);
+    if (!c) return NextResponse.redirect(`${base}/login?error=sso`);
     if (c.protocol === "oidc") {
       const start = await oidcStart(await oidcFor(c), `${base}/api/sso/oidc/callback`);
       (await cookies()).set("openreview_sso", await seal({ connectionId: c.id, verifier: start.verifier, state: start.state, nonce: start.nonce, next }), { ...cookieOptions, maxAge: 600 });
@@ -22,6 +22,6 @@ export async function GET(request: Request) {
     return NextResponse.redirect(await samlFor(base, c).getAuthorizeUrlAsync(next, undefined, {}));
   } catch (error) {
     console.error(JSON.stringify({ event: "sso.start_failed", error: error instanceof Error ? error.message.slice(0, 200) : "failed" }));
-    return NextResponse.redirect(`${base}/?error=sso`);
+    return NextResponse.redirect(`${base}/login?error=sso`);
   }
 }
