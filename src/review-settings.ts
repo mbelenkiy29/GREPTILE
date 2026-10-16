@@ -1,5 +1,5 @@
-export const summarySections=["overview","affectedAreas","diagram","findings","requirements","score","risk","resolved","skipped","testSource","tips"] as const;
-export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",requirements:"Requirements",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source",tips:"Feature tips"};
+export const summarySections=["overview","affectedAreas","diagram","findings","agentPrompt","requirements","score","risk","resolved","skipped","testSource","tips"] as const;
+export const summaryLabels:Record<(typeof summarySections)[number],string>={overview:"Overview",affectedAreas:"Files changed",diagram:"Sequence diagram",findings:"Issues",agentPrompt:"Prompt for your coding agent",requirements:"Requirements",score:"Confidence score",risk:"Risk assessment",resolved:"Resolved findings",skipped:"Skipped files",testSource:"Test source",tips:"Feature tips"};
 // Feature tips (a footer line, not a section) are off by default; the hosted cloud turns them on
 // through deploymentDefaults().
 const defaultSummarySections=summarySections.filter(s=>s!=="tips");
@@ -50,6 +50,10 @@ export const defaults = {
   securityScan: true,
   commentStyle: "concise",
   summarySections:[...defaultSummarySections] as string[],
+  // GitHub: the summary goes in the pull request description ("description") or one comment ("comment").
+  summaryPlacement: "description",
+  // GitHub check run: fail when the confidence score is below this (1–5; 0 = off).
+  checkMinimumScore: 0,
 };
 /** Defaults for this deployment: the hosted cloud (BILLING_ENABLED=true) also shows feature tips. */
 export const deploymentDefaults=(env:Record<string,string|undefined>=process.env)=>env.BILLING_ENABLED==="true"?{...defaults,summarySections:[...defaultSummarySections,"tips"]}:defaults;
@@ -81,6 +85,9 @@ export function effectiveThresholds(settings: { strictness?: number; minimumConf
 }
 export const checkFailureSeverities=["off","critical","high","medium","low"] as const;
 export const validCheckFailureSeverity=(value:string|undefined)=>value===undefined||(checkFailureSeverities as readonly string[]).includes(value);
+export const summaryPlacements=["description","comment"] as const;
+// Publication settings are optional (older saved settings have neither).
+export const validPublicationSettings=(s:{summaryPlacement?:string;checkMinimumScore?:number})=>(s.summaryPlacement===undefined||(summaryPlacements as readonly string[]).includes(s.summaryPlacement))&&(s.checkMinimumScore===undefined||Number.isInteger(s.checkMinimumScore)&&s.checkMinimumScore>=0&&s.checkMinimumScore<=5);
 // generatedTests: opt-in reproduction tests for verified findings, run with testCommand ("{test}" is the
 // generated file's path) in the same approved image and sandbox.
 export const runtimeDefaults={enabled:false,image:"",command:"",timeout:120,requiredForApproval:false,generatedTests:false,testCommand:""};

@@ -15,7 +15,7 @@ Each OpenReview deployment uses its own GitHub App. Register it under GitHub **S
 The required permissions are:
 - **Contents:** read.
 - **Metadata:** read.
-- **Pull requests:** read and write (for review comments).
+- **Pull requests:** read and write (for review comments, the summary in the pull request description, and reactions).
 - **Issues:** read (for comment webhooks).
 - **Checks:** read.
 

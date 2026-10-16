@@ -49,6 +49,7 @@ export const enqueue = internalMutation({
     runtimeEvidence: v.optional(runtimeEvidenceValidator),
     // How the review was requested: automatic/label reviews honour size limits; mention bypasses them.
     trigger: v.optional(v.union(v.literal("automatic"), v.literal("label"), v.literal("mention"), v.literal("manual"))),
+    triggerComment: v.optional(v.object({ id: v.number(), inline: v.boolean() })),
   },
   handler: async (ctx, args) => {
     if (args.runtimeEvidence) {
@@ -95,7 +96,10 @@ export const enqueue = internalMutation({
     // Cloud billing quota (no-op when BILLING_ENABLED is unset): a blocked review is recorded
     // as failed with the billing reason instead of running.
     const allowance = await reviewAllowance(ctx, repo.organizationId);
-    if (!allowance.allowed) return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
+    if (!allowance.allowed) {
+      if (args.trigger && args.trigger !== "manual") await ctx.scheduler.runAfter(0, internal.jobs.billingNotice, { repositoryId: repo._id, prNumber: args.prNumber });
+      return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
+    }
     const reviewId = await ctx.db.insert("reviews", {
       organizationId: repo.organizationId,
       repositoryId: repo._id,
@@ -107,6 +111,7 @@ export const enqueue = internalMutation({
       category: args.category,
       runtimeEvidence: args.runtimeEvidence,
       ...(args.trigger ? { trigger: args.trigger } : {}),
+      ...(args.triggerComment ? { triggerComment: args.triggerComment } : {}),
       attempts: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),

@@ -102,3 +102,18 @@ test('unmentioned replies are limited per thread and per pull request each hour'
   expect((await s.replies()).map(r=>r.commentId)).toContain(301);
  }finally{vi.restoreAllMocks();vi.useRealTimers();}
 });
+
+test('picked-up requests get 👀 and bare acknowledgements in OpenReview threads get 👍, never on other threads',async()=>{
+ vi.useFakeTimers();
+ try{
+  const s=await setup();
+  const reactions=()=>s.request.mock.calls.filter(([path])=>String(path).endsWith('/reactions')).map(([path,,options])=>String(path).replace('/repos/alice/threads/','')+' '+JSON.parse(String((options as RequestInit).body)).content);
+  await s.reply({id:1,body:'Why is this a problem when the caller checks for null first?',in_reply_to_id:500});
+  await s.reply({id:6,body:'Thanks, fixed! 👍',in_reply_to_id:500});
+  await s.reply({id:2,body:'Thanks!',in_reply_to_id:999});
+  await s.reply({id:8,body:'ok',in_reply_to_id:500,login:'reader'});
+  await s.reply({id:10,body:'@openreview what calls this helper?',in_reply_to_id:999});
+  await s.reply({id:11,body:'@openreview what does this module do?'},'created','issue_comment');
+  expect(reactions()).toEqual(['pulls/comments/1/reactions eyes','pulls/comments/6/reactions +1','pulls/comments/10/reactions eyes','issues/comments/11/reactions eyes']);
+ }finally{vi.restoreAllMocks();vi.useRealTimers();}
+});

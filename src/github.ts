@@ -10,6 +10,7 @@ import type { ChangedFile, Finding, SourceFile } from "./engine/types";
 import {changedLines} from "./engine/diff";
 import {commentRange} from "./engine/patch-lines";
 import {findingComment} from "./review-summary";
+import {disclosureLayout,threadLinks,withDescriptionSummary,withoutDescriptionSummary} from "./summary-layout";
 
 export function verifyWebhook(
   body: string,
@@ -37,15 +38,16 @@ export function findingFingerprint(body:string){
   if(/<!-- openreview:conversation:[^>]+ -->\s*$/.test(body))return undefined;
   return [...body.matchAll(/<!-- openreview-finding:([a-f0-9]+) -->/g)].at(-1)?.[1];
 }
-export type CheckConclusion = "success" | "failure" | "neutral" | "cancelled";
-// Check-run conclusion: neutral unless a failure threshold is configured; then findings at or
-// above that severity fail the check and anything else succeeds.
-export function checkConclusion(findings: Pick<Finding, "severity">[], threshold: string | undefined): CheckConclusion {
-  const order = ["critical", "high", "medium", "low"];
-  if (!threshold || threshold === "off" || !order.includes(threshold)) return "neutral";
-  return findings.some((f) => order.indexOf(f.severity) <= order.indexOf(threshold)) ? "failure" : "success";
-}
+import type {CheckConclusion} from "./check-run";
+export {checkConclusion,type CheckConclusion} from "./check-run";
 export const summaryMarker = "<!-- openreview:summary -->";
+const summaryPointer = "## OpenReview\n\nThe review summary for this pull request is in its description and is updated on every review.\n\n" + summaryMarker;
+// Where the review summary goes on GitHub: the pull request description (between hidden markers,
+// the author's text kept) or one issue comment (the default here; review settings choose). Both are
+// edited in place on every review.
+export type PublishOptions = { placement?: "description" | "comment" };
+// GitHub rejects pull request bodies longer than 65,536 characters; past that the comment is used.
+const descriptionLimit = 65000;
 const treeSchema = z.object({
   truncated: z.boolean(),
   tree: z.array(z.object({ path: z.string(), type: z.string(), sha: z.string(), size: z.number().optional() })),
@@ -359,6 +361,8 @@ export class Github {
     ]);
     return {
       ...pr,
+      // The description may carry OpenReview's own summary block; reviews read only the author's text.
+      body: pr.body === null ? null : withoutDescriptionSummary(pr.body),
       ...(pr.user.id?{authorExternalId:String(pr.user.id)}:{}),
       diff,
       ...(omitted.length ? { omitted: omitted as { path: string; reason: string }[] | undefined } : {}),
@@ -418,6 +422,12 @@ export class Github {
       resolved++;
     }
     return { resolved, skipped };
+  }
+  // Reactions on a pull request comment (pull_requests:write covers both kinds); GitHub returns the
+  // existing reaction when it is already there, so repeats are harmless.
+  async react(repository: string, commentId: number, inline: boolean, content: "eyes" | "+1") {
+    if (!Number.isSafeInteger(commentId) || commentId < 1) return;
+    await this.request(`/repos/${repository}/${inline ? "pulls" : "issues"}/comments/${commentId}/reactions`, z.object({ id: z.number() }), { method: "POST", body: JSON.stringify({ content }) });
   }
   // Check runs need checks:write; without it the feature is skipped (returns null), never an error.
   async startCheckRun(repository: string, sha: string, externalId: string, detailsUrl?: string): Promise<number | null> {
@@ -586,6 +596,7 @@ export class Github {
     style: string = "detailed",
     _revisionKey?: string,
     unresolvedCount = findings.length,
+    options: PublishOptions = {},
   ): Promise<{
     id: number;
     reused: boolean;
@@ -594,7 +605,9 @@ export class Github {
     const prefix=`/repos/${repository}/pulls/${number}`;
     // Findings outside the changed lines live in the summary only; never post them inline.
     findings=inlineFindings(findings);
-    const current=async()=>{const pr=await this.request(prefix,z.object({head:z.object({sha:z.string()}),state:z.string()}));if(pr.head.sha!==sha||pr.state!=="open")throw new Error("Review is obsolete; pull request head changed or closed");};
+    // Each head check also reads the description, so placing the summary there needs no extra read.
+    let description: string | null = null;
+    const current=async()=>{const pr=await this.request(prefix,z.object({head:z.object({sha:z.string()}),state:z.string(),body:z.string().nullish()}));if(pr.head.sha!==sha||pr.state!=="open")throw new Error("Review is obsolete; pull request head changed or closed");description=pr.body??null;};
     await current();
     const publisher=await this.publisherLogin();
     const existing = await this.paginate(
@@ -620,7 +633,7 @@ export class Github {
           line: range.end,
           side: "RIGHT",
           ...(range.start < range.end ? { start_line: range.start, start_side: "RIGHT" } : {}),
-          body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
+          body: findingComment(f, style, { syntax: "github", start: range.start, end: range.end }, { agentPrompt: true }) + (process.env.APP_URL ? `\n\n[Fix with your agent](${process.env.APP_URL}/fix/${marker}?finding=${f.fingerprint})` : ""),
         };
       });
       const result = await this.request(
@@ -631,7 +644,7 @@ export class Github {
           body: JSON.stringify({
             commit_id: sha,
             event: "COMMENT",
-            body: `OpenReview posted ${findings.length} inline finding${findings.length === 1 ? "" : "s"} on \`${sha.slice(0, 7)}\`. The OpenReview summary comment on this pull request is updated in place.\n\n<!-- openreview:${marker} -->`,
+            body: `OpenReview posted ${findings.length} inline finding${findings.length === 1 ? "" : "s"} on \`${sha.slice(0, 7)}\`. The review summary for this pull request is updated in place.\n\n<!-- openreview:${marker} -->`,
             comments,
           }),
         },
@@ -641,15 +654,52 @@ export class Github {
     }
     await current();
     const commit = `${githubWebOrigin(this.base)}/${repository.split("/").map(encodeURIComponent).join("/")}/commit/${sha}`;
-    const body = `## OpenReview\n\n${summary}${reviewLinks(marker,unresolvedCount)}\n\n**Last reviewed commit:** [\`${sha.slice(0, 7)}\`](${commit})\n\n${summaryMarker}\n<!-- openreview:${marker} -->`;
-    const note = await this.upsertSummary(repository, number, body, publisher);
+    const threads = summary.includes("<!-- openreview-thread:") ? await this.findingThreads(repository, number, publisher) : new Map<string, string>();
+    const layout = threadLinks(disclosureLayout(summary), (fingerprint) => threads.get(fingerprint));
+    const body = `## OpenReview\n\n${layout}${reviewLinks(marker,unresolvedCount)}\n\n**Last reviewed commit:** [\`${sha.slice(0, 7)}\`](${commit})\n\n${summaryMarker}\n<!-- openreview:${marker} -->`;
+    const note = (options.placement === "description" && await this.upsertDescriptionSummary(repository, number, body, publisher, description)) || await this.upsertSummary(repository, number, body, publisher, description);
     await current();
     return review ?? { id: note.id, reused: note.reused, comments: [] };
   }
+  // Latest inline thread per finding fingerprint that OpenReview started on this pull request.
+  async findingThreads(repository: string, number: number, publisher: string) {
+    const threads = new Map<string, string>();
+    const comments = await this.paginate(`/repos/${repository}/pulls/${number}/comments`, z.object({ id: z.number(), body: z.string(), html_url: z.string(), user: z.object({ login: z.string() }), in_reply_to_id: z.number().optional() }));
+    for (const c of [...comments].sort((a, b) => a.id - b.id)) {
+      const fingerprint = c.user.login === publisher && c.in_reply_to_id === undefined ? findingFingerprint(c.body) : undefined;
+      if (fingerprint) threads.set(fingerprint, c.html_url);
+    }
+    return threads;
+  }
+  // The summary block in the pull request description, replaced in place between hidden markers.
+  // Returns null (so the caller posts the summary comment instead) when the description cannot hold
+  // it or GitHub refuses the edit. An older summary comment is turned into a pointer, not left stale.
+  async upsertDescriptionSummary(repository: string, number: number, block: string, publisher: string, description: string | null): Promise<{ id: number; reused: boolean } | null> {
+    const next = withDescriptionSummary(description, block);
+    if (next.length > descriptionLimit) return null;
+    const reused = next === (description ?? "");
+    try {
+      if (!reused) await this.request(`/repos/${repository}/pulls/${number}`, z.object({ number: z.number() }), { method: "PATCH", body: JSON.stringify({ body: next }) });
+    } catch (error) {
+      if (error instanceof GithubApiError && [403, 404, 422].includes(error.status)) return null;
+      throw error;
+    }
+    // The summary is in place; retiring the old comment is best effort.
+    try {
+      const comments = await this.paginate(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), body: z.string().nullable(), user: z.object({ login: z.string() }) }));
+      const old = comments.filter((c) => c.user.login === publisher && c.body?.includes(summaryMarker)).at(-1);
+      if (old && old.body !== summaryPointer) await this.request(`/repos/${repository}/issues/comments/${old.id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ body: summaryPointer }) });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "github.summary_pointer_failed", repository, number, error: error instanceof Error ? error.message.slice(0, 200) : "failed" }));
+    }
+    return { id: 0, reused };
+  }
   // One summary comment per pull request, found by its hidden marker and edited in place.
-  async upsertSummary(repository: string, number: number, body: string, publisher: string) {
+  async upsertSummary(repository: string, number: number, body: string, publisher: string, description?: string | null) {
     const comments = await this.paginate(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), body: z.string().nullable(), user: z.object({ login: z.string() }) }));
     const target = comments.filter((c) => c.user.login === publisher && c.body?.includes(summaryMarker)).at(-1);
+    // Back in the comment: drop a summary block an earlier review left in the description.
+    if (description) await this.removeDescriptionSummary(repository, number, description);
     if (target) {
       if (target.body === body) return { id: target.id, reused: true };
       await this.request(`/repos/${repository}/issues/comments/${target.id}`, z.object({ id: z.number() }), { method: "PATCH", body: JSON.stringify({ body }) });
@@ -658,6 +708,16 @@ export class Github {
     const created = await this.request(`/repos/${repository}/issues/${number}/comments`, z.object({ id: z.number(), user: z.object({ login: z.string() }) }), { method: "POST", body: JSON.stringify({ body }) });
     if (created.user.login !== publisher) throw new Error("GitHub returned another publication identity");
     return { id: created.id, reused: false };
+  }
+  // Best effort: a description that cannot be edited never blocks the summary comment.
+  async removeDescriptionSummary(repository: string, number: number, description: string) {
+    const next = withoutDescriptionSummary(description);
+    if (next === description) return;
+    try {
+      await this.request(`/repos/${repository}/pulls/${number}`, z.object({ number: z.number() }), { method: "PATCH", body: JSON.stringify({ body: next }) });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "github.description_cleanup_failed", repository, number, error: error instanceof Error ? error.message.slice(0, 200) : "failed" }));
+    }
   }
   async findingComments(repository: string, number: number, reviewId: number,findings?:Finding[],sha?:string) {
     const publisher=await this.publisherLogin();

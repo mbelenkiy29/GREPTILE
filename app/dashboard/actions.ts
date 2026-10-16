@@ -257,6 +257,8 @@ export async function saveSettings(form: FormData) {
       commentStyle: text(form, "commentStyle"),
       reviewEngine: text(form, "reviewEngine") || previous.settings.reviewEngine || "pipeline",
       checkFailureSeverity: text(form, "checkFailureSeverity") || previous.settings.checkFailureSeverity || "off",
+      checkMinimumScore: form.has("checkMinimumScore") ? Number(text(form, "checkMinimumScore")) : previous.settings.checkMinimumScore ?? 0,
+      summaryPlacement: text(form, "summaryPlacement") || previous.settings.summaryPlacement || "description",
       triggerLabels: form.has("triggerLabels") ? list("triggerLabels") : previous.settings.triggerLabels ?? [],
       excludedAuthors: form.has("excludedAuthors") ? list("excludedAuthors") : previous.settings.excludedAuthors ?? [],
       maxFiles: form.has("maxFiles") ? Number(text(form, "maxFiles")) : previous.settings.maxFiles ?? 0,

@@ -20,7 +20,8 @@ import { validSequence } from "../src/diagrams";
 import { incrementalDiff } from "../src/incremental";
 import { effectiveThresholds, sizeLimitIssue } from "../src/triggers";
 import { applyRepoConfig, loadRepoConfig, type LoadedRepoConfig } from "../src/repo-config";
-import { checkConclusion, type CheckConclusion } from "../src/github";
+import { type CheckConclusion } from "../src/github";
+import { billingNoticeBody, checkOutcome, supersededCheck } from "../src/check-run";
 import { AgentSuspended } from "../src/engine/agent";
 import {parseP4SubmittedInventory} from "../src/p4-index";
 import {P4CodeReview,p4Credential} from "../src/perforce";
@@ -297,6 +298,24 @@ export const indexBatch = internalAction({
   },
 });
 
+// One notice per pull request when the workspace's plan blocked a review that GitHub activity
+// requested; later blocked reviews on the same pull request stay quiet. Plan details are not posted.
+export const billingNotice = internalAction({
+  args: { repositoryId: v.id("repositories"), prNumber: v.number() },
+  handler: async (ctx, a) => {
+    const { repo } = await ctx.runQuery(internal.repositories.data, { repositoryId: a.repositoryId });
+    if (!repo.enabled) return;
+    const scm = await provider(ctx, repo);
+    if (!(scm instanceof Github)) return;
+    try {
+      const pr = await scm.pullRequest(repo.fullName, a.prNumber);
+      if (pr.state !== "open") return;
+      await scm.reply(repo.fullName, a.prNumber, billingNoticeBody(process.env.APP_URL), undefined, "billing-blocked");
+    } catch (error) {
+      console.error(JSON.stringify({ event: "review.billing_notice_failed", repositoryId: repo._id, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
+    }
+  },
+});
 export const review = internalAction({
   args: { reviewId: v.id("reviews") },
   handler: async (ctx, args) => {
@@ -389,6 +408,7 @@ export const review = internalAction({
           settings.commentStyle,
           state.review.revisionKey,
           result.findings.length+(result.metadata?.carriedForward?.length??0),
+          { placement: settings.summaryPlacement === "comment" ? "comment" : "description" },
         );
         if(result.repositoryContext)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});
         await ctx.runMutation(internal.reviews.finished, {
@@ -396,8 +416,9 @@ export const review = internalAction({
           githubReviewId: published.id,
           comments: published.comments,
         });
+        await confirmRequest(github, repo.fullName, state.review.triggerComment);
         const verified = [...result.findings, ...(result.metadata?.carriedForward ?? [])];
-        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha, state.review.prNumber), { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", detailsUrl: dashboardUrl(args.reviewId) });
+        await finishCheck(await beginCheck(ctx, github, args.reviewId, repo.fullName, state.review.headSha, state.review.prNumber), { ...checkOutcome({ findings: verified, score: state.review.reviewScore?.value, files: pr.diff.length, posted: published.reused ? 0 : published.comments?.length ?? 0, failureSeverity: settings.checkFailureSeverity, minimumScore: settings.checkMinimumScore, verdict: state.review.verdict }), detailsUrl: dashboardUrl(args.reviewId) });
         return;
       }
       if (pr.head.sha !== state.review.headSha || pr.state !== "open") {
@@ -691,6 +712,7 @@ export const review = internalAction({
         effective.commentStyle,
           state.review.revisionKey,
           result.findings.length+(result.metadata.carriedForward?.length??0),
+          { placement: settings.summaryPlacement === "comment" ? "comment" : "description" },
       );
       if(result.repositoryContext)await ctx.runAction(internal.repositoryContextJobs.validate,{receipt:result.repositoryContext});
       await ctx.runMutation(internal.reviews.finished, {
@@ -698,16 +720,18 @@ export const review = internalAction({
         githubReviewId: published.id,
         comments: published.comments,
       });
+      await confirmRequest(github, repo.fullName, state.review.triggerComment);
       await resolveFixedThreads(ctx, github, repo._id, repo.fullName, pr.number, pr.head.sha, result.metadata.resolvedFingerprints);
       const verified = [...result.findings, ...(result.metadata.carriedForward ?? [])];
-      await finishCheck(check, { conclusion: checkConclusion(verified, settings.checkFailureSeverity), title: verified.length ? `${verified.length} verified finding${verified.length === 1 ? "" : "s"}` : "No verified findings", summary: [verified.length ? verified.slice(0, 10).map((f) => `- **${f.severity}** ${f.title} (\`${f.filePath}:${f.startLine}\`)`).join("\n") : "OpenReview found no verified issues in this revision.", ...(result.metadata.coverageLimits?.length ? ["", "Coverage limits:", ...result.metadata.coverageLimits.map((l) => "- " + l)] : [])].join("\n"), detailsUrl: dashboardUrl(args.reviewId) });
+      const outcome = checkOutcome({ findings: verified, score: result.metadata.reviewScore?.value, files: scope.diff.length, posted: published.reused ? 0 : published.comments?.length ?? 0, failureSeverity: settings.checkFailureSeverity, minimumScore: settings.checkMinimumScore, verdict: result.metadata.verdict });
+      await finishCheck(check, { ...outcome, summary: [outcome.summary, ...(result.metadata.coverageLimits?.length ? ["", "Coverage limits:", ...result.metadata.coverageLimits.map((l) => "- " + l)] : [])].join("\n"), detailsUrl: dashboardUrl(args.reviewId) });
     } catch (error) {
       if (error instanceof AgentSuspended && await ctx.runMutation(internal.reviews.suspendAgent, args)) {
         console.log(JSON.stringify({ event: "review.agent_suspended", reviewId: args.reviewId, toolCalls: error.state.toolCalls, turns: error.state.turns }));
         return;
       }
       const message = error instanceof Error ? error.message : "Review failed";
-      await finishCheck(check, { conclusion: "neutral", title: "Review could not be completed", summary: "OpenReview could not complete this review: " + redact(message).slice(0, 500), detailsUrl: dashboardUrl(args.reviewId) });
+      await finishCheck(check, supersededCheck(message) ? { conclusion: "neutral", title: "Superseded by a newer revision", summary: "This review stopped because the pull request changed or closed while it ran. A review of the newer revision replaces it.", detailsUrl: dashboardUrl(args.reviewId) } : { conclusion: "neutral", title: "Review could not be completed", summary: "OpenReview could not complete this review: " + redact(message).slice(0, 500), detailsUrl: dashboardUrl(args.reviewId) });
       console.error(
         JSON.stringify({
           event: "review.failed",
@@ -749,6 +773,13 @@ async function resolveFixedThreads(ctx: ActionCtx, scm: Scm, repositoryId: Id<"r
   } catch (error) {
     console.error(JSON.stringify({ event: "review.thread_resolution_failed", repositoryId, number, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) }));
   }
+}
+
+// 👍 on the comment that asked for this review, once the review is published.
+async function confirmRequest(scm: Scm, repository: string, comment?: { id: number; inline: boolean }) {
+  if (!comment || !scm.react) return;
+  try { await scm.react(repository, comment.id, comment.inline, "+1"); }
+  catch (error) { console.error(JSON.stringify({ event: "github.reaction_failed", repository, error: redact(error instanceof Error ? error.message : "failed").slice(0, 300) })); }
 }
 
 const dashboardUrl = (reviewId: Id<"reviews">) => { const app = process.env.APP_URL; return app && /^https:\/\//.test(app) ? new URL(`/dashboard/pulls/${encodeURIComponent(reviewId)}`, app).href : undefined; };

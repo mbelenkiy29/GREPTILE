@@ -202,6 +202,22 @@ export function ReviewSettingsSection({ ctx }: { ctx: DashboardContext }) {
                     </select>
                   </label>
                   <label>
+                    Check run minimum confidence
+                    <select name="checkMinimumScore" defaultValue={String(repoSettings.settings.checkMinimumScore ?? 0)}>
+                      <option value="0">off</option>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <option key={n} value={n}>fail below {n}/5</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Review summary location (GitHub)
+                    <select name="summaryPlacement" defaultValue={repoSettings.settings.summaryPlacement ?? "description"}>
+                      <option value="description">pull request description, edited in place</option>
+                      <option value="comment">one comment, edited in place</option>
+                    </select>
+                  </label>
+                  <label>
                     Model override
                     <input
                       name="model"

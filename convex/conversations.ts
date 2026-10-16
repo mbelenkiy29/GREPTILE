@@ -27,11 +27,11 @@ export const admitThreadReply=internalMutation({args:{repositoryId:v.id("reposit
  }catch{return false;}
  return true;
 }});
-export const requestReview=internalMutation({args:{repositoryId:v.id("repositories"),prNumber:v.number(),commentId:v.union(v.number(),v.string()),author:v.string(),question:v.string(),headSha:v.string(),revisionKey:v.optional(v.string()),category:v.optional(v.string())},handler:async(ctx,a):Promise<Id<"reviews">|null>=>{
+export const requestReview=internalMutation({args:{repositoryId:v.id("repositories"),prNumber:v.number(),commentId:v.union(v.number(),v.string()),author:v.string(),question:v.string(),headSha:v.string(),revisionKey:v.optional(v.string()),category:v.optional(v.string()),triggerComment:v.optional(v.object({id:v.number(),inline:v.boolean()}))},handler:async(ctx,a):Promise<Id<"reviews">|null>=>{
  const repo=await ctx.db.get(a.repositoryId);if(!repo?.enabled)throw new Error("Repository disabled");
  const previous=await ctx.db.query("conversations").withIndex("by_repository_comment",q=>q.eq("repositoryId",a.repositoryId).eq("githubCommentId",a.commentId)).unique();if(previous)return null;
  await rateLimit(ctx,`conversation:${repo.organizationId}`,20);
- const reviewId=await ctx.runMutation(internal.reviews.enqueue,{repositoryId:a.repositoryId,prNumber:a.prNumber,headSha:a.headSha,revisionKey:a.revisionKey,category:a.category,force:true,trigger:"mention"});
+ const reviewId=await ctx.runMutation(internal.reviews.enqueue,{repositoryId:a.repositoryId,prNumber:a.prNumber,headSha:a.headSha,revisionKey:a.revisionKey,category:a.category,force:true,trigger:"mention",...(a.triggerComment?{triggerComment:a.triggerComment}:{})});
  await ctx.db.insert("conversations",{organizationId:repo.organizationId,repositoryId:a.repositoryId,prNumber:a.prNumber,githubCommentId:a.commentId,author:a.author,question:a.question.slice(0,8000),inline:false,status:"completed",answer:"Requested a new review of the current revision.",createdAt:Date.now(),updatedAt:Date.now(),attempts:1});return reviewId;
 }});
 
