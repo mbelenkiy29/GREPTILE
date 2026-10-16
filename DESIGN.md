@@ -104,9 +104,15 @@ All of these are global classes in `app/globals.css`.
 
 - **Shared chrome.** `SiteHeader` and `SiteFooter` (`app/site-chrome.tsx`) are shared by the landing page, docs and changelog. The footer carries the Appearance picker.
 - **Landing layout** (`app/page.tsx`): left-aligned hero, then alternating 5:7 feature rows, a provider strip, "How it works", a terminal card, the comparison table, the FAQ and a closing call to action.
-- **Product visuals are replicas of real screens** (`app/landing/replicas.tsx`), not drawings.
-  - They render the dashboard's own markup and shared components (`DiffFiles`, `ReviewMarkdown`, `LineChart` and the `status()` badge) with sample content from `app/landing/sample.ts`. This keeps them in step with the app and its theme.
-  - Each replica is `inert` and `aria-hidden`, and a visually hidden `figcaption` describes it. That keeps duplicate link and button names out of the accessibility tree.
+- **Product visuals are interactive replicas of real screens** (`app/landing/demo.tsx`), not drawings or screenshots.
+  - They render the dashboard's own markup and shared components (`DiffFiles`, `LineChart`, `PortalDisclosure` and the `status()` and `priority()` badges) with sample content from `app/landing/sample.ts`. This keeps them in step with the app and its theme.
+  - Visitors can click through them, as in a working app. The hero is a small dashboard with its own section tabs. The feature windows each demonstrate one thing: evidence shown in its file, a re-review, chat, the agent hand-off and analytics filters.
+  - Nothing calls the backend. Slow work (reviews, chat answers, the bridge hand-off) is simulated with timers, and the status text matches the real screens. Each window bar says "Demo".
+  - The chat and summary windows play once on their own when half in view: a sample question, then a re-review. A click or key press inside a window first cancels it, and reduced motion turns it off.
+  - On desktop, windows have a fixed height and scroll inside. On phones they grow to fit their content, so a swipe always scrolls the page.
+  - Heavier rendering happens on the server (`app/landing/replicas.tsx`): markdown for chat answers and summaries, and the settings previews computed with guided setup's rules (`src/onboarding-preview.ts`). Only the click handling ships to the browser.
+  - Links and tabs inside a window are buttons styled like the app's links. In-window headings use `role="presentation"`, so they stay out of the page outline. A visually hidden `figcaption` names each window.
+  - Sample evidence must quote `sources` exactly, and diffs must match it; `tests/landing-demo.test.ts` checks both.
   - When a dashboard screen changes, update the matching replica in the same change.
 - **Docs and changelog** use a compact left navigation and a 768px reading column. Subheads are set in EB Garamond.
 
