@@ -96,6 +96,15 @@ export const applyStripeEvent = internalMutation({ args: { eventId: v.string(), 
   return record("ignored");
 } });
 
+// Switching Stripe from test to live mode: test customers and subscriptions do not exist in live
+// mode, so every workspace drops its Stripe links and returns to its trial (same end date). Run once
+// with `npx convex run billing:forgetStripeLinks '{"confirm":"switch-stripe-mode"}' --prod`.
+export const forgetStripeLinks = internalMutation({ args: { confirm: v.literal("switch-stripe-mode") }, handler: async (ctx): Promise<number> => {
+  const accounts = await ctx.db.query("billingAccounts").collect();
+  for (const account of accounts) await ctx.db.patch(account._id, { customerId: undefined, subscriptionId: undefined, subscriptionItemId: undefined, currentPeriodEnd: undefined, pastDueSince: undefined, lastEventCreated: undefined, status: "trial", seats: seatCount(await members(ctx, account.organizationId)), updatedAt: Date.now() });
+  return accounts.length;
+} });
+
 // Seat changes resync the subscription quantity (only for active subscriptions).
 export async function scheduleSeatSync(ctx: MutationCtx, organizationId: Id<"organizations">) {
   if (!billingConfig().enabled) return;
