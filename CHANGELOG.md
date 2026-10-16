@@ -17,6 +17,7 @@
 
 ### Site
 - Privacy Policy and Terms of Service pages for the hosted service, linked from the footer and the sign-in buttons.
+- Cookie consent: analytics starts only after a visitor accepts. Do Not Track and Global Privacy Control count as a refusal, and **Cookie settings** in the footer changes the choice.
 
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.

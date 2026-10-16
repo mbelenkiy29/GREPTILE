@@ -44,7 +44,7 @@ Our hosting providers keep server logs that include IP addresses.
   - request contents;
   - session recordings;
   - private details from page addresses, such as invitation links and sign-in codes.
-- **Do Not Track:** if your browser sends a Do Not Track signal, PostHog does not track you.
+- **Your permission comes first:** PostHog runs only after you accept the analytics cookie. Sentry sets no cookies.
 
 **Cookies.** Most of our cookies are needed for the service to work:
 - your sign-in session;
@@ -53,7 +53,13 @@ Our hosting providers keep server logs that include IP addresses.
 - your theme preference;
 - one-time notices.
 
-PostHog also stores a random identifier in a cookie and in your browser's local storage. It lets us count visits and see how people use the site. We do not use advertising cookies, and we do not use cookies to track you across other websites.
+If you allow it, PostHog also stores a random identifier in a cookie and in your browser's local storage, so we can count visits and see how people use the site.
+- **When we ask:** on your first visit. Until you accept, PostHog does not run and sets nothing.
+- **When we don't ask:** if your browser sends a Do Not Track or Global Privacy Control signal, we treat that as a no and PostHog stays off.
+- **Remembering your choice:** your choice is kept in a cookie for 180 days.
+- **Changing your mind:** use **Cookie settings** at the bottom of any page.
+
+We do not use advertising cookies, and we do not use cookies to track you across other websites.
 
 ## How we use information
 
@@ -106,7 +112,7 @@ Uninstalling the GitHub App or removing a repository stops our access to it. To 
 
 - **Your requests:** you can ask us to access, correct, export or delete your personal information by emailing [mbelenkiy29@gmail.com](mailto:mbelenkiy29@gmail.com). We respond within 30 days.
 - **In the product:** you can sign out of other sessions in **Settings → Account**. Admins can disconnect integrations and remove repositories at any time.
-- **Analytics:** to stop analytics, turn on your browser's Do Not Track setting or block cookies for openreview.tech.
+- **Analytics:** turn analytics off at any time with **Cookie settings** at the bottom of any page, or with your browser's Do Not Track or Global Privacy Control setting.
 - **Regional rights:** depending on where you live, for example in the EU, UK or California, you may have additional rights, such as objecting to processing or complaining to a data protection authority. We honor these rights for everyone.
 - **No selling:** we do not sell or share personal information for cross-context behavioral advertising.
 

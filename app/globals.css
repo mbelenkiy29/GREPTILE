@@ -957,6 +957,53 @@ tr:last-child td {
   box-shadow: var(--shadow-popover), inset 0 0 0 1px var(--error);
 }
 
+/* Analytics cookie consent: bottom left, clear of toasts on the right */
+.consent {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: min(380px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-popover);
+}
+.consent h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.consent p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.consent-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.consent-actions button {
+  flex: 1 1 0;
+}
+.link-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-button:hover {
+  background: none;
+  color: var(--text);
+}
+
 /* Charts */
 .chart {
   margin: 0 0 16px;

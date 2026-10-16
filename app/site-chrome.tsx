@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { billingConfig } from "../src/billing";
+import { CookieSettings } from "./consent";
 import { ThemePicker } from "./theme";
 import { Mark } from "./ui/logo";
 
@@ -53,7 +54,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
       </nav>)}
     </div>
     <div className="footer-base">
-      <span>OpenReview · MIT licensed · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></span>
+      <span>OpenReview · MIT licensed · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link><CookieSettings /></span>
       <ThemePicker />
     </div>
   </footer>;
