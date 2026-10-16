@@ -42,6 +42,18 @@ When a review is blocked, it is recorded as failed with a `Billing:` reason, vis
 
 On Vercel, Stripe can also be provisioned from the Vercel Marketplace. The keys still belong in the Convex environment, because Convex runs Checkout, the portal and webhook handling.
 
+## Switching from test to live
+
+1. **Activate payments** on the Stripe account. Then, in live mode, create the same Product and Price, webhook endpoint (same events and API version) and portal configuration as in test mode.
+2. **Live keys:** create a live restricted key (`rk_live_…`) with the same permissions. Set it as `STRIPE_SECRET_KEY`, and the live endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.
+3. **Convex settings:** set `STRIPE_SEAT_PRICE_ID` to the live price and `BILLING_ALLOW_LIVE=true`.
+4. **Drop test links:** test customers and subscriptions do not exist in live mode, so every workspace must drop its Stripe links. Run this once:
+   ```bash
+   npx convex run billing:forgetStripeLinks '{"confirm":"switch-stripe-mode"}' --prod
+   ```
+   Each workspace returns to its trial with the same end date, and its next Checkout creates a live customer.
+5. **Old webhook:** disable the test-mode webhook endpoint so its retries stop.
+
 ## Guarantees
 
 - **API version:** requests pin `Stripe-Version`. Invoice events are read from both the current shape (`parent.subscription_details.subscription`) and the older one (`subscription`).
