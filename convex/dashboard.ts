@@ -1,7 +1,8 @@
 import { recordFindingFeedback } from "./feedbackCore";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import { authorize, authorizeRepository, visibleRepositories,repositoryAccess } from "./auth";
+import { authorize, authorizeRepository, visibleRepositories,repositoryAccess,audit } from "./auth";
+import { ruleApplies, validRepositoryPattern } from "../src/rule-scopes";
 import { repositorySourceUrl } from "../src/source-url";
 import {contextReadable,requireFindingReader} from "./repositoryContext";
 import type {Id} from "./_generated/dataModel";
@@ -13,10 +14,11 @@ export const rulesPage=query({
     await authorize(ctx,args.token,args.organizationId);
     const repositories=await visibleRepositories(ctx,args.token,args.organizationId,args.teamId);
     if(args.repositoryId&&!repositories.some(r=>r._id===args.repositoryId))throw new Error("Repository not accessible in this scope");
-    const ids=args.repositoryId?[args.repositoryId]:repositories.map(r=>r._id);
-    return ctx.db.query("customRules").withIndex("by_org",q=>q.eq("organizationId",args.organizationId))
-      .filter(q=>q.or(q.eq(q.field("repositoryId"),undefined),...ids.map(id=>q.eq(q.field("repositoryId"),id))))
-      .order("desc").paginate({numItems:30,cursor:args.cursor??null});
+    // Rules that apply to the selected repository (any scope), or every rule whose scope the reader can see.
+    const selected=args.repositoryId?repositories.find(r=>r._id===args.repositoryId):undefined;
+    const teamIds=new Set(repositories.map(r=>r.teamId).filter(Boolean).map(String));
+    const page=await ctx.db.query("customRules").withIndex("by_org",q=>q.eq("organizationId",args.organizationId)).order("desc").paginate({numItems:30,cursor:args.cursor??null});
+    return {...page,page:page.page.filter(r=>selected?ruleApplies(r,selected):r.repositoryId?repositories.some(x=>x._id===r.repositoryId):r.teamId?teamIds.has(String(r.teamId)):true)};
   }
 });
 
@@ -98,6 +100,17 @@ export const overview = query({
     };
   },
 });
+// One scope per rule (none = workspace), and it must belong to the rule's workspace.
+export async function assertRuleScope(ctx: MutationCtx, organizationId: Id<"organizations">, scope: { repositoryId?: Id<"repositories">; teamId?: Id<"teams">; repositoryPattern?: string }) {
+  if ([scope.repositoryId, scope.teamId, scope.repositoryPattern].filter((x) => x !== undefined && x !== "").length > 1)
+    throw new Error("Choose one rule scope: workspace, team, repository pattern or repository");
+  if (scope.repositoryId && (await ctx.db.get(scope.repositoryId))?.organizationId !== organizationId)
+    throw new Error("Invalid repository scope");
+  if (scope.teamId && (await ctx.db.get(scope.teamId))?.organizationId !== organizationId)
+    throw new Error("Invalid team scope");
+  if (scope.repositoryPattern !== undefined && scope.repositoryPattern !== "" && !validRepositoryPattern(scope.repositoryPattern))
+    throw new Error("Invalid repository pattern; use owner/name globs such as acme/*-service");
+}
 export const rules = mutation({
   args: {
     token: v.string(),
@@ -105,6 +118,8 @@ export const rules = mutation({
     id: v.optional(v.id("customRules")),
     remove: v.optional(v.boolean()),
     repositoryId: v.optional(v.id("repositories")),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
     title: v.string(),
     instructions: v.string(),
     category: v.string(),
@@ -113,21 +128,18 @@ export const rules = mutation({
     enabled: v.boolean(),
   },
   handler: async (ctx, args) => {
-    await authorize(ctx, args.token, args.organizationId, true);
+    const { user } = await authorize(ctx, args.token, args.organizationId, true);
     if (args.id) {
       const old = await ctx.db.get(args.id);
       if (!old || old.organizationId !== args.organizationId)
         throw new Error("Rule not found");
       if (args.remove) {
         await ctx.db.delete(args.id);
+        await audit(ctx, args.organizationId, user._id, "rule.deleted", args.id);
         return;
       }
     }
-    if (args.repositoryId) {
-      const repo = await ctx.db.get(args.repositoryId);
-      if (!repo || repo.organizationId !== args.organizationId)
-        throw new Error("Invalid repository scope");
-    }
+    await assertRuleScope(ctx, args.organizationId, args);
     if (
       !args.title.trim() ||
       !args.instructions.trim() ||
@@ -138,6 +150,8 @@ export const rules = mutation({
     const rule = {
       organizationId: args.organizationId,
       repositoryId: args.repositoryId,
+      teamId: args.teamId,
+      repositoryPattern: args.repositoryPattern || undefined,
       title: args.title,
       instructions: args.instructions,
       category: args.category,
@@ -145,8 +159,8 @@ export const rules = mutation({
       globs: args.globs,
       enabled: args.enabled,
     };
-    if (args.id) await ctx.db.patch(args.id, rule);
-    else await ctx.db.insert("customRules", { ...rule, createdAt: Date.now() });
+    if (args.id) { await ctx.db.patch(args.id, rule); await audit(ctx, args.organizationId, user._id, "rule.updated", args.id); }
+    else await audit(ctx, args.organizationId, user._id, "rule.created", await ctx.db.insert("customRules", { ...rule, createdAt: Date.now() }));
   },
 });
 export const feedback = mutation({

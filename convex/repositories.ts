@@ -1,4 +1,5 @@
 import {beginCatalog} from "./pullCatalogs";
+import { autoEnableNewRepository } from "./repositoryOnboarding";
 import {
   internalMutation,
   internalQuery,
@@ -14,7 +15,8 @@ import {indexWriteAllowed,indexBatchMatches} from "./indexAuthority";
 import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
-import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings } from "../src/review-settings";
+import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,validPublicationSettings } from "../src/review-settings";
+import { applicableRules } from "../src/rule-scopes";
 import { categories } from "../src/engine/types";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
@@ -88,6 +90,7 @@ export const configure = mutation({
         !validSummarySections(s.summarySections) ||
         !validReviewEngine(s.reviewEngine) ||
         !validCheckFailureSeverity(s.checkFailureSeverity) ||
+        !validPublicationSettings(s) ||
         !validTriggerSettings(s) ||
         s.categories.some((c) => !(categories as readonly string[]).includes(c))
       )
@@ -188,6 +191,7 @@ export const connect = mutation({
           inherit: true,
           settings: defaults,
         });
+        await autoEnableNewRepository(ctx, repositoryId);
       }
     }
   },
@@ -204,9 +208,9 @@ export const data = internalQuery({
         .query("customRules")
         .withIndex("by_org", (q) => q.eq("organizationId", repo.organizationId))
         .take(maxRules)
-    ).filter(
-      (r) => r.enabled && (!r.repositoryId || r.repositoryId === repo._id),
     );
+    // Workspace, team, pattern and repository rules that apply here; the most specific same-titled rule wins.
+    const scopedRules = applicableRules(rules.filter((r) => r.enabled), repo);
     const own = await ctx.db
       .query("learnedPreferences")
       .withIndex("by_repo", (q) => q.eq("repositoryId", repo._id))
@@ -221,14 +225,14 @@ export const data = internalQuery({
     return {
       repo,
       settings: await effectiveSettings(ctx, repo),
-      rules,
+      rules: scopedRules,
       preferences: preferences.filter((p) => p.enabled),
     };
   },
 });
-export const recordConfigFile = internalMutation({args:{repositoryId:v.id("repositories"),sha:v.string(),files:v.array(v.string()),applied:v.array(v.string()),blocked:v.array(v.string()),warnings:v.array(v.string()),values:v.string(),rules:v.number()},handler:async(ctx,a)=>{
+export const recordConfigFile = internalMutation({args:{repositoryId:v.id("repositories"),sha:v.string(),files:v.array(v.string()),applied:v.array(v.string()),blocked:v.array(v.string()),warnings:v.array(v.string()),values:v.string(),rules:v.number(),cascade:v.optional(v.string())},handler:async(ctx,a)=>{
   const repo=await ctx.db.get(a.repositoryId);if(!repo)return;
-  await ctx.db.patch(repo._id,{configFile:a.files.length||a.warnings.length?{sha:a.sha,files:a.files.slice(0,60),applied:a.applied,blocked:a.blocked,warnings:a.warnings.slice(0,20).map(w=>w.slice(0,500)),values:a.values.slice(0,4000),rules:a.rules,checkedAt:Date.now()}:undefined});
+  await ctx.db.patch(repo._id,{configFile:a.files.length||a.warnings.length?{sha:a.sha,files:a.files.slice(0,60),applied:a.applied,blocked:a.blocked,warnings:a.warnings.slice(0,20).map(w=>w.slice(0,500)),values:a.values.slice(0,4000),rules:a.rules,checkedAt:Date.now(),...(a.cascade?{cascade:a.cascade.slice(0,8000)}:{})}:undefined});
 }});
 export const maxRules = 1000, maxPreferences = 1000, fileLookupBatch = 200, filePageSize = 1000;
 const fileRow = (f: Doc<"repositoryFiles">) => ({ path: f.path, sha: f.sha, storageId: f.storageId, graphVersion: f.graphVersion });

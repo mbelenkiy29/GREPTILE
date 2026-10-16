@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { assertEgress } from "./egress";
 import { z } from "zod";
 import { sessionHash } from "./session-hash";
 
@@ -33,6 +34,7 @@ export function googleAuthorizeUrl(clientId: string, redirectUri: string, state:
   return "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "openid email profile", state, prompt: "select_account" });
 }
 export async function googleProfile(code: string, redirectUri: string, fetchImpl: typeof fetch = fetch): Promise<Profile> {
+  assertEgress("identity", "Google sign-in");
   const token = await fetchImpl("https://oauth2.googleapis.com/token", { method: "POST", redirect: "error", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID ?? "", client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "", redirect_uri: redirectUri, grant_type: "authorization_code" }), signal: timeout() });
   if (!token.ok) throw new Error("Google OAuth exchange failed");
   const access = z.object({ access_token: z.string().min(1) }).parse(await token.json()).access_token;

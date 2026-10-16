@@ -5,6 +5,7 @@ import { repositorySourceUrl } from "./source-url";
 import type { Finding, SourceFile } from "./engine/types";
 import { findingComment, summaryMarker, type Github } from "./github";
 import { changedLines } from "./engine/diff";
+import { scmFetch, type ScmNetwork, type TransportDeps } from "./scm-transport";
 type ExternalId = string | number;
 type GithubChange = Awaited<ReturnType<Github["pullRequest"]>>;
 type WithId<T> = Omit<T,"id"> & {id:ExternalId};
@@ -22,7 +23,7 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
  changeMetadata(repository:string,number:number):Promise<ChangeMetadata>;
  openChanges(repository:string,cursor:string|null):Promise<ChangePage>;
  pullRequest(repository:string,number:number):Promise<ScmChange>;
- publish(repository:string,number:number,sha:string,summary:string,findings:Finding[],marker:string,style?:string,revisionKey?:string,unresolvedCount?:number):Promise<{id:ExternalId;reused:boolean;comments?:{id:ExternalId;fingerprint:string}[]}>;
+ publish(repository:string,number:number,sha:string,summary:string,findings:Finding[],marker:string,style?:string,revisionKey?:string,unresolvedCount?:number,options?:import("./github").PublishOptions):Promise<{id:ExternalId;reused:boolean;comments?:{id:ExternalId;fingerprint:string}[]}>;
  reply(repository:string,number:number,body:string,parent?:ExternalId,marker?:string):Promise<{id:ExternalId}>;
   // Optional: commit ancestry/changes for incremental review, and resolving OpenReview-started finding threads.
   compare?(repository:string,base:string,head:string):Promise<{status:"ahead"|"behind"|"diverged"|"identical";commits:number;complete:boolean;files:import("./engine/types").ChangedFile[]}>;
@@ -33,6 +34,8 @@ export type Scm = Pick<Github,"tree"|"blob"|"branches"|"sourceUrl"> & {
   openFixPullRequest?(repository:string,number:number,fix:{branch:string;expectedHead:string;path:string;blobSha:string;content:string;title:string;body:string;message:string}):Promise<{url:string;reused:boolean}|{skipped:string}>;
   // Azure DevOps pull request statuses (other providers use check runs).
   reportStatus?(repository:string,number:number,state:"pending"|"succeeded"|"failed"|"notApplicable"|"error",description:string,targetUrl?:string):Promise<void>;
+  // GitHub comment reactions: 👀 when a request is picked up, 👍 when it is done or acknowledged.
+  react?(repository:string,commentId:number,inline:boolean,content:"eyes"|"+1"):Promise<void>;
   completeCheckRun?(repository:string,id:number,result:{conclusion:"success"|"failure"|"neutral"|"cancelled";title:string;summary:string;detailsUrl?:string}):Promise<void>;
 };
 const note=z.object({id:z.number(),body:z.string(),author:z.object({username:z.string()}),position:z.object({new_path:z.string(),new_line:z.number().nullable(),head_sha:z.string().optional()}).nullish()});
@@ -48,10 +51,13 @@ function parseReceipt(body:string){const match=body.match(/^OpenReview native ap
 class GitlabError extends Error {constructor(readonly status:number,endpoint:string){super("GitLab "+status+" at "+endpoint.split("?")[0]);}}
 export class Gitlab implements Scm {
  readonly supportsApproval=true;
- constructor(private base:string,private token:string,private project?:string){}
+ // `base` is the external web URL (links); API calls go to network.apiUrl when the instance has a
+ // separate internal API address, through the configured CA bundle and proxy (src/scm-transport.ts).
+ private api:string;private send:ReturnType<typeof scmFetch>;
+ constructor(private base:string,private token:string,private project?:string,network:ScmNetwork={},deps?:TransportDeps){this.api=network.apiUrl??base;this.send=scmFetch(network,deps);}
  async request<T>(endpoint:string,schema:z.ZodType<T>,body?:unknown,method?:"PUT"|"DELETE"):Promise<T>{
   if(!endpoint.startsWith("/")||endpoint.startsWith("//")||endpoint.includes("://"))throw new Error("Invalid provider API path");
-  const response=await fetch(this.base+"/api/v4"+endpoint,{method:method??(body===undefined?"GET":"POST"),redirect:"error",headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
+  const response=await this.send(this.api+"/api/v4"+endpoint,{method:method??(body===undefined?"GET":"POST"),headers:{"PRIVATE-TOKEN":this.token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(60000)});
   if(!response.ok)throw new GitlabError(response.status,endpoint);
   return schema.parse(response.status===204?null:await response.json());
  }
@@ -157,7 +163,7 @@ export class Gitlab implements Scm {
   if(!/^[a-f0-9]{40}$/.test(sha))throw new Error("Runtime archive requires an exact Git commit");
   const endpoint=this.prefix(repo)+"/repository/archive.tar.gz?sha="+sha+"&include_lfs_blobs=false";
   // Node fetch defaults to Sec-Fetch-Mode: cors, which GitLab's archive hotlink detector rejects.
-  const response=await fetch(this.base+"/api/v4"+endpoint,{mode:"same-origin",headers:{"PRIVATE-TOKEN":this.token},redirect:"error",signal:AbortSignal.timeout(60000)});
+  const response=await this.send(this.api+"/api/v4"+endpoint,{mode:"same-origin",headers:{"PRIVATE-TOKEN":this.token},signal:AbortSignal.timeout(60000)});
   if(!response.ok||Number(response.headers.get("content-length")??0)>20000000){await response.body?.cancel();throw new Error("Runtime archive unavailable or too large");}
   const reader=response.body?.getReader();if(!reader)throw new Error("Runtime archive missing");
   const parts:Uint8Array[]=[];let size=0;

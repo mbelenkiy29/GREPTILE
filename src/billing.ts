@@ -1,3 +1,4 @@
+import { assertEgress } from "./egress";
 // Cloud billing (Stripe). Disabled unless BILLING_ENABLED=true, which is the self-host default.
 // A workspace's app-level trial starts with its first billable action (first review or checkout).
 // The Starter plan is a per-seat subscription with unlimited reviews under a monthly fair-use limit.
@@ -26,6 +27,8 @@ export function billingDecision(account: BillingAccount, used: number, now: numb
   return { allowed: true, plan: "trial", limit: config.trialReviews, used };
 }
 
+/** A linked Stripe subscription that has not ended yet, so Stripe can still charge for it. */
+export const openSubscription = (account: { subscriptionId?: string; status: string } | null | undefined) => Boolean(account?.subscriptionId) && !["canceled", "incomplete_expired"].includes(account!.status);
 /** When a trial that has not started yet would end if it started now. */
 export const trialEndsFrom = (now: number, config: BillingConfig) => now + config.trialDays * 86400000;
 /** Checkout carries the remaining app trial into the subscription; Stripe needs it 48+ hours out. */
@@ -66,6 +69,7 @@ export function formEncode(params: Record<string, unknown>, prefix = ""): string
 }
 export async function stripe<T>(path: string, params: Record<string, unknown>, key: string, fetchImpl: typeof fetch = fetch, idempotencyKey?: string): Promise<T> {
   if (!/^\/v1\/[a-z_/]+[a-zA-Z0-9_/]*$/.test(path)) throw new Error("Invalid Stripe API path");
+  assertEgress("billing", "Stripe billing");
   const response = await fetchImpl("https://api.stripe.com" + path, { method: "POST", redirect: "error", headers: { authorization: `Bearer ${key}`, "stripe-version": STRIPE_API_VERSION, "content-type": "application/x-www-form-urlencoded", ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}) }, body: formEncode(params).join("&"), signal: AbortSignal.timeout(20000) });
   const data = (await response.json().catch(() => null)) as T & { error?: { type?: string } } | null;
   if (!response.ok || !data) throw new Error(`Stripe request failed (${response.status}${data?.error?.type ? ` ${data.error.type}` : ""})`);

@@ -50,6 +50,14 @@ export const settingsValidator = v.object({
   fixPullRequests:v.optional(v.boolean()),
   threadReplies:v.optional(v.boolean()),
   securityScan:v.optional(v.boolean()),
+  summaryPlacement:v.optional(v.string()),
+  checkMinimumScore:v.optional(v.number()),
+  aiAuthoredModel:v.optional(v.string()),
+  maxReviewTier:v.optional(v.string()),
+  agentTurns:v.optional(v.number()),
+  agentToolCalls:v.optional(v.number()),
+  hypothesisTurns:v.optional(v.number()),
+  hypothesisToolCalls:v.optional(v.number()),
 });
 export const runtimePolicyValidator=v.object({enabled:v.boolean(),image:v.string(),command:v.string(),timeout:v.number(),requiredForApproval:v.boolean(),generatedTests:v.optional(v.boolean()),testCommand:v.optional(v.string())});
 export const approvalPolicyValidator=v.object({enabled:v.boolean(),maximumRisk:v.union(v.literal("low"),v.literal("medium"),v.literal("high")),excludedPaths:v.array(v.string()),excludedAuthors:v.array(v.string()),requiredChecks:v.array(v.object({name:v.string(),appId:v.optional(v.number())}))});
@@ -99,7 +107,9 @@ export default defineSchema({
     // Generated reproduction tests (kind "tests"): never committed; results attach to their findings.
     kind:v.optional(v.literal("tests")),tests:v.optional(v.array(v.object({fingerprint:v.string(),path:v.string(),content:v.string(),command:v.string()}))),testResults:v.optional(v.array(v.object({fingerprint:v.string(),evidence:v.optional(runtimeEvidenceValidator),error:v.optional(v.string())}))),
     createdAt:v.number(),updatedAt:v.number()}).index("by_review",["reviewId"]).index("by_org_status",["organizationId","status"]).index("by_status",["status"]),
-  providerConnections: defineTable({organizationId:org,kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string(),installationId:v.optional(v.string()),namespaceId:v.optional(v.string()),forgeEventAt:v.optional(v.number()),forgeRefreshAt:v.optional(v.number()),suspended:v.optional(v.boolean()),active:v.boolean(),createdAt:v.number(),lastEventAt:v.optional(v.number()),error:v.optional(v.string())}).index("by_org",["organizationId"]).index("by_installation",["kind","installationId"]),
+  // Self-managed GitLab network settings (src/scm-transport.ts): `instance` is the external web URL, `apiUrl` an
+  // optional internal API URL, `caBundle` extra trusted PEM certificates, `proxyUrl` an operator-allowed proxy.
+  providerConnections: defineTable({organizationId:org,kind:v.string(),instance:v.string(),name:v.string(),credentials:v.string(),webhookSecret:v.string(),apiUrl:v.optional(v.string()),caBundle:v.optional(v.string()),proxyUrl:v.optional(v.string()),installationId:v.optional(v.string()),namespaceId:v.optional(v.string()),forgeEventAt:v.optional(v.number()),forgeRefreshAt:v.optional(v.number()),suspended:v.optional(v.boolean()),active:v.boolean(),createdAt:v.number(),lastEventAt:v.optional(v.number()),error:v.optional(v.string())}).index("by_org",["organizationId"]).index("by_installation",["kind","installationId"]),
   providerReceipts: defineTable({jti:v.string(),expiresAt:v.number()}).index("by_jti",["jti"]),
   providerInstallRequests:defineTable({organizationId:org,userId:v.id("users"),tokenHash:v.string(),expiresAt:v.number(),consumed:v.boolean(),createdAt:v.number()}).index("by_hash",["tokenHash"]),
   providerIdentityGrants:defineTable({repositoryId:repo,connectionId:v.id("providerConnections"),userId:v.id("users"),digest:v.string(),tokenHash:v.string(),expiresAt:v.number(),consumed:v.boolean()}).index("by_hash",["tokenHash"]),
@@ -107,11 +117,16 @@ export default defineSchema({
   p4Identities:defineTable({organizationId:org,repositoryId:repo,connectionId:v.id("providerConnections"),userId:v.id("users"),username:v.string(),credentials:v.optional(v.string()),connectionDigest:v.string(),active:v.boolean(),generation:v.number(),expiresAt:v.number(),createdAt:v.number(),updatedAt:v.number()}).index("by_repo_user",["repositoryId","userId"]).index("by_repo_username",["repositoryId","username"]).index("by_user",["userId"]),
   p4Polls:defineTable({organizationId:org,repositoryId:repo,requestedBy:v.id("users"),connectionId:v.id("providerConnections"),credentialDigest:v.string(),baselineJobId:v.id("indexJobs"),enabled:v.boolean(),generation:v.number(),status:v.string(),cursor:v.optional(v.number()),pending:v.array(v.number()),position:v.number(),pages:v.number(),scanned:v.number(),skipped:v.number(),diagnostics:v.array(v.object({nativeNumber:v.number(),reason:v.string()})),attempts:v.number(),error:v.optional(v.string()),scheduledId:v.optional(v.id("_scheduled_functions")),nextAt:v.optional(v.number()),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()})),lastCompleteAt:v.optional(v.number()),updatedAt:v.number(),createdAt:v.number()}).index("by_repo",["repositoryId"]).index("by_org",["organizationId"]).index("by_enabled",["enabled"]),
   providerEvents: defineTable({connectionId:v.id("providerConnections"),externalId:v.string(),body:v.string(),eventType:v.optional(v.string()),status:v.string(),error:v.optional(v.string()),createdAt:v.number(),updatedAt:v.optional(v.number()),attempts:v.number()}).index("by_delivery",["connectionId","externalId"]).index("by_connection_created",["connectionId","createdAt"]).index("by_status",["status"]),
-  teams: defineTable({ organizationId: org, name: v.string(), externalKey: v.optional(v.string()), createdAt: v.number() }).index("by_org", ["organizationId"]),
+  teams: defineTable({ organizationId: org, name: v.string(), externalKey: v.optional(v.string()), autoEnableRepositories: v.optional(v.boolean()), createdAt: v.number() }).index("by_org", ["organizationId"]),
   teamMembers: defineTable({ organizationId: org, teamId: v.id("teams"), userId: v.id("users"), role: v.union(v.literal("admin"), v.literal("member"), v.literal("viewer")) }).index("by_team", ["teamId"]).index("by_team_user", ["teamId", "userId"]),
   scopeSettings: defineTable({ organizationId: org, teamId: v.optional(v.id("teams")), settings: settingsValidator, overrideKeys: v.array(v.string()) }).index("by_org", ["organizationId"]).index("by_team", ["teamId"]),
   repositoryClusters: defineTable({ organizationId: org, name: v.string(), repositoryIds: v.array(repo), createdAt: v.number() }).index("by_org", ["organizationId"]),
+  // Proposed clusters (from manifests and names); applied only when an admin approves one.
+  clusterSuggestions: defineTable({ organizationId: org, key: v.string(), name: v.string(), repositoryIds: v.array(repo), reasons: v.array(v.object({ kind: v.string(), detail: v.string() })), score: v.number(), status: v.string() /* suggested | approved | dismissed | stale */, clusterId: v.optional(v.id("repositoryClusters")), decidedBy: v.optional(v.id("users")), createdAt: v.number(), updatedAt: v.number() }).index("by_org_status", ["organizationId", "status"]).index("by_org_key", ["organizationId", "key"]),
   auditEvents: defineTable({ organizationId: org, userId: v.optional(v.id("users")), action: v.string(), target: v.string(), createdAt: v.number() }).index("by_org", ["organizationId"]),
+  // A developer's own third-party agent credentials (Devin), encrypted by the web server with
+  // CREDENTIAL_ENCRYPTION_KEY under the scope `<userId>:<kind>`; Convex never sees the plain value.
+  personalCredentials: defineTable({ userId: v.id("users"), kind: v.string(), ciphertext: v.string(), updatedAt: v.number() }).index("by_user_kind", ["userId", "kind"]),
   personalSettings: defineTable({ userId: v.id("users"), agent: v.union(v.literal("codex"), v.literal("claude"), v.literal("cursor")), updatedAt: v.number() }).index("by_user", ["userId"]),
   bridgeDevices: defineTable({ tokenHash: v.string(), code: v.string(), userId: v.optional(v.id("users")), organizationId: v.optional(org), name: v.string(), expiresAt: v.number(), revoked: v.boolean(), createdAt: v.number(), lastSeen: v.optional(v.number()) }).index("by_hash", ["tokenHash"]).index("by_code", ["code"]).index("by_user", ["userId"]),
   fixRequests: defineTable({ userId: v.id("users"), organizationId: org, repositoryId: repo, reviewId: review, headSha: v.string(), findingIds: v.optional(v.array(v.id("findings"))), agent: v.string(), prompt: v.string(), status: v.string(), error: v.optional(v.string()), deviceId: v.optional(v.id("bridgeDevices")), expiresAt: v.number(), createdAt: v.number(), updatedAt: v.number() }).index("by_user", ["userId"]).index("by_review", ["reviewId"]),
@@ -190,7 +205,7 @@ export default defineSchema({
   // email on both sides, so an unverified address can never take over an existing user.
   identities: defineTable({
     userId: v.id("users"),
-    provider: v.string(), // github | gitlab | google | email
+    provider: v.string(), // github | gitlab | google | email | sso (providerUserId = <connectionId>:<subject>)
     providerUserId: v.string(),
     email: v.optional(v.string()),
     emailVerified: v.boolean(),
@@ -206,7 +221,31 @@ export default defineSchema({
     createdAt: v.number(),
     expiresAt: v.number(),
     revokedAt: v.optional(v.number()),
+    // Set for sessions started through a workspace's SSO connection (enforcement checks it).
+    ssoConnectionId: v.optional(v.id("ssoConnections")),
   }).index("by_hash", ["hash"]).index("by_user", ["userId"]),
+  // Per-workspace single sign-on (M2). One connection per workspace; the OIDC client secret is stored
+  // encrypted by the web server. Domains are proven with a DNS TXT record before they count.
+  ssoConnections: defineTable({
+    organizationId: org,
+    protocol: v.string(), // saml | oidc
+    name: v.string(),
+    active: v.boolean(),
+    enforce: v.boolean(),
+    jitRole: v.optional(v.string()), // member | viewer; absent = no just-in-time membership
+    samlEntryPoint: v.optional(v.string()),
+    samlIdpCert: v.optional(v.string()),
+    samlIdpIssuer: v.optional(v.string()),
+    oidcIssuer: v.optional(v.string()),
+    oidcClientId: v.optional(v.string()),
+    oidcClientSecret: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
+  ssoDomains: defineTable({ organizationId: org, connectionId: v.id("ssoConnections"), domain: v.string(), token: v.string(), verifiedAt: v.optional(v.number()), createdAt: v.number() }).index("by_domain", ["domain"]).index("by_connection", ["connectionId"]),
+  // SAML request IDs we issued (InResponseTo, single use) and assertion IDs we accepted (replay).
+  ssoRequests: defineTable({ key: v.string(), value: v.string(), expiresAt: v.number() }).index("by_key", ["key"]),
+  ssoAssertions: defineTable({ connectionId: v.id("ssoConnections"), assertionId: v.string(), expiresAt: v.number() }).index("by_assertion", ["connectionId", "assertionId"]),
   // Email invitations and magic links: single-use, expiring, stored as token hashes only.
   emailInvitations: defineTable({
     organizationId: org,
@@ -223,7 +262,9 @@ export default defineSchema({
   loginTokens: defineTable({ email: v.string(), tokenHash: v.string(), expiresAt: v.number(), usedAt: v.optional(v.number()), createdAt: v.number() }).index("by_token", ["tokenHash"]),
   // onboarding: guided setup progress for workspaces created with it (absent on older workspaces,
   // which are never sent to setup). reviewsPaused marks automatic reviews held off while indexing.
-  organizations: defineTable({ name: v.string(), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), onboarding:v.optional(v.object({startedAt:v.number(),step:v.optional(v.string()),reviewsPaused:v.optional(v.boolean()),completedAt:v.optional(v.number()),completedBy:v.optional(v.id("users")),skipped:v.optional(v.boolean())})), createdAt: v.number() }),
+  organizations: defineTable({ name: v.string(), autoEnableRepositories: v.optional(v.boolean()), dataSharing: v.optional(v.string()) /* private (default) | aggregate */, reviewRetentionDays: v.optional(v.number()), transcriptRetentionDays: v.optional(v.number()), defaultAgent:v.optional(codingAgentValidator), onboardingRepositoryIds:v.optional(v.array(repo)), analyticsMinutesPerFinding:v.optional(v.number()), onboarding:v.optional(v.object({startedAt:v.number(),step:v.optional(v.string()),reviewsPaused:v.optional(v.boolean()),completedAt:v.optional(v.number()),completedBy:v.optional(v.id("users")),skipped:v.optional(v.boolean())})), createdAt: v.number() }),
+  // Workspace deletion receipts (M3): survive the purge; step + cursor make the purge resumable.
+  workspaceDeletions: defineTable({ organizationId: org, name: v.string(), requestedBy: v.id("users"), requestedAt: v.number(), scheduledFor: v.number(), scheduledId: v.optional(v.id("_scheduled_functions")), status: v.string() /* scheduled | cancelled | purging | done */, step: v.number(), cursor: v.optional(v.string()), counts: v.record(v.string(), v.number()), startedAt: v.optional(v.number()), cancelledAt: v.optional(v.number()), completedAt: v.optional(v.number()) }).index("by_org", ["organizationId"]),
   // Daily analytics rollup per (repository, UTC day, PR author), recomputed from raw tables for
   // recent days by a cron; dashboards read only these rows.
   analyticsDaily: defineTable({
@@ -238,6 +279,9 @@ export default defineSchema({
     addressed: v.number(),
     useful: v.number(),
     notUseful: v.number(),
+    // Outcome signals recorded that day: fixed by a follow-up commit / merged with the finding open.
+    commitAddressed: v.optional(v.number()),
+    ignored: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_org_day", ["organizationId", "day"]),
   organizationMembers: defineTable({
@@ -272,7 +316,7 @@ export default defineSchema({
     conventionsCursor: v.optional(v.number()),
     conventionsSyncedAt: v.optional(v.number()),
     // Latest repository config file read from a pull request base revision (for the dashboard).
-    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number() })),
+    configFile: v.optional(v.object({ sha: v.string(), files: v.array(v.string()), applied: v.array(v.string()), blocked: v.array(v.string()), warnings: v.array(v.string()), values: v.string(), rules: v.number(), checkedAt: v.number(), cascade: v.optional(v.string()) })),
     branches: v.optional(
       v.array(
         v.object({ name: v.string(), sha: v.string(), protected: v.boolean() }),
@@ -427,6 +471,11 @@ export default defineSchema({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
     verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     requirementsNotMet: v.optional(v.number()),
+    // K2: a tier asked for by an @openreview command or an openreview:<tier> label, and the tier used.
+    requestedMode: v.optional(v.union(v.literal("fast"),v.literal("standard"),v.literal("deep"))),
+    requestedModeSource: v.optional(v.union(v.literal("comment"), v.literal("label"))),
+    modeDecision: v.optional(v.object({ mode: v.string(), source: v.string(), capped: v.boolean(), requested: v.string() })),
+    aiAuthored: v.optional(v.object({ agent: v.string(), kind: v.string(), detail: v.string(), model: v.optional(v.string()) })),
     // Ordinal among this pull request's published reviews, fixed at first publication.
     reviewNumber: v.optional(v.number()),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
@@ -463,6 +512,8 @@ export default defineSchema({
     // GitHub check run created for this review's head (checks:write only).
     checkRunId: v.optional(v.number()),
     trigger: v.optional(v.string()),
+    // GitHub comment that asked for this review ("@openreview review"); it gets 👍 when the review is published.
+    triggerComment: v.optional(v.object({ id: v.number(), inline: v.boolean() })),
     checkRunHead: v.optional(v.string()),
     repositoryContext:v.optional(repositoryContextValidator),
     nativeP4: v.optional(v.object({requestedBy:v.id("users"),connectionId:v.id("providerConnections"),credentialDigest:v.string(),baselineJobId:v.id("indexJobs"),inputStorageId:v.id("_storage"),polling:v.optional(p4PollingReference),lease:v.optional(v.object({id:v.string(),expiresAt:v.number()}))})),
@@ -649,6 +700,23 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_finding", ["findingId"]),
+  // Learning from commits: one outcome per finding. "addressed" = a later commit changed the flagged
+  // lines and the fix was verified; "ignored" = merged while still open with no human feedback.
+  findingSignals: defineTable({
+    organizationId: org,
+    repositoryId: repo,
+    findingId: v.id("findings"),
+    prNumber: v.number(),
+    signal: v.string(), // addressed | ignored
+    category: v.string(),
+    severity: v.string(),
+    author: v.optional(v.string()),
+    commitSha: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_finding", ["findingId"])
+    .index("by_repo_category", ["repositoryId", "category", "createdAt"])
+    .index("by_org_time", ["organizationId", "createdAt"]),
   learnedPreferences: defineTable({
     organizationId: org,
     repositoryId: repo,
@@ -671,7 +739,11 @@ export default defineSchema({
     .index("by_org_scope", ["organizationId", "scope"]),
   customRules: defineTable({
     organizationId: org,
+    // Scope (K4): none = workspace, repositoryId = one repository, teamId = the team's repositories,
+    // repositoryPattern = repositories whose full name matches the glob.
     repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
     title: v.string(),
     instructions: v.string(),
     category: v.string(),
@@ -682,6 +754,48 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_repo", ["repositoryId"]),
+  // AI rule assistant: admin-requested runs and the suggestions they produce. Nothing changes a rule
+  // until an admin approves the suggestion.
+  ruleAssistantRuns: defineTable({
+    organizationId: org,
+    kind: v.string(), // draft | refine | suggest
+    status: v.string(), // pending | completed | failed
+    description: v.optional(v.string()),
+    repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
+    suggestions: v.optional(v.number()),
+    rejected: v.optional(v.array(v.object({ title: v.string(), reason: v.string() }))),
+    error: v.optional(v.string()),
+    requestedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_time", ["organizationId", "createdAt"]),
+  ruleSuggestions: defineTable({
+    organizationId: org,
+    runId: v.id("ruleAssistantRuns"),
+    kind: v.string(), // draft | refine | suggest | flag
+    status: v.string(), // suggested | approved | rejected | stale
+    title: v.string(),
+    instructions: v.string(),
+    category: v.string(),
+    severity: v.string(),
+    globs: v.array(v.string()),
+    repositoryId: v.optional(repo),
+    teamId: v.optional(v.id("teams")),
+    repositoryPattern: v.optional(v.string()),
+    targetRuleId: v.optional(v.id("customRules")),
+    base: v.optional(v.object({ title: v.string(), instructions: v.string() })),
+    rationale: v.string(),
+    issues: v.array(v.object({ kind: v.string(), detail: v.string(), ruleId: v.optional(v.string()) })),
+    sources: v.array(v.object({ kind: v.string(), label: v.string(), ids: v.array(v.string()), detail: v.optional(v.string()) })),
+    ruleId: v.optional(v.id("customRules")),
+    decidedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_run", ["runId"]),
   // Feature tips shown in review footers (one per review); drives the per-repository cooldown.
   featureTips: defineTable({ organizationId: org, repositoryId: repo, reviewId: review, key: v.string(), ticket: v.optional(v.string()), shownAt: v.number() })
     .index("by_repo_time", ["repositoryId", "shownAt"])
@@ -759,6 +873,11 @@ export default defineSchema({
   })
     .index("by_delivery", ["deliveryId"])
     .index("by_status", ["status"]),
+  // OAuth for the remote MCP endpoint. Secrets (codes, tokens) are stored only as SHA-256 hashes.
+  oauthClients: defineTable({ clientId: v.string(), name: v.string(), redirectUris: v.array(v.string()), kind: v.string() /* registered | metadata */, fetchedAt: v.optional(v.number()), createdAt: v.number() }).index("by_client", ["clientId"]),
+  oauthCodes: defineTable({ hash: v.string(), clientId: v.string(), clientName: v.string(), redirectUri: v.string(), codeChallenge: v.string(), resource: v.string(), scopes: v.array(v.string()), organizationId: org, userId: v.id("users"), expiresAt: v.number(), used: v.boolean(), grantId: v.optional(v.id("oauthGrants")) }).index("by_hash", ["hash"]),
+  oauthGrants: defineTable({ organizationId: org, userId: v.id("users"), clientId: v.string(), clientName: v.string(), scopes: v.array(v.string()), resource: v.string(), revoked: v.boolean(), createdAt: v.number(), refreshedAt: v.optional(v.number()) }).index("by_org_user", ["organizationId", "userId"]).index("by_org", ["organizationId"]),
+  oauthTokens: defineTable({ hash: v.string(), grantId: v.id("oauthGrants"), kind: v.string() /* access | refresh */, expiresAt: v.number(), used: v.optional(v.boolean()) }).index("by_hash", ["hash"]).index("by_grant", ["grantId"]),
   apiKeys: defineTable({
     organizationId: org,
     userId: v.id("users"),

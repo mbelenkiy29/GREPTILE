@@ -56,14 +56,15 @@ test('requests without a valid API key are rejected before any MCP handling',asy
  for(const key of [undefined,'or_unknown',keys.revoked]){
   const response=await raw(key);
   expect(response.status).toBe(401);
-  expect(response.headers.get('www-authenticate')).toBe('Bearer realm="openreview"');
+  // RFC 9728 challenge: where to find the protected-resource metadata and which scope to request.
+  expect(response.headers.get('www-authenticate')).toMatch(new RegExp(`^Bearer ${key?'error="invalid_token", ':''}resource_metadata="https?://[^"]+/\\.well-known/oauth-protected-resource/api/mcp", scope="read"$`));
  }
  await expect(connect()).rejects.toThrow();
  expect((await GET()).status).toBe(405);
  // The initialize handshake succeeds with a key.
  const ok=await raw(keys.read);
  expect(ok.status).toBe(200);
- expect((await ok.json()).result.serverInfo).toEqual({name:'openreview',version:'0.2.0'});
+ expect((await ok.json()).result.serverInfo).toEqual({name:'openreview',version:'0.3.0'});
 });
 
 test('tools/list exposes the stdio tools plus ask_codebase and search_code',async()=>{

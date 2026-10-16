@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assertEgress } from "./egress";
 
 // Notion public-integration OAuth (https://developers.notion.com/docs/authorization) and read-only
 // page retrieval. Pages are reachable only if the user shared them with the integration in
@@ -24,12 +25,14 @@ const tokenResponse = z.object({ access_token: z.string().min(10), token_type: z
 export async function notionToken(clientId: string, clientSecret: string, grant: { code: string; redirectUri: string } | { refreshToken: string }, fetchImpl: typeof fetch = fetch) {
   if (!clientId || !clientSecret) throw new Error("Configure NOTION_CLIENT_ID and NOTION_CLIENT_SECRET");
   const body = "code" in grant ? { grant_type: "authorization_code", code: grant.code, redirect_uri: callback(grant.redirectUri) } : { grant_type: "refresh_token", refresh_token: grant.refreshToken };
+  assertEgress("integrations", "Notion");
   const response = await fetchImpl("https://api.notion.com/v1/oauth/token", { method: "POST", redirect: "error", headers: { authorization: basic(clientId, clientSecret), "content-type": "application/json", "notion-version": notionVersion }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new NotionError(`Notion token request failed (${response.status})`, response.status);
   const result = tokenResponse.parse(await response.json());
   return { credentials: { accessToken: result.access_token, refreshToken: result.refresh_token ?? null, expiresAt: Date.now() + 365 * 86400000 } satisfies NotionCredentials, workspaceId: result.workspace_id, workspaceName: result.workspace_name || "Notion workspace" };
 }
 export async function revokeNotion(clientId: string, clientSecret: string, token: string, fetchImpl: typeof fetch = fetch) {
+  assertEgress("integrations", "Notion");
   const response = await fetchImpl("https://api.notion.com/v1/oauth/revoke", { method: "POST", redirect: "error", headers: { authorization: basic(clientId, clientSecret), "content-type": "application/json", "notion-version": notionVersion }, body: JSON.stringify({ token }), signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new NotionError(`Notion revocation failed (${response.status})`, response.status);
 }
@@ -76,6 +79,7 @@ export class Notion {
   constructor(private accessToken: string, private fetchImpl: typeof fetch = fetch) { if (!accessToken) throw new Error("Notion access token required"); }
   private async request<T>(path: string, schema: z.ZodType<T>, body?: unknown): Promise<T> {
     if (!path.startsWith("/v1/")) throw new Error("Invalid Notion API path");
+    assertEgress("integrations", "Notion");
     const response = await this.fetchImpl("https://api.notion.com" + path, { method: body === undefined ? "GET" : "POST", redirect: "error", headers: { authorization: "Bearer " + this.accessToken, "notion-version": notionVersion, accept: "application/json", ...(body === undefined ? {} : { "content-type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new NotionError(`Notion API request failed (${response.status})`, response.status);
     const raw = await response.text();

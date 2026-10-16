@@ -12,7 +12,8 @@
 ## Sign-in and sign-up pages
 
 - **Pages:** `/login` ("Sign in to OpenReview") and `/signup` ("Create your account") offer the same choices and link to each other.
-  - **Order:** the configured providers come first, GitHub on top, then the emailed sign-in link when email is configured.
+  - **Order:** the configured providers come first, GitHub on top, then the emailed sign-in link when email is configured. **Use single sign-on** takes a work email and continues with the workspace's SAML or OIDC provider.
+  - **Offline installs:** with `OPENREVIEW_OFFLINE=true`, Google is not offered.
   - **Same flow:** there is no separate registration. A provider identity seen for the first time creates the account, and a new account starts guided setup.
   - **Trial note:** with billing on, `/signup` mentions the free trial.
 - **Where visitors land:**

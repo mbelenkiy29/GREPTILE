@@ -12,3 +12,4 @@ output/
 .vercel/
 .vercel
 forge/bitbucket/static/build/
+deploy/grammars/

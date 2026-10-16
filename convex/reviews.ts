@@ -10,7 +10,8 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories } from "./auth";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import { recordSignals } from "./commitSignals";
 import {p4FixAuthority} from "./p4FixAuthority";
 import { eligibleFixFinding } from "../src/fix-prompt";
 import { effectiveSettings } from "./scopes";
@@ -49,6 +50,9 @@ export const enqueue = internalMutation({
     runtimeEvidence: v.optional(runtimeEvidenceValidator),
     // How the review was requested: automatic/label reviews honour size limits; mention bypasses them.
     trigger: v.optional(v.union(v.literal("automatic"), v.literal("label"), v.literal("mention"), v.literal("manual"))),
+    triggerComment: v.optional(v.object({ id: v.number(), inline: v.boolean() })),
+    requestedMode: v.optional(v.union(v.literal("fast"),v.literal("standard"),v.literal("deep"))),
+    requestedModeSource: v.optional(v.union(v.literal("comment"), v.literal("label"))),
   },
   handler: async (ctx, args) => {
     if (args.runtimeEvidence) {
@@ -95,7 +99,10 @@ export const enqueue = internalMutation({
     // Cloud billing quota (no-op when BILLING_ENABLED is unset): a blocked review is recorded
     // as failed with the billing reason instead of running.
     const allowance = await reviewAllowance(ctx, repo.organizationId);
-    if (!allowance.allowed) return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
+    if (!allowance.allowed) {
+      if (args.trigger && args.trigger !== "manual") await ctx.scheduler.runAfter(0, internal.jobs.billingNotice, { repositoryId: repo._id, prNumber: args.prNumber });
+      return ctx.db.insert("reviews", { organizationId: repo.organizationId, repositoryId: repo._id, prNumber: args.prNumber, headSha: args.headSha, revisionKey: args.revisionKey, status: "failed", error: allowance.reason, mode: config.mode, ...(args.trigger ? { trigger: args.trigger } : {}), attempts: 0, createdAt: Date.now(), updatedAt: Date.now(), finishedAt: Date.now() });
+    }
     const reviewId = await ctx.db.insert("reviews", {
       organizationId: repo.organizationId,
       repositoryId: repo._id,
@@ -105,8 +112,10 @@ export const enqueue = internalMutation({
       status: "queued",
       mode: config.mode,
       category: args.category,
+      ...(args.requestedMode ? { requestedMode: args.requestedMode, requestedModeSource: args.requestedModeSource ?? "comment" } : {}),
       runtimeEvidence: args.runtimeEvidence,
       ...(args.trigger ? { trigger: args.trigger } : {}),
+      ...(args.triggerComment ? { triggerComment: args.triggerComment } : {}),
       attempts: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -288,6 +297,8 @@ export const save = internalMutation({
     reviewScore: v.optional(v.object({value:v.number(),reason:v.string()})),
     verdict: v.optional(v.union(v.literal("ready"),v.literal("fixes"),v.literal("changes"),v.literal("incomplete"))),
     requirementsNotMet: v.optional(v.number()),
+    aiAuthored: v.optional(v.object({ agent: v.string(), kind: v.string(), detail: v.string(), model: v.optional(v.string()) })),
+    modeDecision: v.optional(v.object({ mode: v.string(), source: v.string(), capped: v.boolean(), requested: v.string() })),
     approvalAssessment: v.optional(v.object({risk:v.union(v.literal("low"),v.literal("medium"),v.literal("high"),v.literal("unknown")),confidence:v.number(),reason:v.string()})),
     coverageLimits: v.optional(v.array(v.string())),
     reviewId: v.id("reviews"),
@@ -295,6 +306,8 @@ export const save = internalMutation({
     summary: v.string(),
     findings: v.array(findingValidator),
     resolved: v.array(v.string()),
+    // Resolved fingerprints whose flagged lines a commit since the last reviewed head changed (K6).
+    addressed: v.optional(v.array(v.string())),
     usage: v.array(usageValidator),
   },
   handler: async (ctx, args) => {
@@ -315,6 +328,8 @@ export const save = internalMutation({
       reviewScore: args.reviewScore ? reviewScoreSchema.parse(args.reviewScore) : undefined,
       verdict: args.verdict,
       requirementsNotMet: args.requirementsNotMet,
+      aiAuthored: args.aiAuthored,
+      modeDecision: args.modeDecision,
       approvalAssessment: args.approvalAssessment ? approvalAssessmentSchema.parse(args.approvalAssessment) : undefined,
       coverageLimits: args.coverageLimits,
       findingCount: args.findings.length,
@@ -358,6 +373,7 @@ export const save = internalMutation({
       else await ctx.db.patch(exists._id,{...f,outsideDiff:f.outsideDiff,reviewId:review._id,status:"open",updatedAt:Date.now()});
       await ctx.db.insert("reviewFindings",{reviewId:review._id,findingId:findingId!,snapshot:f});
     }
+    const addressed: Doc<"findings">[] = [];
     for (const fingerprint of args.resolved) {
       const f = await ctx.db
         .query("findings")
@@ -368,12 +384,15 @@ export const save = internalMutation({
             .eq("fingerprint", fingerprint),
         )
         .first();
-      if (f)
+      if (f) {
         await ctx.db.patch(f._id, {
           status: "resolved",
           updatedAt: Date.now(),
         });
+        if (args.addressed?.includes(fingerprint)) addressed.push(f);
+      }
     }
+    if (addressed.length) await recordSignals(ctx, addressed, "addressed", review.headSha);
   },
 });
 export const backfillFindings=internalMutation({args:{reviewId:v.id("reviews"),storageId:v.id("_storage"),findings:v.array(findingValidator)},handler:async(ctx,a)=>{

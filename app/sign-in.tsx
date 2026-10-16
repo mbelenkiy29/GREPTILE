@@ -12,13 +12,20 @@ export function SignInOptions({ next, mode = "login" }: { next?: string; mode?: 
     {providers.map((p, i) => <a key={p} className={`button sign-in-provider${i === 0 ? " primary" : ""}`} href={providerLoginPaths[p] + q}><ProviderIcon provider={p} /> Continue with {providerNames[p]}</a>)}
     {email && <>
       {providers.length > 0 && <p className="sign-in-divider"><span>or</span></p>}
-      <form action="/api/auth/email" method="post" className="email-sign-in">
+      <form action="/api/auth/email" method="post" className="sign-in-form">
         {next && <input type="hidden" name="next" value={next} />}
         <input type="hidden" name="from" value={mode} />
         <label>Work email<input type="email" name="email" required maxLength={254} autoComplete="email" placeholder="you@company.com" /></label>
         <button>Email me a sign-in link</button>
       </form>
     </>}
+    <details className="sso-sign-in"><summary>Use single sign-on</summary>
+      <form action="/sso/start" method="get" className="sign-in-form">
+        {next && <input type="hidden" name="next" value={next} />}
+        <label>Work email<input type="email" name="email" required maxLength={254} autoComplete="email" placeholder="you@company.com" /></label>
+        <button>Continue with SSO</button>
+      </form>
+    </details>
     <p className="sign-in-legal">By continuing you agree to the <Link href="/terms">Terms of Service</Link> and <Link href="/privacy">Privacy Policy</Link>.</p>
   </div>;
 }

@@ -4,13 +4,14 @@ import {internal} from './_generated/api';
 import {v} from 'convex/values';
 import type {Id} from './_generated/dataModel';
 import {authenticatedProviderIdentity} from '../src/provider-identity';
+import {connectionNetwork} from '../src/scm-transport';
 import {encryptCredential} from '../src/credentials';
 import {service} from './auth';
 import {decryptCredential} from '../src/credentials';
 import {originCredentials,originPersonalIdentity,verifyOriginUserReceipt,originUserAccess,originUserCanReply} from '../src/origin-auth';
 import {providerIdentityDigest} from './providerIdentities';
 export const connect=action({args:{token:v.string(),repositoryId:v.id('repositories'),personalToken:v.string()},handler:async(ctx,a):Promise<Id<'providerIdentities'>>=>{
- const state=await ctx.runQuery(internal.providerIdentities.authorize,{token:a.token,repositoryId:a.repositoryId}),identity=await authenticatedProviderIdentity(state.connection.kind,state.connection.instance,a.personalToken);
+ const state=await ctx.runQuery(internal.providerIdentities.authorize,{token:a.token,repositoryId:a.repositoryId}),identity=await authenticatedProviderIdentity(state.connection.kind,state.connection.instance,a.personalToken,connectionNetwork(state.connection));
  return ctx.runMutation(internal.providerIdentities.save,{token:a.token,repositoryId:a.repositoryId,connectionId:state.connection._id,digest:await providerIdentityDigest(state.connection),...identity,credentials:encryptCredential(a.personalToken,state.repo.organizationId+':provider-personal:'+state.connection._id+':'+state.user._id)});
 }});
 

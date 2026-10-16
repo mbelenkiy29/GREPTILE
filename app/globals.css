@@ -370,7 +370,7 @@ summary:hover {
 form > button {
   align-self: end;
 }
-form:not(.toolbar):not(.form-grid):not(.feedback):not(.email-sign-in) {
+form:not(.toolbar):not(.form-grid):not(.feedback):not(.sign-in-form) {
   display: flex;
   gap: 10px;
   align-items: flex-end;
@@ -1417,19 +1417,27 @@ form.catalog-review {
   flex: 1;
   border-top: 1px solid var(--line);
 }
-.sign-in-options .email-sign-in {
+.sign-in-options .sign-in-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.sign-in-options .email-sign-in label {
+.sign-in-options .sign-in-form label {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.sign-in-options .email-sign-in > button {
+.sign-in-options .sign-in-form > button {
   align-self: stretch;
   min-height: 40px;
+}
+.sso-sign-in summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+.sso-sign-in[open] summary {
+  margin-bottom: 10px;
 }
 .sign-in-legal {
   margin: 4px 0 0;

@@ -14,6 +14,8 @@ export function scopeSettingsFromForm(form:FormData){
   commentStyle:value('commentStyle')||defaults.commentStyle,
   reviewEngine:value('reviewEngine')||defaults.reviewEngine,
   checkFailureSeverity:value('checkFailureSeverity')||defaults.checkFailureSeverity,
+  checkMinimumScore:Number(value('checkMinimumScore')||defaults.checkMinimumScore),
+  summaryPlacement:value('summaryPlacement')||defaults.summaryPlacement,
   triggerLabels:list('triggerLabels'),excludedAuthors:list('excludedAuthors'),
   maxFiles:Number(value('maxFiles')||0),maxChangedLines:Number(value('maxChangedLines')||0),strictness:Number(value('strictness')||0),
   lockedKeys:form.has('lockedConfigured')?form.getAll('lockedKeys').map(String):defaults.lockedKeys,
@@ -21,5 +23,8 @@ export function scopeSettingsFromForm(form:FormData){
   fixPullRequests:form.has('fixPullRequests'),
   threadReplies:form.has('threadRepliesConfigured')?form.has('threadReplies'):defaults.threadReplies,
   securityScan:form.has('securityScanConfigured')?form.has('securityScan'):defaults.securityScan,
+  aiAuthoredModel:value('aiAuthoredModel').trim(),
+  maxReviewTier:value('maxReviewTier')||defaults.maxReviewTier,
+  agentTurns:Number(value('agentTurns')||0),agentToolCalls:Number(value('agentToolCalls')||0),hypothesisTurns:Number(value('hypothesisTurns')||0),hypothesisToolCalls:Number(value('hypothesisToolCalls')||0),
  };
 }

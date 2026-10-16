@@ -38,6 +38,17 @@ export const agentBudgets: Record<ReviewInput["mode"], AgentBudget> = {
   deep: { toolCalls: 80, tokens: 1_200_000, wallMs: 30 * 60_000, turns: 40 },
 };
 export const maxAgentResumes = 6;
+// Operator hard caps on configurable budgets (environment); settings may lower or raise within them.
+export const agentHardCaps = (env: Record<string, string | undefined> = process.env) => ({
+  turns: Math.max(1, Math.min(1000, Number.parseInt(env.AGENT_MAX_TURNS ?? "", 10) || 60)),
+  toolCalls: Math.max(1, Math.min(1000, Number.parseInt(env.AGENT_MAX_TOOL_CALLS ?? "", 10) || 150)),
+});
+export type BudgetSettings = { agentTurns?: number; agentToolCalls?: number; hypothesisTurns?: number; hypothesisToolCalls?: number };
+// Effective turns and tool calls: a setting (0 or absent = the tier default) clamped to 1..hard cap.
+export function configuredBudget(base: AgentBudget, turns: number | undefined, toolCalls: number | undefined, caps = agentHardCaps()): AgentBudget {
+  const clamp = (value: number | undefined, fallback: number, cap: number) => Math.max(1, Math.min(cap, value && value > 0 ? Math.floor(value) : fallback));
+  return { ...base, turns: clamp(turns, base.turns, caps.turns), toolCalls: clamp(toolCalls, base.toolCalls, caps.toolCalls) };
+}
 export type ReportedCandidate = Candidate & { agent: string };
 export type AgentState = {
   version: 1;

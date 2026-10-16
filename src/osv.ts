@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { egressAllowed } from "./egress";
 import type { DependencyChange } from "./dependency-changes";
 import type { Candidate } from "./engine/types";
 
@@ -7,7 +8,7 @@ import type { Candidate } from "./engine/types";
 export const osvBase = "https://api.osv.dev";
 // Outbound advisory lookups; self-hosted installs turn them off with OSV_ENABLED=false (or point
 // OSV_API_URL at a mirror).
-export const osvEnabled = (env: Record<string, string | undefined> = process.env) => env.OSV_ENABLED !== "false";
+export const osvEnabled = (env: Record<string, string | undefined> = process.env) => env.OSV_ENABLED !== "false" && egressAllowed("advisories", env);
 const vulnId = z.string().regex(/^[A-Za-z0-9:._-]{3,100}$/);
 const batchSchema = z.object({ results: z.array(z.object({ vulns: z.array(z.object({ id: vulnId })).optional(), next_page_token: z.string().optional() }).passthrough()) });
 const severity = z.object({ severity: z.string().optional() }).passthrough().optional();

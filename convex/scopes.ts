@@ -5,7 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { authorize, authorizeRepository, visibleRepositories, repositoryAccess, audit } from "./auth";
 import { settingsValidator } from "./schema";
-import { defaults,deploymentDefaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,scopeDefaults } from "../src/review-settings";
+import { defaults,deploymentDefaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,validPublicationSettings,scopeDefaults } from "../src/review-settings";
 import { categories } from "../src/engine/types";
 const keys=Object.keys(defaults);
 export async function providerTeam(ctx:MutationCtx,organizationId:Id<"organizations">,kind:string,instance:string,group:{externalId:string;name:string},userId:Id<"users">){
@@ -46,7 +46,8 @@ export const list=query({args:{token:v.string(),organizationId:v.id("organizatio
   const local=await ctx.db.query("repositorySettings").withIndex("by_repo",q=>q.eq("repositoryId",repo._id)).unique();
   return {...repo,provider:await repositoryIdentity(ctx,repo),settingsInheritance:{mode:local&&!local.inherit?"overrides" as const:"inherited" as const,effective:resolveSettings(repo,settings,local)}};
  }));
- return {teams:teams.filter(t=>allowed.has(t._id)),members:members.filter(m=>allowed.has(m.teamId)),settings:settings.filter(s=>!s.teamId||allowed.has(s.teamId)),clusters:clusters.filter(c=>c.repositoryIds.every(id=>repoIds.has(id))),repositories:configuredRepositories};
+ const organization=await ctx.db.get(a.organizationId);
+ return {autoEnableRepositories:organization?.autoEnableRepositories??false,teams:teams.filter(t=>allowed.has(t._id)),members:members.filter(m=>allowed.has(m.teamId)),settings:settings.filter(s=>!s.teamId||allowed.has(s.teamId)),clusters:clusters.filter(c=>c.repositoryIds.every(id=>repoIds.has(id))),repositories:configuredRepositories};
 }});
 export const createTeam=mutation({args:{token:v.string(),organizationId:v.id("organizations"),name:v.string()},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true);if(!a.name.trim()||a.name.length>100)throw new Error("Team name must be 1–100 characters");const id=await ctx.db.insert("teams",{organizationId:a.organizationId,name:a.name.trim(),createdAt:Date.now()});await audit(ctx,a.organizationId,user._id,"team.created",id);return id;
@@ -61,7 +62,7 @@ export const member=mutation({args:{token:v.string(),teamId:v.id("teams"),userId
 }});
 // Shared by workspace/team scope saves and guided setup.
 export function assertValidSettings(s:Infer<typeof settingsValidator>,overrideKeys:readonly string[]){
- if(overrideKeys.some(k=>!keys.includes(k))||!validSummarySections(s.summarySections)||!validReviewEngine(s.reviewEngine)||!validCheckFailureSeverity(s.checkFailureSeverity)||!validTriggerSettings(s)||s.maxComments<0||s.maxComments>30||!Number.isInteger(s.maxComments)||!Number.isFinite(s.minimumConfidence)||s.minimumConfidence<.5||s.minimumConfidence>1||!["concise","detailed"].includes(s.commentStyle)||s.instructions.length>20000||!["fast","standard","deep"].includes(s.mode)||!["critical","high","medium","low"].includes(s.severityThreshold)||s.categories.some(c=>!(categories as readonly string[]).includes(c)))throw new Error("Invalid settings");
+ if(overrideKeys.some(k=>!keys.includes(k))||!validSummarySections(s.summarySections)||!validReviewEngine(s.reviewEngine)||!validCheckFailureSeverity(s.checkFailureSeverity)||!validPublicationSettings(s)||!validTriggerSettings(s)||s.maxComments<0||s.maxComments>30||!Number.isInteger(s.maxComments)||!Number.isFinite(s.minimumConfidence)||s.minimumConfidence<.5||s.minimumConfidence>1||!["concise","detailed"].includes(s.commentStyle)||s.instructions.length>20000||!["fast","standard","deep"].includes(s.mode)||!["critical","high","medium","low"].includes(s.severityThreshold)||s.categories.some(c=>!(categories as readonly string[]).includes(c)))throw new Error("Invalid settings");
 }
 export const save=mutation({args:{token:v.string(),organizationId:v.id("organizations"),teamId:v.optional(v.id("teams")),settings:settingsValidator,overrideKeys:v.array(v.string())},handler:async(ctx,a)=>{
  const {user}=await authorize(ctx,a.token,a.organizationId,true);if(a.teamId&&(await ctx.db.get(a.teamId))?.organizationId!==a.organizationId)throw new Error("Team not accessible");

@@ -14,6 +14,33 @@ Automatic reviews honor effective Automatic review, draft, target-branch, ignore
 
 Follow-up comments require a current active Developer-or-higher author, including inherited group membership. The bot's own comments, edits, internal/system notes, mismatched actors/projects and changed native discussion bodies are rejected. Finding publications bind GitLab base/start/head revisions and the actual added line. Resume uses only bot-owned revision markers to avoid duplicate inline notes and summaries.
 
+## Behind proxies and private certificate authorities
+
+Self-managed GitLab often sits behind corporate infrastructure. When you connect GitLab, or later under
+the connection's **Network settings**, you can set:
+
+- **Internal API URL.** OpenReview sends API calls here, for example `https://gitlab-api.internal`. The
+  instance URL stays the external web address that people open, and OpenReview uses it in comment
+  links and source links. Both hosts must be listed in `SCM_ALLOWED_HOSTS`.
+- **Custom CA certificates.** Paste the PEM certificates of your private certificate authority. They
+  are added to the public roots; they don't replace them. Certificate verification always stays on.
+  Only certificates are accepted: at most 20, and none of them expired.
+- **HTTPS proxy.** An `http://` or `https://` proxy, without credentials or a path, such as
+  `http://proxy.internal:3128`. HTTPS traffic to GitLab is tunnelled through the proxy with `CONNECT`.
+  The operator must first list the proxy's host and port in `SCM_ALLOWED_PROXIES`, in both the web and
+  Convex environments.
+
+Redirects: OpenReview follows a redirect only when it stays on the same origin (scheme, host and
+port), only for read requests, and at most five times. Any redirect to another host is refused before
+the bot token is sent, and so is any redirect of a write request.
+
+Before saving changed network settings, OpenReview checks that every selected repository is still
+reachable with them. Each change is recorded in the audit log as `provider.network_updated`. Saving
+replaces all three settings, so paste the CA certificates again when you change only the proxy. These
+settings also apply when OpenReview verifies a personal GitLab token that someone linked for
+cross-repository context. They don't
+apply to GitLab sign-in (`GITLAB_OAUTH_URL`), which is configured by the operator.
+
 ## Live self-managed acceptance, 2026-10-03
 
 A disposable private GitLab CE 19.4.1 ARM64 instance was provisioned from the official image, pinned to `sha256:7fff8748a25202c1d38885797510afe055f555856f3f50c2b17466a853be5d24`. Public signup is disabled. The dedicated OpenReview account has inherited Developer access; its credential expires after one day. This instance contains synthetic acceptance source only. It is a test fixture accessed through a temporary HTTPS tunnel, not a production GitLab hosting recommendation.

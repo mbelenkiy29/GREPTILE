@@ -1,4 +1,5 @@
 import { effectiveSettings } from "./scopes";
+import { autoEnableNewRepository } from "./repositoryOnboarding";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -98,6 +99,8 @@ export const lifecycle = internalMutation({
     defaultBranch: v.optional(v.string()),
     prNumber: v.optional(v.number()),
     state: v.optional(v.string()),
+    // GitHub reports merged pull requests as closed with merged=true; other providers send "merged".
+    merged: v.optional(v.boolean()),
     observedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -120,6 +123,7 @@ export const lifecycle = internalMutation({
         )
         .unique();
       if (args.observedAt!==undefined&&pr?.nativeObservedAt!==undefined&&pr.nativeObservedAt>args.observedAt)return;
+      if (args.state === "merged" || (args.state === "closed" && args.merged)) await ctx.scheduler.runAfter(0, internal.commitSignals.recordMerge, { repositoryId: repo._id, prNumber: args.prNumber });
       if (pr)
         await ctx.db.patch(pr._id, {
           state: args.state,
@@ -181,7 +185,8 @@ export const installationEvent = internalMutation({
         continue;
       }
       if (!existing)
-        await ctx.db.insert("repositories", {
+        // Newly installed: disabled unless the workspace (or team) turned on auto-enable.
+        await autoEnableNewRepository(ctx, await ctx.db.insert("repositories", {
           organizationId: install.organizationId,
           installationId: install.installationId,
           githubId: r.id,
@@ -190,7 +195,7 @@ export const installationEvent = internalMutation({
           enabled: false,
           indexStatus: "not_indexed",
           createdAt: Date.now(),
-        });
+        }));
     }
   },
 });

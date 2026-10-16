@@ -30,6 +30,11 @@ test("MCP initializes over stdio and exposes the documented agent tools", async 
         "list_repositories",
         "ask_codebase",
         "search_code",
+        "trigger_review",
+        "list_unresolved_comments",
+        "get_review_status",
+        "add_custom_context",
+        "report",
       ].sort(),
     );
     // Network failures surface as tool errors, never crashes.

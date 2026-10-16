@@ -2,6 +2,8 @@
 
 Before opening a hosted deployment to users, work through the [production readiness checklist](production-checklist.md).
 
+For Kubernetes (Helm), AWS (Terraform), offline mode and the list of outbound hosts, see the [self-hosting kit](self-hosting-kit.md).
+
 ## Vercel and Convex Free
 
 The hosted deployment runs on Vercel **Pro** in team `michael-belenkiys-projects`, with Convex **Free** at `tidy-ocelot-457`.
@@ -21,7 +23,7 @@ The hosted deployment runs on Vercel **Pro** in team `michael-belenkiys-projects
   - The GitHub App's callback URLs include `https://openreview.tech/api/auth/callback`; the earlier callbacks are kept.
   - The App's setup URL is `https://openreview.tech/api/github/callback`.
   - The webhook is unchanged at `https://tidy-ocelot-457.convex.site/github/webhook`.
-- **Git.** The project deploys from `mbelenkiy29/GREPTILE` with production branch `main`, so merges to `main` deploy automatically.
+- **Git.** The project deploys from `mbelenkiy29/OPENREVIEW` (named `GREPTILE` until 2026-10-16; the old URL redirects, and Vercel follows the repository by ID) with production branch `main`, so merges to `main` deploy automatically.
   - The Ignored Build Step (`if [ "$VERCEL_ENV" = "production" ]; then exit 1; else exit 0; fi`) builds production only, and branch pushes are skipped. This is because the Preview-scoped `CONVEX_DEPLOY_KEY` could not be confirmed to be a Convex preview key. A production key there would deploy unmerged branches to the production backend.
   - Before enabling previews, set a Convex preview deploy key for Preview and clear the ignore command.
 - **After a domain change.** Anything registered against the old origin needs updating:

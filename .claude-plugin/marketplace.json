@@ -1,0 +1,8 @@
+{
+  "name": "openreview",
+  "owner": { "name": "OpenReview contributors" },
+  "description": "OpenReview plugins for coding agents",
+  "plugins": [
+    { "name": "openreview", "source": "./plugins/openreview", "description": "OpenReview MCP server and skills to check reviews and fix findings until a re-review is clean" }
+  ]
+}

@@ -232,9 +232,66 @@ function resolveImport(file: string, imp: Import, grammar: string, index: PathIn
   }
 }
 
+// Elixir: definitions, imports and calls are all `call` nodes; the target identifier tells them apart.
+// Modules map to files by Elixir's convention (MyApp.Accounts.User → .../my_app/accounts/user.ex).
+const elixirDefinitions: Record<string, { kind: string; exported: boolean }> = { defmodule: { kind: "module", exported: true }, defprotocol: { kind: "protocol", exported: true }, def: { kind: "function", exported: true }, defp: { kind: "function", exported: false }, defmacro: { kind: "macro", exported: true }, defmacrop: { kind: "macro", exported: false }, defguard: { kind: "guard", exported: true }, defguardp: { kind: "guard", exported: false } };
+const elixirDirectives = new Set(["alias", "import", "use", "require"]);
+const elixirSpecial = new Set([...Object.keys(elixirDefinitions), ...elixirDirectives, "defstruct", "defexception", "defimpl", "defdelegate", "defoverridable", "if", "unless", "case", "cond", "with", "for", "fn", "quote", "unquote", "raise", "reraise", "throw", "try", "receive", "send", "spawn", "super", "when", "and", "or", "not", "in", "is_nil", "is_map", "is_list", "is_binary", "is_atom", "is_integer", "is_float", "is_number", "is_boolean", "is_function", "is_tuple", "is_pid"]);
+export const elixirUnderscore = (segment: string) => segment.replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2").replace(/([a-z\d])([A-Z])/g, "$1_$2").toLowerCase();
+function resolveElixirModule(module: string, file: string, index: PathIndex) {
+  const segs = module.split(".").filter(Boolean);
+  if (!segs.length || !segs.every((s) => /^[A-Z]\w*$/.test(s))) return undefined;
+  const stem = segs.map(elixirUnderscore).join("/");
+  return first(index, ["lib/" + stem + ".ex", stem + ".ex"]) ?? bySuffix(index, stem + ".ex", file) ?? bySuffix(index, stem + ".exs", file);
+}
+function extractElixir(root: Node, file: string, knownPaths: readonly string[], add: (edge: ExtractedEdge) => void, symbols: SymbolNode[]) {
+  const index = pathIndex(knownPaths);
+  const bindings = new Map<string, string>(), defined = new Set<string>();
+  const targetName = (call: Node) => { const t = call.childForFieldName("target"); return t?.type === "identifier" ? t.text : undefined; };
+  const args = (call: Node) => call.namedChildren.find((c) => c.type === "arguments")?.namedChildren ?? [];
+  // def name(args), def name(args) when guard, def name — the defined name.
+  const defined_name = (n: Node | undefined): string | undefined => !n ? undefined : n.type === "identifier" ? n.text : n.type === "call" ? targetName(n) : n.type === "binary_operator" ? defined_name(n.childForFieldName("left") ?? undefined) : n.type === "alias" ? n.text.split(".").at(-1) : undefined;
+  const calls = root.descendantsOfType("call");
+  for (const node of calls) {
+    const name = targetName(node), def = name ? elixirDefinitions[name] : undefined;
+    if (def) {
+      const symbol = defined_name(args(node)[0]);
+      if (symbol && /^[A-Za-z_][\w?!]*$/.test(symbol)) { const clean = symbol.replace(/[?!]$/, ""); if (!symbols.some((s) => s.name === clean && s.line === node.startPosition.row + 1)) symbols.push({ name: clean, kind: def.kind, path: file, line: node.startPosition.row + 1, exported: def.exported }); defined.add(clean); }
+      continue;
+    }
+    if (!name || !elixirDirectives.has(name)) continue;
+    const [first_, options] = args(node);
+    const modules: { module: string; binding: string }[] = [];
+    if (first_?.type === "alias") modules.push({ module: first_.text, binding: first_.text.split(".").at(-1)! });
+    else if (first_?.type === "dot" && first_.childForFieldName("right")?.type === "tuple") {
+      const base = first_.childForFieldName("left")?.text ?? "";
+      for (const item of first_.childForFieldName("right")!.namedChildren) if (item.type === "alias") modules.push({ module: base + "." + item.text, binding: item.text.split(".").at(-1)! });
+    }
+    // alias Long.Name, as: Short
+    const alias = options?.type === "keywords" ? options.namedChildren.find((p) => p.childForFieldName("key")?.text.trim() === "as:")?.childForFieldName("value")?.text : undefined;
+    for (const m of modules) {
+      const binding = name === "alias" && alias && modules.length === 1 ? alias : m.binding;
+      const target = resolveElixirModule(m.module, file, index);
+      add({ from: file, to: target ?? m.module, kind: "imports", symbol: binding, resolved: !!target });
+      if (target) bindings.set(binding, target);
+    }
+  }
+  for (const node of calls) {
+    const target = node.childForFieldName("target");
+    if (!target) continue;
+    if (target.type === "dot") {
+      const left = target.childForFieldName("left"), right = target.childForFieldName("right");
+      if (left?.type !== "alias" || right?.type !== "identifier") continue;
+      const resolved = bindings.get(left.text) ?? resolveElixirModule(left.text, file, index);
+      if (resolved) add({ from: file, to: resolved, kind: "calls", symbol: right.text, resolved: true });
+      else add({ from: file, to: left.text + "." + right.text, kind: "calls", resolved: false });
+    } else if (target.type === "identifier" && !elixirSpecial.has(target.text) && !defined.has(target.text)) add({ from: file, to: target.text, kind: "calls", resolved: false });
+  }
+}
 export function extractTreeSitter(root: Node, grammar: string, file: string, knownPaths: readonly string[]): { symbols: SymbolNode[]; relationships: ExtractedEdge[] } {
   const symbols: SymbolNode[] = [], edges = new Map<string, ExtractedEdge>();
   const add = (edge: ExtractedEdge) => { if (edge.to && edge.to !== edge.from) edges.set([edge.from, edge.to, edge.kind, edge.symbol ?? ""].join("\0"), edge); };
+  if (grammar === "elixir") { extractElixir(root, file, knownPaths, add, symbols); return { symbols, relationships: [...edges.values()] }; }
   const kinds = definitions[grammar] ?? {};
   for (const node of root.descendantsOfType(Object.keys(kinds))) {
     const name = definitionName(node, grammar);

@@ -60,6 +60,15 @@ const fixtures: Record<string, { files: SourceFile[]; symbols: string[]; edges: 
     symbols: ["src/gateway.cpp:Gateway", "src/gateway.cpp:charge"],
     edges: ["src/gateway.cpp -imports-> include/billing/totals.hpp"],
   },
+  elixir: {
+    files: [
+      f("lib/my_app/repo.ex", "defmodule MyApp.Repo do\n  def get(schema, id), do: {schema, id}\nend\n"),
+      f("lib/my_app/accounts/user.ex", "defmodule MyApp.Accounts.User do\n  defstruct [:id]\n  def changeset(user, attrs), do: Map.merge(user, attrs)\nend\n"),
+      f("lib/my_app/accounts.ex", "defmodule MyApp.Accounts do\n  alias MyApp.Repo\n  alias MyApp.Accounts.User\n\n  def get_user(id), do: Repo.get(User, id)\n\n  def create(attrs) do\n    User.changeset(%User{}, attrs) |> helper()\n  end\n\n  defp helper(x) when is_map(x), do: x\nend\n"),
+    ],
+    symbols: ["lib/my_app/repo.ex:Repo", "lib/my_app/repo.ex:get", "lib/my_app/accounts/user.ex:User", "lib/my_app/accounts/user.ex:changeset", "lib/my_app/accounts.ex:Accounts", "lib/my_app/accounts.ex:get_user", "lib/my_app/accounts.ex:create", "lib/my_app/accounts.ex:helper"],
+    edges: ["lib/my_app/accounts.ex -imports(Repo)-> lib/my_app/repo.ex", "lib/my_app/accounts.ex -imports(User)-> lib/my_app/accounts/user.ex", "lib/my_app/accounts.ex -calls(get)-> lib/my_app/repo.ex", "lib/my_app/accounts.ex -calls(changeset)-> lib/my_app/accounts/user.ex"],
+  },
   swift: {
     files: [f("Sources/Billing/Totals.swift", "public func total(_ c: Int) -> Int { c }\n"), f("Sources/Pay/Gateway.swift", "import Billing\nstruct Gateway {\n  func charge(_ c: Int) -> Int { return helper(c) }\n  func helper(_ c: Int) -> Int { c }\n}\nprotocol Payable {}\n")],
     symbols: ["Sources/Billing/Totals.swift:total", "Sources/Pay/Gateway.swift:Gateway", "Sources/Pay/Gateway.swift:charge", "Sources/Pay/Gateway.swift:helper", "Sources/Pay/Gateway.swift:Payable"],
@@ -70,7 +79,8 @@ const fixtures: Record<string, { files: SourceFile[]; symbols: string[]; edges: 
 before(async () => { await loadGrammars(Object.values(fixtures).flatMap((x) => x.files.map((file) => file.path))); });
 
 test("tree-sitter grammars load for every supported non-TS language", () => {
-  assert.deepEqual(grammarStatus().loaded, ["c", "c_sharp", "cpp", "go", "java", "kotlin", "php", "python", "ruby", "rust", "swift"]);
+  // J8 added Elixir (same pinned tree-sitter-wasms build).
+  assert.deepEqual(grammarStatus().loaded, ["c", "c_sharp", "cpp", "elixir", "go", "java", "kotlin", "php", "python", "ruby", "rust", "swift"]);
   assert.deepEqual(grammarStatus().failed, {});
 });
 
