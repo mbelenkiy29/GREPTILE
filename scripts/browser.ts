@@ -37,13 +37,25 @@ page.on("console", (m) => {
 await mkdir("output/playwright", { recursive: true });
 try {
   await page.goto(url);
-  await page.getByRole("link", { name: "Sign in with GitHub" }).waitFor();
+  await page.getByRole("link", { name: "Get started" }).first().waitFor();
   await page.getByRole("heading", { name: "How it works" }).waitFor();
   await page.screenshot({ path: "output/playwright/home.png", fullPage: true, caret: "initial" });
   for (const [path, heading] of [["/docs/quickstart", "Quickstart"], ["/docs/api", "Public API"], ["/docs/configuration", "Repository configuration as code"], ["/changelog", "Changelog"]]) {
     await page.goto(url + path);
     await page.getByRole("heading", { name: heading, level: 1 }).first().waitFor();
   }
+  // Sign in and sign up: the same choices, linked to each other.
+  await page.goto(url + "/login?error=link");
+  await page.getByRole("heading", { name: "Sign in to OpenReview", level: 1 }).waitFor();
+  await page.getByRole("link", { name: "Continue with GitHub" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "expired or already used" }).waitFor();
+  await page.screenshot({ path: "output/playwright/login.png", fullPage: true, caret: "initial" });
+  await page.getByRole("link", { name: "Create an account" }).click();
+  await page.waitForURL("**/signup");
+  await page.getByRole("heading", { name: "Create your account", level: 1 }).waitFor();
+  await page.getByRole("link", { name: "Continue with GitHub" }).waitFor();
+  await page.goto(url + "/?error=signin");
+  await page.waitForURL("**/login?error=signin");
   assert.equal((await page.request.get(`${url}/docs/openapi.yaml`)).status(), 200);
   assert.equal((await page.request.get(`${url}/docs/not-a-page`)).status(), 404);
   await context.addCookies([

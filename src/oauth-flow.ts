@@ -49,6 +49,6 @@ export async function finishOAuth(request: Request, provider: Provider, profile:
     return NextResponse.redirect(origin() + next);
   } catch (error) {
     console.error(JSON.stringify({ event: "auth.failed", provider, error: error instanceof Error ? error.message.slice(0, 200) : "Authentication failed" }));
-    return NextResponse.redirect(`${origin()}/?error=signin`);
+    return NextResponse.redirect(`${origin()}/login?error=signin`);
   }
 }

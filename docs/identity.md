@@ -9,6 +9,18 @@
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`; scopes `openid email profile`; redirect URI `<APP_URL>/api/auth/google/callback` | When Google reports `email_verified` |
 | Email link | `EMAIL_SIGN_IN=true` on the web app, plus `RESEND_API_KEY`/`EMAIL_FROM` on Convex | Always (clicking the link proves ownership) |
 
+## Sign-in and sign-up pages
+
+- **Pages:** `/login` ("Sign in to OpenReview") and `/signup` ("Create your account") offer the same choices and link to each other.
+  - **Order:** the configured providers come first, GitHub on top, then the emailed sign-in link when email is configured.
+  - **Same flow:** there is no separate registration. A provider identity seen for the first time creates the account, and a new account starts guided setup.
+  - **Trial note:** with billing on, `/signup` mentions the free trial.
+- **Where visitors land:**
+  - The landing page's **Sign in** and **Get started** buttons open these pages.
+  - Signed-out visits to the dashboard, failed sign-ins, emailed-link results and "signed out everywhere" all go to `/login` with a short message.
+  - Signed-in visitors are sent straight to the dashboard, or to `next`.
+- **`next`:** carried through every method, as a same-origin path only.
+
 ## Account linking
 
 - **Same provider account:** a sign-in from a provider account OpenReview has seen before is the same user.

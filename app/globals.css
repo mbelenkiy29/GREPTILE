@@ -370,7 +370,7 @@ summary:hover {
 form > button {
   align-self: end;
 }
-form:not(.toolbar):not(.form-grid):not(.feedback) {
+form:not(.toolbar):not(.form-grid):not(.feedback):not(.email-sign-in) {
   display: flex;
   gap: 10px;
   align-items: flex-end;
@@ -1384,23 +1384,140 @@ form.catalog-review {
 }
 .sign-in-options {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 400px;
 }
-.sign-in-legal {
-  flex-basis: 100%;
-  margin: 4px 0 0;
-  font-size: 12px;
-  text-align: center;
+.sign-in-provider {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+}
+.provider-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.sign-in-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
   color: var(--muted);
+}
+.sign-in-divider::before,
+.sign-in-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
 }
 .sign-in-options .email-sign-in {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 10px;
+}
+.sign-in-options .email-sign-in label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sign-in-options .email-sign-in > button {
+  align-self: stretch;
+  min-height: 40px;
+}
+.sign-in-legal {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Sign in and sign up */
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--bg);
+}
+.auth-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 32px;
+}
+.auth-panel .brand {
+  align-self: flex-start;
+}
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+  margin: auto;
+}
+.auth-card h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+.auth-switch,
+.auth-note {
+  margin: 0;
+  color: var(--muted);
+}
+.auth-card .error,
+.auth-status {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.auth-art {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: 48px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+.auth-art figure {
+  width: min(100%, 440px);
+  margin: 0;
+  animation: wizard-enter 320ms ease-out both;
+}
+.auth-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.auth-art p {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+@media (max-width: 860px) {
+  .auth {
+    grid-template-columns: 1fr;
+  }
+  .auth-art {
+    display: none;
+  }
+  .auth-panel {
+    padding: 16px;
+  }
 }
 
 /* Chat */
@@ -1805,22 +1922,16 @@ form.catalog-review {
   color: var(--muted);
   max-width: 620px;
 }
-.hero .sign-in-options {
-  justify-content: flex-start;
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   padding-top: 8px;
 }
-.hero .sign-in-legal {
-  text-align: left;
-}
-.hero .sign-in-options .button,
 .landing .button.large {
   min-height: 42px;
   padding: 10px 18px;
   font-size: 15px;
-}
-.hero .error,
-.hero [role="status"] {
-  margin: 0;
 }
 .hero-links {
   display: flex;
@@ -3245,14 +3356,9 @@ input.switch:checked::before {
   .lede {
     font-size: 16px;
   }
-  .hero #sign-in {
+  .hero-actions {
     align-self: stretch;
-  }
-  .hero .sign-in-options,
-  .hero .sign-in-options .email-sign-in {
     flex-direction: column;
-    align-items: stretch;
-    width: 100%;
   }
   .landing main > section {
     padding: 56px 0;
@@ -3300,7 +3406,8 @@ input.switch:checked::before {
   }
   /* Guided setup: every illustration is complete without motion. */
   .wizard *,
-  .wizard *::before {
+  .wizard *::before,
+  .auth * {
     animation: none !important;
   }
 }
