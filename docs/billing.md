@@ -42,26 +42,17 @@ When a review is blocked, it is recorded as failed with a `Billing:` reason, vis
 
 On Vercel, Stripe can also be provisioned from the Vercel Marketplace. The keys still belong in the Convex environment, because Convex runs Checkout, the portal and webhook handling.
 
-## Going live
+## Switching from test to live
 
-Test-mode customers and subscriptions don't exist in live mode, so switching modes is one coordinated change:
-
-1. **Activate payments:** in Stripe, activate live payments for the account (business details and bank account), and set **Settings → Public details** (business name, support email, statement descriptor).
-2. **Live objects:** in live mode, create the same objects as in test mode:
-   - the "OpenReview Starter" product and its monthly per-seat price;
-   - the webhook endpoint (same URL, events and API version);
-   - the Customer Portal configuration, with the site's `/privacy` and `/terms` links.
-3. **Convex settings:** set these together:
-   - `STRIPE_SECRET_KEY`: a live restricted key, `rk_live_…`.
-   - `STRIPE_WEBHOOK_SECRET`: the live endpoint's signing secret.
-   - `STRIPE_SEAT_PRICE_ID`: the live price.
-   - `BILLING_ALLOW_LIVE=true`.
-4. **Reset links:** clear the test-mode links from every workspace. Each workspace keeps its trial end date and subscribes again with a live card.
-
+1. **Activate payments** on the Stripe account (business details and bank account) and fill in **Settings → Public details**: business name, support email and statement descriptor. Then, in live mode, create the same Product and Price, webhook endpoint (same events and API version) and portal configuration as in test mode, with the site's `/privacy` and `/terms` links in the portal.
+2. **Live keys:** create a live restricted key (`rk_live_…`) with the same permissions. Set it as `STRIPE_SECRET_KEY`, and the live endpoint's signing secret as `STRIPE_WEBHOOK_SECRET`.
+3. **Convex settings:** set `STRIPE_SEAT_PRICE_ID` to the live price and `BILLING_ALLOW_LIVE=true`.
+4. **Drop test links:** test customers and subscriptions do not exist in live mode, so every workspace must drop its Stripe links. Run this once:
    ```bash
-   npx convex run billing:resetStripeLinks '{"confirm":"reset-stripe-links"}' --prod
+   npx convex run billing:forgetStripeLinks '{"confirm":"switch-stripe-mode"}' --prod
    ```
-5. **Stop test traffic:** cancel the test subscriptions and disable the test-mode webhook endpoint, so the sandbox stops sending events that would now fail signature checks.
+   Each workspace returns to its trial with the same end date, and its next Checkout creates a live customer.
+5. **Old webhook:** cancel the test subscriptions and disable the test-mode webhook endpoint, so the sandbox stops sending events (and retries) that would now fail signature checks.
 
 ## Guarantees
 

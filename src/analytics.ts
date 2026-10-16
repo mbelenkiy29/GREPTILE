@@ -27,6 +27,11 @@ export function stopAnalytics() {
     posthog.opt_out_capturing();
     posthog.set_config({ disable_persistence: true });
   }
+  clearAnalyticsStorage();
+}
+
+/** Remove PostHog's cookies and storage, including any left from before the visitor was asked. */
+export function clearAnalyticsStorage() {
   for (const part of document.cookie.split(";")) {
     const name = part.trim().split("=")[0];
     if (name && isAnalyticsStorageKey(name)) for (const domain of ["", `; Domain=${location.hostname}`, `; Domain=.${location.hostname.replace(/^www\./, "")}`]) document.cookie = `${name}=; Path=/; Max-Age=0${domain}`;
