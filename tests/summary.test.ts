@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reviewSummary } from "../src/review-summary";
+import { agentPrompt, reviewSummary } from "../src/review-summary";
 import { reviewSummarySchema } from "../src/engine/review";
 import { summarySections } from "../src/review-settings";
 import { Github, summaryMarker } from "../src/github";
@@ -31,8 +31,11 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
     "### Files changed\n| File | Change |\n| --- | --- |\n| `src/total.ts` | Moves total computation into a helper \\| with pipes. |\n| `tests/total.test.ts` | added · +1 −0 |\n| `src/a|b.ts` | modified · +0 −0 |",
     // G2: priority badges replace the bare severity column.
     `### Issues\n| Priority | Location | Issue |\n| --- | --- | --- |\n| 🔴 **P0** · critical | [\`src/total.ts:3–5\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L3-L5>) | Totals become dollars |\n| 🟡 **P2** · medium | [\`src/total.ts:9\`](<https://github.com/acme/shop/blob/${head}/src/total.ts#L9>) | Rounding drops a cent |`,
+    // One copyable prompt for a coding agent, highest priority first (contents: summary-layout.test.ts).
+    "### Prompt for your coding agent\n" + agentPrompt(data.findings),
     "### Confidence score\n**1/5** — A critical currency defect blocks merging.",
-    "### Risk assessment\nhigh · Confidence 90%\n\nMonetary totals change for every order.",
+    // One confidence number per summary: the risk line no longer repeats the model's certainty.
+    "### Risk assessment\nhigh risk\n\nMonetary totals change for every order.",
     "### Resolved findings\nNo previously reported findings were confirmed resolved in this review.",
     "### Skipped files\n- `package-lock.json` · Lower-risk file beyond the fast review limit of 200 files",
     "### Test source\n- `tests/total.test.ts`",
@@ -41,7 +44,7 @@ test("summary renders overview, file and issue tables, n/5 confidence, risk, ski
   ].join("\n\n");
   assert.equal(reviewSummary(data), expected);
   // G5 added "tips", a footer toggle that renders no summary section; J5 added "requirements", shown only when tickets were checked.
-  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "diagram", "findings", "requirements", "score", "risk", "resolved", "skipped", "testSource", "tips"]);
+  assert.deepEqual([...summarySections], ["overview", "affectedAreas", "diagram", "findings", "agentPrompt", "requirements", "score", "risk", "resolved", "skipped", "testSource", "tips"]);
   assert.doesNotMatch(reviewSummary(data), /### Sequence diagram/, "the diagram section is omitted when no diagram was generated");
 });
 

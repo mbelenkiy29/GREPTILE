@@ -2,6 +2,21 @@
 
 ## Unreleased — October 2026
 
+### Pull request reviews
+- On GitHub the review summary now goes at the end of the pull request description and is replaced on every review. The author's own text is kept, and reviews never read the block back. Choose "one comment" under Settings → Review to keep the previous behavior.
+- A more compact summary on GitHub:
+  - The verdict, the confidence score and its reason come first.
+  - Each issue links to its inline thread.
+  - Detail sections are collapsed.
+- A copyable **Prompt for your coding agent** lists every open finding. Each inline finding has its own collapsed prompt.
+- Reactions show progress: 👀 when OpenReview picks up a request, 👍 when a requested review is published or when someone acknowledges a finding.
+- Check runs report the files reviewed, the verdict and the score. They can fail below a minimum confidence score, and they end as "Superseded" when a newer commit replaces the review.
+- When the plan blocks a review on the hosted cloud, the pull request gets one short note pointing admins to billing.
+- Fixes:
+  - Evidence quotes keep their backticks.
+  - Counts in the summary read "1 changed file".
+  - The risk line no longer shows a second confidence number.
+
 ### Setup
 - Guided workspace setup: connect a provider, choose repositories, watch the code graph build, then shape the summary, comment scope, triggers and tools with live previews, and invite your team. Automatic reviews wait until you choose when reviews run.
 - Installing the GitHub App now works from any signed-in session (email, Google or GitLab) and returns you to setup.

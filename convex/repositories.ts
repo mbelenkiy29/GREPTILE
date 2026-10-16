@@ -14,7 +14,7 @@ import {indexWriteAllowed,indexBatchMatches} from "./indexAuthority";
 import {adoptP4Baseline} from "./p4Polling";
 import {p4SubmittedRevision} from "../src/p4-revision";
 
-import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings } from "../src/review-settings";
+import { defaults,validSummarySections,validReviewEngine,validCheckFailureSeverity,validTriggerSettings,validPublicationSettings } from "../src/review-settings";
 import { categories } from "../src/engine/types";
 export { defaults } from "../src/review-settings";
 import { effectiveSettings,providerTeam } from "./scopes";
@@ -88,6 +88,7 @@ export const configure = mutation({
         !validSummarySections(s.summarySections) ||
         !validReviewEngine(s.reviewEngine) ||
         !validCheckFailureSeverity(s.checkFailureSeverity) ||
+        !validPublicationSettings(s) ||
         !validTriggerSettings(s) ||
         s.categories.some((c) => !(categories as readonly string[]).includes(c))
       )

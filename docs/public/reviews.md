@@ -6,8 +6,8 @@ When a pull request opens or updates, OpenReview:
 2. **Investigates.** The default pipeline runs specialists for correctness, security, data, compatibility, testing and performance. The optional agentic engine instead follows the code with read-only tools, and the optional hypothesis engine plans specific suspected bugs and investigates each one in parallel.
 3. **Verifies.** Every finding must quote exact source lines at the reviewed revision, and an independent verification pass drops anything it cannot support. Findings never claim tests ran unless runtime evidence was recorded.
 4. **Publishes:**
-   - One summary comment that is edited in place. It opens with a verdict and the confidence score, followed by an overview, changed files, issues, findings outside the changed code and an optional sequence diagram.
-   - Inline findings, with committable suggestions where a small exact fix exists.
+   - One summary, edited in place on every review. It opens with a verdict and the confidence score, followed by an overview, the issues, findings outside the changed code and an optional sequence diagram. On GitHub it goes at the end of the pull request description by default (see [Where the summary goes](#where-the-summary-goes)); other providers use one comment.
+   - Inline findings, with committable suggestions where a small exact fix exists. On GitHub each one also has a collapsed **Prompt for your coding agent** with the file, lines, problem and suggested fix, ready to paste into Claude Code, Codex or Cursor.
    - An optional check run.
 
 Later pushes are reviewed incrementally. Threads for findings fixed in the new commits are resolved automatically.
@@ -26,6 +26,41 @@ The first line of every summary is one of four verdicts. It is computed from rec
 The score is shown next to the verdict when the confidence-score summary section is enabled.
 
 The summary ends with a footer such as "Review 3 on this pull request · Comment `@openreview review` to re-run it.", followed by links to the dashboard. The number counts this pull request's published reviews and stays the same when a publication is retried. The command matches what each provider accepts: `@openreview review` on GitHub, GitHub Enterprise, GitLab, Gitea, Bitbucket and Origin, `@openreview review again` on Perforce, and the dashboard on Azure DevOps, which does not accept comment commands.
+
+## Where the summary goes
+
+On GitHub the summary is written to the end of the pull request description, between two hidden markers. Each review replaces only that block; anything the author writes above or below it is kept. Reviews never read the block back as part of the description. If GitHub refuses the edit, or the description would exceed GitHub's size limit, the summary goes to one comment instead. To always use a comment, set **Review summary location** to "one comment" under Settings → Review (or per workspace and team defaults). When a pull request moves from one location to the other, the old summary comment becomes a short pointer and an old description block is removed.
+
+On GitHub the summary is laid out for scanning:
+- The verdict and confidence score come first, with the score's one-sentence reason under them.
+- Each row in **Issues** links to its inline thread.
+- The sequence diagram is shown open.
+- Changed files, the coding-agent prompt for all open findings, risk, resolved findings, skipped files, test source, test execution and coverage are collapsed.
+
+The dashboard and the other providers show the same sections as plain headings.
+
+The **Prompt for your coding agent** section lists every open finding (highest priority first, at most 20) as one copyable block. It asks the agent to confirm each problem in the current code before changing it. Turn it off by unchecking that summary section.
+
+## Reactions
+
+On GitHub, OpenReview reacts so people can see a request was picked up:
+- 👀 on an `@openreview` comment, or on a reply in an OpenReview thread that it will answer.
+- 👍 on an `@openreview review` comment once the requested review is published.
+- 👍 on a bare acknowledgement ("thanks", "fixed") in an OpenReview thread, instead of a text reply.
+
+Reactions follow the same permission rules as replies: only people with write access, never bots. A failed reaction never blocks the request.
+
+## Check runs
+
+With the Checks: read and write permission, each GitHub review has an "OpenReview" check. It shows as in progress while the review runs, then reports the files reviewed, the findings, the verdict and the confidence score. By default the check is neutral. Two settings under Settings → Review can make it fail:
+- **GitHub check run:** fails when a finding reaches the chosen severity.
+- **Check run minimum confidence:** fails when the confidence score is below the chosen value (1–5). The check says the review itself completed, and it is not applied when no score was recorded.
+
+A review that stops because a newer commit arrived ends neutral as "Superseded by a newer revision".
+
+## When the plan blocks a review
+
+On the hosted cloud, if the workspace's plan does not cover another review, OpenReview posts one short comment on that pull request. The comment names no plan details and points admins to Settings → Billing. Later blocked reviews on the same pull request stay quiet, and reviews requested from the dashboard never post one.
 
 ## Requirements check
 

@@ -197,8 +197,9 @@ export const process = internalAction({
             comment &&
             comment.user.type !== "Bot" &&
             (/@openreview\b/i.test(comment.body) ||
-              // A human reply in a review thread: answered without a mention only in OpenReview's own threads.
-              (delivery.event === "pull_request_review_comment" && payload.action === "created" && comment.in_reply_to_id !== undefined && !comment.user.login.endsWith("[bot]") && settings?.threadReplies !== false && wantsAnswer(comment.body)))
+              // A human reply in a review thread: answered without a mention (or, for a bare
+              // acknowledgement, given a 👍) only in OpenReview's own threads.
+              (delivery.event === "pull_request_review_comment" && payload.action === "created" && comment.in_reply_to_id !== undefined && !comment.user.login.endsWith("[bot]") && settings?.threadReplies !== false))
           ) {
             const mentioned = /@openreview\b/i.test(comment.body);
             const number =
@@ -214,15 +215,26 @@ export const process = internalAction({
               if (
                 ["admin", "maintain", "write"].includes(permission.permission)
               ) {
+                // 👀 when a request is picked up, 👍 for an acknowledgement. Review bodies take no
+                // reactions; a failed reaction never drops the request.
+                const inline = delivery.event === "pull_request_review_comment";
+                const commentId = comment.id;
+                const react = async (content: "eyes" | "+1") => {
+                  if (commentId > 0) await github.react(repo.fullName, commentId, inline, content).catch((error) => console.error(JSON.stringify({ event: "github.reaction_failed", repositoryId: repo._id, content, error: error instanceof Error ? error.message.slice(0, 200) : "failed" })));
+                };
                 if (!mentioned) {
-                  if (await ctx.runMutation(internal.conversations.admitThreadReply, { repositoryId: repo._id, prNumber: number, commentId: comment.id, parentCommentId: comment.in_reply_to_id! }))
+                  if (!wantsAnswer(comment.body)) await react("+1");
+                  else if (await ctx.runMutation(internal.conversations.admitThreadReply, { repositoryId: repo._id, prNumber: number, commentId: comment.id, parentCommentId: comment.in_reply_to_id! })) {
+                    await react("eyes");
                     await ctx.scheduler.runAfter(0, internal.conversationJobs.reply, { repositoryId: repo._id, prNumber: number, commentId: comment.id, author: comment.user.login, question: comment.body, inline: true, parentCommentId: comment.in_reply_to_id });
+                  }
                 } else if (
                   /@openreview\s+review(?:\s+again|\s+security)?\b/i.test(
                     comment.body,
                   )
                 ) {
                   const pr = await github.pullRequest(repo.fullName, number);
+                  if (pr.state === "open") await react("eyes");
                   if (pr.state === "open") await ctx.runMutation(internal.conversations.requestReview, {
                     repositoryId: repo._id,
                     prNumber: number,
@@ -230,11 +242,13 @@ export const process = internalAction({
                     author: comment.user.login,
                     question: comment.body,
                     headSha: pr.head.sha,
+                    ...(comment.id > 0 ? { triggerComment: { id: comment.id, inline } } : {}),
                     ...(/review\s+security/i.test(comment.body)
                       ? { category: "security" }
                       : {}),
                   });
-                } else
+                } else {
+                  await react("eyes");
                   await ctx.scheduler.runAfter(
                     0,
                     internal.conversationJobs.reply,
@@ -244,10 +258,11 @@ export const process = internalAction({
                       commentId: comment.id,
                       author: comment.user.login,
                       question: comment.body,
-                      inline: delivery.event === "pull_request_review_comment",
+                      inline,
                       parentCommentId: comment.in_reply_to_id,
                     },
                   );
+                }
               }
             }
           }

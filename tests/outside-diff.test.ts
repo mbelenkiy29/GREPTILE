@@ -130,7 +130,7 @@ test("summary: the outside section follows Issues, shows even when Issues is off
   const table = full.split("### Issues\n")[1].split("\n\n")[0];
   assert.match(table, /Totals overflow/);
   assert.doesNotMatch(table, /Charges are 100 times too large/);
-  assert.match(full, /### Coverage\n1 changed files; 2 retrieved context files\. 2 candidates; 2 verified findings; 0 suppressed\./);
+  assert.match(full, /### Coverage\n1 changed file; 2 retrieved context files\. 2 candidates; 2 verified findings; 0 suppressed\./);
   const noIssues = reviewSummary(data, ["overview", "risk"]);
   assert.match(noIssues, /^\*\*Needs changes\*\*\n\n### Overview\nCents everywhere\.\n\n### Outside the changed code\n/);
   assert.match(reviewSummary(data, []), /^\*\*Needs changes\*\*\n\n### Outside the changed code\n/);
