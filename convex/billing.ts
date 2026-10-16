@@ -107,3 +107,14 @@ export const seatSyncTarget = internalQuery({ args: { organizationId: v.id("orga
   if (!account?.subscriptionId || !account.subscriptionItemId) return null;
   return { subscriptionId: account.subscriptionId, itemId: account.subscriptionItemId, billed: account.seats, seats: Math.max(1, seatCount(await members(ctx, a.organizationId))) };
 } });
+
+// Switching Stripe modes (test → live) or accounts: Stripe IDs from the old mode don't exist in
+// the new one, so every workspace drops its customer and subscription links and returns to its
+// trial (the trial end date is kept). Run once from the CLI after the new keys are in place:
+// npx convex run billing:resetStripeLinks '{"confirm":"reset-stripe-links"}' --prod
+export const resetStripeLinks = internalMutation({ args: { confirm: v.literal("reset-stripe-links") }, handler: async (ctx): Promise<number> => {
+  const accounts = await ctx.db.query("billingAccounts").collect();
+  for (const account of accounts)
+    await ctx.db.patch(account._id, { status: "trial", customerId: undefined, subscriptionId: undefined, subscriptionItemId: undefined, currentPeriodEnd: undefined, pastDueSince: undefined, lastEventCreated: undefined, updatedAt: Date.now() });
+  return accounts.length;
+} });

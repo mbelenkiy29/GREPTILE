@@ -57,6 +57,25 @@ test('the trial starts with the first review, so workspaces created before billi
  expect((await reviewOf(t,await enqueue(t,repo._id,2)))?.error).toMatch(/free trial has ended/);
 });
 
+test('switching Stripe modes resets every workspace to its trial without losing the trial date',async()=>{
+ const {t,alice,org,repo}=await setup();
+ const created=Math.floor(Date.now()/1000);
+ await deliver(t,{id:'evt_checkout_test',type:'checkout.session.completed',created,data:{object:{mode:'subscription',client_reference_id:org,customer:'cus_1',subscription:'sub_1'}}});
+ await deliver(t,subscription('evt_sub_test','customer.subscription.created','trialing',1,created+1,org));
+ const before=(await t.run(ctx=>ctx.db.query('billingAccounts').collect()))[0];
+ expect(before).toMatchObject({customerId:'cus_1',status:'trialing'});
+ await expect(t.mutation(internal.billing.resetStripeLinks,{confirm:'yes' as 'reset-stripe-links'})).rejects.toThrow();
+ expect(await t.mutation(internal.billing.resetStripeLinks,{confirm:'reset-stripe-links'})).toBe(1);
+ const after=(await t.run(ctx=>ctx.db.query('billingAccounts').collect()))[0];
+ expect(after).toMatchObject({status:'trial',trialEndsAt:before.trialEndsAt});
+ for(const key of ['customerId','subscriptionId','subscriptionItemId','currentPeriodEnd','pastDueSince','lastEventCreated'])expect(after).not.toHaveProperty(key);
+ expect(await t.query(api.billing.status,{token:alice.token,organizationId:org})).toMatchObject({plan:'trial',hasCustomer:false,billedSeats:null});
+ // Reviews follow the trial again, and a new checkout can link a customer from the new mode.
+ expect((await reviewOf(t,await enqueue(t,repo._id,1)))?.status).toBe('queued');
+ await deliver(t,{id:'evt_checkout_live',type:'checkout.session.completed',created:created+5,data:{object:{mode:'subscription',client_reference_id:org,customer:'cus_live',subscription:'sub_live'}}});
+ expect((await t.run(ctx=>ctx.db.query('billingAccounts').collect()))[0]).toMatchObject({customerId:'cus_live',subscriptionId:'sub_live'});
+});
+
 test('without BILLING_ENABLED nothing is enforced and the webhook endpoint does not exist',async()=>{
  delete process.env.BILLING_ENABLED;
  const {t,alice,org,repo}=await setup();
