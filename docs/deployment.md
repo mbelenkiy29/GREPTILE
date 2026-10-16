@@ -2,13 +2,20 @@
 
 Before opening a hosted deployment to users, work through the [production readiness checklist](production-checklist.md).
 
-## Vercel Hobby and Convex Free
+## Vercel and Convex Free
 
-The current hosted acceptance deployment is verified on Vercel **Hobby** in team `open-review-free` and Convex **Free** at `tidy-ocelot-457` (2026-10-04). Its canonical URL is https://openreview.tech (since 2026-10-15); the original https://openreview-flame-two.vercel.app and https://www.openreview.tech redirect to it with a 308. The Vercel project ID is `prj_jMAK4u6yVJUfW2atnWbiZnF8F7b9`; the existing free Convex resource remains managed by the original Vercel integration team. Do not remove that integration to clean up the frontend transfer: it owns the live backend. Production credentials were copied with the project, and a fresh Hobby deployment proved the combined build/deploy works. The local CLI link now targets the Hobby team. Full evidence and acceptance boundaries are in [acceptance-matrix.md](acceptance-matrix.md).
+The hosted deployment runs on Vercel **Pro** in team `michael-belenkiys-projects`, with Convex **Free** at `tidy-ocelot-457`.
+- **Hosting history:** the deployment was verified on the `open-review-free` Hobby team on 2026-10-04 and moved back to the Pro team on 2026-10-15. The move used Vercel's zero-downtime project transfer, so the project ID `prj_jMAK4u6yVJUfW2atnWbiZnF8F7b9`, deployments, environment variables, domains and the Git link are unchanged.
+- **Older URLs:** deployment URLs created before the move keep their `-open-review-free` suffix.
+- **Canonical URL:** https://openreview.tech (since 2026-10-15). The original https://openreview-flame-two.vercel.app and https://www.openreview.tech redirect to it with a 308.
+- **Convex resource:** it is managed by the Convex Marketplace integration in the same Pro team. Do not remove that integration: it owns the live backend.
+- **Local CLI:** the link (`.vercel/project.json`) and the CLI's default team target the Pro team.
+- **Evidence:** full evidence and acceptance boundaries are in [acceptance-matrix.md](acceptance-matrix.md).
 
 ### Custom domain and Git deployments (October 15, 2026)
 
-- **Domain.** `openreview.tech` is registered through Vercel in the team `michael-belenkiys-projects`, which also hosts its DNS and pays its renewal. The `openreview` project in `open-review-free` uses it after verification by `_vercel` TXT records in that team's DNS. `www.openreview.tech` and the `.vercel.app` alias redirect to the apex.
+- **Domain.** `openreview.tech` is registered through Vercel in the team `michael-belenkiys-projects`. That team also hosts its DNS, pays its renewal and, since 2026-10-15, owns the `openreview` project. `www.openreview.tech` and the `.vercel.app` alias redirect to the apex.
+  - The `_vercel` TXT records added while the project lived in `open-review-free` are no longer needed, but they are harmless.
 - **Origins.**
   - `APP_URL` is `https://openreview.tech` in Vercel Production and in Convex `tidy-ocelot-457`.
   - The GitHub App's callback URLs include `https://openreview.tech/api/auth/callback`; the earlier callbacks are kept.
