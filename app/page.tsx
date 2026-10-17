@@ -1,9 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { SiteFooter, SiteHeader } from "./site-chrome";
+import { SiteFooter, SiteHeader, sourceRepository } from "./site-chrome";
 import { AgentReplica, AnalyticsReplica, ChatReplica, FindingReplica, ReviewReplica, SummaryReplica } from "./landing/replicas";
 import { Copy } from "./dashboard/live";
 import { billingConfig } from "../src/billing";
+import { homeStructuredData, jsonLd } from "../src/structured-data";
+
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 const hosts = ["GitHub", "GitHub Enterprise", "GitLab", "Azure DevOps", "Bitbucket", "Gitea", "Perforce"];
 const steps = [
@@ -38,7 +42,9 @@ const commands = ["pnpm install", "CONVEX_AGENT_MODE=anonymous pnpm exec convex 
 // links (/?error=…) are redirected to /login in next.config.ts.
 export default function Home() {
   const billing = billingConfig();
+  const structured = homeStructuredData({ url: process.env.APP_URL ?? "http://localhost:3000", repository: sourceRepository, billing, priceLabel: process.env.BILLING_SEAT_PRICE_LABEL });
   return <div className="landing">
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(structured) }} />
     <SiteHeader home />
     <main>
       <section className="hero" aria-labelledby="hero-heading">
@@ -83,6 +89,7 @@ export default function Home() {
           <h2 id="run-heading">Run it on your infrastructure</h2>
           <p>Your Next.js host, your Convex backend and your model provider. Code goes only to the model you configure, and secret-looking values are redacted first.</p>
           <Link href="/docs/self-hosting">Read the self-hosting guide →</Link>
+          <a href={sourceRepository}>Star it on GitHub →</a>
         </div>
         <div className="terminal">
           <div className="terminal-bar"><span>Terminal</span><Copy value={commands.join("\n")} label="Copy" /></div>

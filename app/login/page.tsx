@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { AuthScreen, redirectIfSignedIn, type AuthQuery } from "../auth-screen";
 
-export const metadata: Metadata = { title: "Sign in" };
+export const metadata: Metadata = { title: "Sign in", alternates: { canonical: "/login" } };
 
 export default async function Login({ searchParams }: { searchParams: Promise<AuthQuery> }) {
   const query = await searchParams;

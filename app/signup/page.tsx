@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { AuthScreen, redirectIfSignedIn, type AuthQuery } from "../auth-screen";
 
-export const metadata: Metadata = { title: "Create your account" };
+export const metadata: Metadata = { title: "Create your account", alternates: { canonical: "/signup" } };
 
 export default async function Signup({ searchParams }: { searchParams: Promise<AuthQuery> }) {
   const query = await searchParams;
