@@ -40,6 +40,18 @@ try {
   await page.getByRole("link", { name: "Get started" }).first().waitFor();
   await page.getByRole("heading", { name: "How it works" }).waitFor();
   await page.screenshot({ path: "output/playwright/home.png", fullPage: true, caret: "initial" });
+  // The landing demos are interactive: the hero window switches sections, chat answers a sample
+  // question with citations, and the summary demo re-reviews a pushed fix.
+  const hero = page.getByRole("figure", { name: /dashboard for a sample workspace/ });
+  await hero.getByRole("button", { name: "Analytics", exact: true }).click();
+  await hero.getByLabel("Repository").selectOption("acme/api");
+  await hero.getByText("$2.10").waitFor();
+  await hero.getByRole("button", { name: "Chat", exact: true }).click();
+  await hero.locator(".demo-suggestions").getByRole("button", { name: "Which tests cover charge()?" }).click();
+  await hero.locator(".chat-message.assistant").last().getByRole("list", { name: "Citations" }).waitFor();
+  const summaryDemo = page.getByRole("figure", { name: /re-reviews a newly pushed fix/ });
+  await summaryDemo.getByRole("button", { name: "Re-review current PR" }).click();
+  await summaryDemo.getByText("0 findings · Score 5/5").first().waitFor();
   for (const [path, heading] of [["/docs/quickstart", "Quickstart"], ["/docs/api", "Public API"], ["/docs/configuration", "Repository configuration as code"], ["/changelog", "Changelog"]]) {
     await page.goto(url + path);
     await page.getByRole("heading", { name: heading, level: 1 }).first().waitFor();
@@ -255,10 +267,10 @@ try {
   );
   // Dark theme at mobile and desktop widths: no overflow, no console errors.
   await page.emulateMedia({ colorScheme: "dark" });
-  for (const path of ["/dashboard", "/dashboard/chat", "/dashboard/settings/billing", "/docs/quickstart"]) {
+  for (const path of ["/", "/dashboard", "/dashboard/chat", "/dashboard/settings/billing", "/docs/quickstart"]) {
     await page.goto(url + path);
     await settled();
-    await page.screenshot({ path: `output/playwright/dark-mobile${path.replaceAll("/", "-")}.png`, fullPage: true, caret: "initial" });
+    await page.screenshot({ path: `output/playwright/dark-mobile${path === "/" ? "-home" : path.replaceAll("/", "-")}.png`, fullPage: true, caret: "initial" });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `Dark mobile ${path} overflows horizontally`);
   }
   await page.setViewportSize({ width: 1365, height: 900 });
@@ -267,7 +279,7 @@ try {
   await page.screenshot({ path: "output/playwright/dark-desktop.png", fullPage: true, caret: "initial" });
   assert.deepEqual(errors, [], `Browser errors: ${errors.join("; ")}`);
   console.log(
-    `Browser verification passed: landing, docs, changelog, guided setup (all steps, previews, reduced motion, 390 px), repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
+    `Browser verification passed: landing (interactive demos), docs, changelog, guided setup (all steps, previews, reduced motion, 390 px), repository selection, ${dashboardPages} dashboard pages (main and secondary navigation), persisted settings/rules, Memory page filters, Chat page, mobile layout and dark theme. GitHub OAuth and real indexing still require external credentials.`,
   );
 } finally {
   await browser.close();

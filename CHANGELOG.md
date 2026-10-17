@@ -36,6 +36,12 @@
 ### Site
 - Privacy Policy and Terms of Service pages for the hosted service, linked from the footer and the sign-in buttons.
 - Cookie consent: analytics starts only after a visitor accepts. Do Not Track and Global Privacy Control count as a refusal, and **Cookie settings** in the footer changes the choice.
+- The product screens on the home page are interactive demos with sample data:
+  - The hero window is a small working dashboard: open pull requests, findings, chat, analytics, memory and settings.
+  - Chat answers sample questions with citations, and the summary re-reviews a pushed fix.
+  - Evidence opens in its file, the Fix button walks through the agent hand-off, and analytics filter by repository and period.
+  - The chat and summary demos play once when they scroll into view. Nothing reaches the backend, and reduced motion turns off autoplay and typing.
+- The home page says the trial needs no card, and the pricing cards link to sign-up.
 
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.
