@@ -17,6 +17,10 @@ export function authProviders(env: Record<string, string | undefined> = process.
 /** The page a sign-in redirect returns to: the sign-up page only when the visitor started there. */
 export const authPagePath = (from: string | null | undefined) => (from === "signup" ? "/signup" : "/login");
 
+/** Results (an error or an emailed link) stay on the page even for signed-in visitors, so a failed
+ *  attempt to link another sign-in method is shown instead of skipped. */
+export const keepsAuthPage = (query: { error?: string; email?: string }) => Boolean(query.error || query.email);
+
 export type AuthMessage = { tone: "alert" | "status"; text: string };
 export function authMessage(query: { error?: string; email?: string; signedout?: string }): AuthMessage | null {
   if (query.error === "sso") return { tone: "alert", text: "Single sign-on isn’t set up for that email domain, or the sign-in couldn’t be verified. Ask your workspace admin." };

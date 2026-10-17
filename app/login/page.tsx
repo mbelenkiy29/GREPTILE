@@ -5,6 +5,6 @@ export const metadata: Metadata = { title: "Sign in" };
 
 export default async function Login({ searchParams }: { searchParams: Promise<AuthQuery> }) {
   const query = await searchParams;
-  await redirectIfSignedIn(query.next);
+  await redirectIfSignedIn(query);
   return <AuthScreen mode="login" query={query} />;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { authMessage, authPagePath, authProviders } from "../src/auth-pages";
+import { authMessage, authPagePath, authProviders, keepsAuthPage } from "../src/auth-pages";
 
 test("sign-in pages offer only the providers configured on this deployment, GitHub first", () => {
   assert.deepEqual(authProviders({}), []);
@@ -15,6 +15,12 @@ test("email sign-in returns to the page it started from; anything else goes to s
   assert.equal(authPagePath("login"), "/login");
   assert.equal(authPagePath("https://evil.example"), "/login");
   assert.equal(authPagePath(null), "/login");
+});
+
+test("signed-in visitors still see a result on the sign-in page (e.g. a failed account link)", () => {
+  assert.equal(keepsAuthPage({}), false);
+  assert.equal(keepsAuthPage({ error: "signin" }), true);
+  assert.equal(keepsAuthPage({ email: "sent" }), true);
 });
 
 test("redirect results become one plain message, errors first", () => {
