@@ -42,6 +42,9 @@
   - Evidence opens in its file, the Fix button walks through the agent hand-off, and analytics filter by repository and period.
   - The chat and summary demos play once when they scroll into view. Nothing reaches the backend, and reduced motion turns off autoplay and typing.
 - The home page says the trial needs no card, and the pricing cards link to sign-up.
+- Visitors who have not accepted analytics no longer download PostHog. The home page loads about a third less JavaScript: 597 KB instead of 906 KB, or 192 KB instead of 293 KB compressed.
+- Links to the source on GitHub in the header, the footer and the self-hosting section.
+- Public pages declare their canonical address, and the home page carries structured data (site name, app, licence, prices) for search engines.
 
 ### Reviews
 - Agentic review engine (opt-in) that follows code across files with read-only tools, under per-mode budgets.

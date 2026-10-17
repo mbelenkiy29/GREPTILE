@@ -36,3 +36,16 @@ export function analyticsAllowed(cookies: string, signals: BrowserSignals) {
 }
 /** Names of PostHog's own cookies and storage keys (`ph_<token>_posthog`, `__ph_opt_in_out_…`). */
 export const isAnalyticsStorageKey = (name: string) => name.startsWith("ph_") || name.startsWith("__ph");
+
+/** Browser only: remove PostHog's cookies and storage, including any left from before the visitor
+ *  was asked. It lives here, not in src/analytics.ts, so clearing never downloads PostHog. */
+export function clearAnalyticsStorage() {
+  for (const part of document.cookie.split(";")) {
+    const name = part.trim().split("=")[0];
+    if (name && isAnalyticsStorageKey(name)) for (const domain of ["", `; Domain=${location.hostname}`, `; Domain=.${location.hostname.replace(/^www\./, "")}`]) document.cookie = `${name}=; Path=/; Max-Age=0${domain}`;
+  }
+  try {
+    for (const key of Object.keys(localStorage)) if (isAnalyticsStorageKey(key)) localStorage.removeItem(key);
+    for (const key of Object.keys(sessionStorage)) if (isAnalyticsStorageKey(key)) sessionStorage.removeItem(key);
+  } catch { /* storage blocked: nothing was stored */ }
+}

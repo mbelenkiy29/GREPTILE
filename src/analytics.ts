@@ -1,7 +1,8 @@
 // Browser only: starts and stops PostHog. It runs only after the visitor accepts analytics cookies
-// (src/consent.ts); see docs/observability.md for what is collected.
+// (src/consent.ts); see docs/observability.md for what is collected. Load it through
+// src/analytics-loader.ts, never import it directly, so visitors who never accept never download it.
 import posthog from "posthog-js";
-import { analyticsStartedEvent, isAnalyticsStorageKey } from "./consent";
+import { analyticsStartedEvent, clearAnalyticsStorage } from "./consent";
 import { posthogBeforeSend, posthogHosts, posthogProxyPath, posthogToken } from "./telemetry";
 
 export function startAnalytics() {
@@ -30,14 +31,15 @@ export function stopAnalytics() {
   clearAnalyticsStorage();
 }
 
-/** Remove PostHog's cookies and storage, including any left from before the visitor was asked. */
-export function clearAnalyticsStorage() {
-  for (const part of document.cookie.split(";")) {
-    const name = part.trim().split("=")[0];
-    if (name && isAnalyticsStorageKey(name)) for (const domain of ["", `; Domain=${location.hostname}`, `; Domain=.${location.hostname.replace(/^www\./, "")}`]) document.cookie = `${name}=; Path=/; Max-Age=0${domain}`;
-  }
-  try {
-    for (const key of Object.keys(localStorage)) if (isAnalyticsStorageKey(key)) localStorage.removeItem(key);
-    for (const key of Object.keys(sessionStorage)) if (isAnalyticsStorageKey(key)) sessionStorage.removeItem(key);
-  } catch { /* storage blocked: nothing was stored */ }
+/** Ties analytics to the signed-in user and active workspace, by internal id only. */
+export function identifyAnalytics(userId: string, workspaceId?: string) {
+  if (!posthog.__loaded) return;
+  posthog.identify(userId);
+  if (workspaceId) posthog.register({ workspace_id: workspaceId });
+  else posthog.unregister("workspace_id");
+}
+
+/** On sign-out: forget the user in this browser's analytics. */
+export function resetAnalytics() {
+  if (posthog.__loaded) posthog.reset();
 }

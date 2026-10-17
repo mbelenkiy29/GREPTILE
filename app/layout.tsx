@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import {siteDescription as description} from "../src/structured-data";
 import {themeScript} from "../src/theme";
 import {ThemeProvider} from "./theme";
 import {ConsentBanner} from "./consent";
@@ -9,7 +10,6 @@ import "@fontsource-variable/jetbrains-mono";
 import "@fontsource/eb-garamond/400.css";
 import "@fontsource/eb-garamond/500.css";
 import "./globals.css";
-const description = "Repository-aware pull request reviews with exact-quote evidence. Self-host it or use the cloud.";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
   title: { default: "OpenReview: repository-aware pull request reviews", template: "%s · OpenReview" },

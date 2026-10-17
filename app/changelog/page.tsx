@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { SiteFooter, SiteHeader } from "../site-chrome";
 
-export const metadata: Metadata = { title: "Changelog", description: "What changed in OpenReview." };
+export const metadata: Metadata = { title: "Changelog", description: "What changed in OpenReview.", alternates: { canonical: "/changelog" } };
 export default async function Changelog() {
   const source = await fs.readFile(path.join(process.cwd(), "CHANGELOG.md"), "utf8");
   return <div className="docs-layout single">

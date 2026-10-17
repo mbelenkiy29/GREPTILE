@@ -1,8 +1,8 @@
 // Browser setup for error tracking (Sentry) and product analytics (PostHog). Each starts only
 // when its public key was set at build time, and PostHog only after consent; see docs/observability.md.
 import * as Sentry from "@sentry/nextjs";
-import { clearAnalyticsStorage, startAnalytics } from "./src/analytics";
-import { analyticsAllowed } from "./src/consent";
+import { loadAnalytics } from "./src/analytics-loader";
+import { analyticsAllowed, clearAnalyticsStorage } from "./src/consent";
 import { scrubBreadcrumb, scrubSentryEvent, sentryDataCollection, sentryDsn, telemetryEnvironment, tracesSampleRate } from "./src/telemetry";
 
 if (sentryDsn)
@@ -18,8 +18,8 @@ if (sentryDsn)
 
 // PostHog sets a cookie, so it starts only for visitors who accepted analytics (the banner in
 // app/consent.tsx starts it on the spot when they accept). Everyone else keeps no PostHog cookie,
-// including one left from a visit before consent was asked.
-if (analyticsAllowed(document.cookie, navigator as Navigator & { globalPrivacyControl?: boolean })) startAnalytics();
+// including one left from a visit before consent was asked. PostHog itself downloads only then.
+if (analyticsAllowed(document.cookie, navigator as Navigator & { globalPrivacyControl?: boolean })) void loadAnalytics().then((a) => a.startAnalytics());
 else clearAnalyticsStorage();
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

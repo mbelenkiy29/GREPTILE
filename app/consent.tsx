@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { startAnalytics, stopAnalytics } from "../src/analytics";
-import { consentCookieValue, consentReopenEvent, needsChoice, type Consent } from "../src/consent";
+import { loadAnalytics, withLoadedAnalytics } from "../src/analytics-loader";
+import { clearAnalyticsStorage, consentCookieValue, consentReopenEvent, needsChoice, type Consent } from "../src/consent";
 import { posthogToken } from "../src/telemetry";
 
 const signals = () => navigator as Navigator & { globalPrivacyControl?: boolean };
@@ -25,8 +25,9 @@ export function ConsentBanner() {
   if (!open) return null;
   const choose = (choice: Consent) => {
     document.cookie = consentCookieValue(choice, location.protocol === "https:");
-    if (choice === "granted") startAnalytics();
-    else stopAnalytics();
+    // Accepting downloads PostHog; declining clears its storage and stops it only if it was running.
+    if (choice === "granted") void loadAnalytics().then((a) => a.startAnalytics());
+    else { clearAnalyticsStorage(); withLoadedAnalytics((a) => a.stopAnalytics()); }
     setOpen(false);
   };
   return <section className="consent" aria-labelledby="consent-heading">
