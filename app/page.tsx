@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { SiteFooter, SiteHeader } from "./site-chrome";
 import { AgentReplica, AnalyticsReplica, ChatReplica, FindingReplica, ReviewReplica, SummaryReplica } from "./landing/replicas";
@@ -35,10 +34,9 @@ const faq = [
 ] as const;
 const commands = ["pnpm install", "CONVEX_AGENT_MODE=anonymous pnpm exec convex dev --once", "pnpm setup:local", "pnpm backend", "pnpm dev"];
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ error?: string; email?: string; signedout?: string }> }) {
-  // Sign-in results used to land here; older links and bookmarks now go to the sign-in page.
-  const query = Object.entries(await searchParams).filter(([k, v]) => ["error", "email", "signedout"].includes(k) && typeof v === "string") as [string, string][];
-  if (query.length) redirect(`/login?${new URLSearchParams(query)}`);
+// Prerendered at build time, so billing values come from the build environment. Old sign-in result
+// links (/?error=…) are redirected to /login in next.config.ts.
+export default function Home() {
   const billing = billingConfig();
   return <div className="landing">
     <SiteHeader home />

@@ -8,8 +8,8 @@ import { Mark } from "./ui/logo";
 // page links are in-page anchors; elsewhere they point back to the landing sections.
 export function SiteHeader({ home = false, current }: { home?: boolean; current?: "docs" | "changelog" }) {
   const base = home ? "" : "/";
-  // Pricing lives on the landing page; statically built pages skip it so the link never
-  // depends on the build environment.
+  // Pricing lives on the landing page, which shows it when billing is enabled at build time; other
+  // pages skip the link.
   const pricing = home && billingConfig().enabled;
   return <header className="site-header">
     <Link className="brand" href="/"><Mark /> OpenReview</Link>
