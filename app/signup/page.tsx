@@ -5,6 +5,6 @@ export const metadata: Metadata = { title: "Create your account" };
 
 export default async function Signup({ searchParams }: { searchParams: Promise<AuthQuery> }) {
   const query = await searchParams;
-  await redirectIfSignedIn(query.next);
+  await redirectIfSignedIn(query);
   return <AuthScreen mode="signup" query={query} />;
 }

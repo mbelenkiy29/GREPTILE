@@ -7,17 +7,18 @@ import { api } from "../convex/_generated/api";
 import { billingConfig } from "../src/billing";
 import { safeNext } from "../src/identity";
 import { backend } from "../src/server";
-import { authMessage, type AuthMode } from "../src/auth-pages";
+import { authMessage, keepsAuthPage, type AuthMode } from "../src/auth-pages";
 import { IndexGraph } from "./dashboard/onboarding/art";
 import { SignInOptions } from "./sign-in";
 import { Mark } from "./ui/logo";
 
 export type AuthQuery = { next?: string; error?: string; email?: string; signedout?: string };
 
-/** Signed-in visitors skip the page and go where they were headed. */
-export async function redirectIfSignedIn(next?: string) {
+/** Signed-in visitors skip the page and go where they were headed, unless it shows a result. */
+export async function redirectIfSignedIn(query: AuthQuery) {
+  if (keepsAuthPage(query)) return;
   const token = (await cookies()).get("openreview_session")?.value;
-  if (token && await backend().query(api.identity.sessionValid, { token }).catch(() => false)) redirect(safeNext(next));
+  if (token && await backend().query(api.identity.sessionValid, { token }).catch(() => false)) redirect(safeNext(query.next));
 }
 
 // A small, fixed sample of a repository so the drawing reads as real files and references.
